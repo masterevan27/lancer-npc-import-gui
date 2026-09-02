@@ -1,0 +1,36 @@
+# Local configuration -- config.json holds the shared secret that authorises
+# Foundry -> import GUI requests, and absolute paths into this machine's
+# Foundry install. Ship config.example.json instead.
+config.json
+.imported.json
+config.local.json
+*.local.json
+.env
+.env.*
+!.env.example
+
+# Node -- there are no dependencies (stdlib only), but tooling still lands here.
+node_modules/
+npm-debug.log*
+package-lock.json
+
+# Logs and runtime scratch
+*.log
+*.pid
+*.tmp
+.cache/
+tmp/
+
+# Editors / IDEs
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS cruft
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
