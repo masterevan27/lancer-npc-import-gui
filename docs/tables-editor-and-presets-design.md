@@ -1,7 +1,7 @@
 # NPC Tables Editor & Trait Import Presets — Design
 
 **Status:** Shipped — but the preset format below is **superseded**. See the banner.
-**Repo:** this one (the Import GUI), reading/writing `npc-generator-tables.md` in the separate `Lancer-TTRPG-GM-Hub` repo
+**Repo:** this one (the Import GUI), reading/writing `npc-generator-tables.md` in the separate `lancer-art-generator` repo
 **Covers:** items 13, 14, 15 from `.claude_to_do_list.md`
 
 > ## ⚠️ Superseded in part

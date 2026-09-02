@@ -1,7 +1,7 @@
 # Lancer NPC Import GUI
 
 A local web tool for turning NPCs rolled by
-[`generate-npc.py`](https://github.com/masterevan27/Lancer-TTRPG-GM-Hub) into
+[`generate-npc.py`](https://github.com/masterevan27/lancer-art-generator) into
 Foundry VTT Actors — and for curating the roll tables that generator draws from
 — instead of hand-copying files through Foundry's file picker and hand-editing
 markdown.
@@ -17,7 +17,7 @@ not you use SillyTavern at all.
 - **Node 20 or newer.** No dependencies — this is Node stdlib only, and there is
   no `package.json`.
 - **Python and `generate-npc.py`**, from the
-  [Lancer TTRPG GM Hub](https://github.com/masterevan27/Lancer-TTRPG-GM-Hub)
+  [lancer-art-generator](https://github.com/masterevan27/lancer-art-generator)
   repo. This tool reads that script's `.generated-npcs.json` run log directly
   off disk, and reads and writes its `npc-generator-tables.md`.
 - **The Foundry module**, installed and configured — see
