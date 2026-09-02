@@ -51,6 +51,7 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const tableBullets = require('./lib/tableBullets');
 const presets = require('./lib/presets');
+const { derivePaths } = require('./lib/paths');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -71,8 +72,8 @@ const DEFAULT_CONFIG = {
     // the two output trees read as the same convention.
     foundryNpcSubdir: 'LancerNPCs',
     // npc-generator-tables.md and the npc-trait-import skill's staging
-    // directory both default to their normal location next to
-    // generate-npc.py; override either for a nonstandard layout.
+    // directory both default to prompts/ beneath generate-npc.py; override
+    // either for a nonstandard layout.
     npcTablesPath: '',
     stagedImportsDir: '',
     presetsDir: '',
@@ -107,27 +108,14 @@ if (!config.npcManifestPath || !config.foundryDataRoot) {
     process.exit(1);
 }
 
-// generate-npc.py's own DEFAULT_MANIFEST sits right beside it, so that's the
-// natural default here too; generateNpcScript in config.json overrides it for
-// a nonstandard layout.
-const GENERATE_NPC_SCRIPT = config.generateNpcScript
-    || path.join(path.dirname(config.npcManifestPath), 'generate-npc.py');
-
-// npc-generator-tables.md sits at <ComfyUI dir>/Art Prompts/npc-generator-tables.md
-// - one level up from generate-npc.py's own directory (COMFY_DIR in that
-// script), the same layout DEFAULT_TABLES there assumes.
-const NPC_TABLES_PATH = config.npcTablesPath
-    || path.join(path.dirname(GENERATE_NPC_SCRIPT), '..', 'Art Prompts', 'npc-generator-tables.md');
-
-// staged-imports/ is the npc-trait-import skill's own output directory, a
-// sibling of npc-generator-tables.md.
-const STAGED_IMPORTS_DIR = config.stagedImportsDir
-    || path.join(path.dirname(NPC_TABLES_PATH), 'staged-imports');
-
-// presets/ - saved snapshots of each table's selected bullets - defaults
-// to a sibling of staged-imports/, both alongside npc-generator-tables.md.
-const PRESETS_DIR = config.presetsDir
-    || path.join(path.dirname(NPC_TABLES_PATH), 'presets');
+// Path layout lives in lib/paths.js so it can be tested directly; see the
+// comment there for how each value is derived and overridden.
+const {
+    generateNpcScript: GENERATE_NPC_SCRIPT,
+    npcTablesPath: NPC_TABLES_PATH,
+    stagedImportsDir: STAGED_IMPORTS_DIR,
+    presetsDir: PRESETS_DIR,
+} = derivePaths(config);
 
 /* ------------------------------------------------------------------ */
 /* Manifest access                                                     */
