@@ -1,10 +1,10 @@
 # Lancer NPC Import GUI
 
-A local web tool for turning NPCs rolled by
-[`generate-npc.py`](https://github.com/masterevan27/lancer-art-generator) into
-Foundry VTT Actors — and for curating the roll tables that generator draws from
-— instead of hand-copying files through Foundry's file picker and hand-editing
-markdown.
+A local web tool for turning NPCs rolled by `generate-npc.py` (from the
+`lancer-art-generator` repo — a local sibling clone, not a GitHub repository:
+`G:\GIT-REPOS\lancer-art-generator`) into Foundry VTT Actors — and for
+curating the roll tables that generator draws from — instead of hand-copying
+files through Foundry's file picker and hand-editing markdown.
 
 It is a companion to
 [foundryvtt-to-sillytavern-nhp-uplink](https://github.com/masterevan27/foundryvtt-to-sillytavern-nhp-uplink),
@@ -16,9 +16,9 @@ not you use SillyTavern at all.
 
 - **Node 20 or newer.** No dependencies — this is Node stdlib only, and there is
   no `package.json`.
-- **Python and `generate-npc.py`**, from the
-  [lancer-art-generator](https://github.com/masterevan27/lancer-art-generator)
-  repo. This tool reads that script's `.generated-npcs.json` run log directly
+- **Python and `generate-npc.py`**, from the `lancer-art-generator` repo — a
+  local sibling clone, not a GitHub repository: `G:\GIT-REPOS\lancer-art-generator`.
+  This tool reads that script's `.generated-npcs.json` run log directly
   off disk, and reads and writes its `npc-generator-tables.md`.
 - **The Foundry module**, installed and configured — see
   [Point Foundry at this server](#point-foundry-at-this-server).
@@ -111,7 +111,7 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test
 ```
 
-Expect `pass 59`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 62`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other
