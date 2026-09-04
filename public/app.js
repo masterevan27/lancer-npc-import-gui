@@ -698,6 +698,19 @@ async function loadOverrideTables() {
     createState.overrideTables = tables;
     createState.tablesLoaded = true;
     renderOverrideRows();
+
+    // Built from the tables file rather than hardcoded in the markup. The
+    // generator removed they/them and the hardcoded option outlived it by
+    // months, silently sending a value that matched nothing.
+    const { subjects } = await api('/api/pronouns');
+    const select = document.getElementById('create-pronouns');
+    select.innerHTML = '<option value="">Any</option>';
+    for (const subject of subjects) {
+      const option = document.createElement('option');
+      option.value = subject;
+      option.textContent = subject;
+      select.appendChild(option);
+    }
   } catch (err) {
     elCreate.status.textContent = `Failed to load trait tables: ${err.message}`;
   }

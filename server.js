@@ -52,6 +52,7 @@ const { spawn } = require('node:child_process');
 const tableBullets = require('./lib/tableBullets');
 const presets = require('./lib/presets');
 const { derivePaths } = require('./lib/paths');
+const pronouns = require('./lib/pronouns');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -849,6 +850,17 @@ async function handleApi(req, res, url) {
         return sendJson(res, 200, { tables: OVERRIDE_TABLES });
     }
 
+    if (url.pathname === '/api/pronouns' && req.method === 'GET') {
+        // Read per request rather than cached at startup: the Tables tab can
+        // disable a Pronouns bullet while the server is running, and a stale
+        // dropdown would offer a set the generator will no longer roll.
+        let subjects = [];
+        try {
+            subjects = pronouns.subjectsFrom(fs.readFileSync(NPC_TABLES_PATH, 'utf8'));
+        } catch { /* no tables file - the client falls back to a free-form field */ }
+        return sendJson(res, 200, { subjects });
+    }
+
     if (url.pathname === '/api/table-bullets' && req.method === 'GET') {
         return sendJson(res, 200, { tables: tableBullets.readTables(NPC_TABLES_PATH) });
     }
@@ -1009,11 +1021,25 @@ async function handleApi(req, res, url) {
             return sendJson(res, 400, { error: '--no-portrait and --no-token together leave nothing to generate' });
         }
 
+        const requestedPronouns = typeof body.pronouns === 'string' && body.pronouns
+            ? body.pronouns : null;
+        if (requestedPronouns) {
+            let known = [];
+            try {
+                known = pronouns.subjectsFrom(fs.readFileSync(NPC_TABLES_PATH, 'utf8'));
+            } catch { /* fall through - an unreadable tables file is its own error later */ }
+            if (known.length && !known.includes(requestedPronouns)) {
+                return sendJson(res, 400, {
+                    error: `unknown pronoun "${requestedPronouns}". Available: ${known.join(', ')}`,
+                });
+            }
+        }
+
         const result = startCreateJob({
             count,
             seed,
             name: name || null,
-            pronouns: typeof body.pronouns === 'string' && body.pronouns ? body.pronouns : null,
+            pronouns: requestedPronouns,
             overrides,
             noPortrait: !!body.noPortrait,
             noToken: !!body.noToken,
