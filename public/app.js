@@ -1181,7 +1181,12 @@ async function toggleBullet(tableName, bullet, checkboxEl) {
       body: JSON.stringify({ table: tableName, text: bullet.text, enabled: nextEnabled }),
     });
     bullet.enabled = nextEnabled;
-    renderTableHeadingList(); // the disabled-count badge changed
+    // Only this row's badge changed. Rebuilding the whole list -- thirty-odd
+    // buttons and their group headers -- also threw away the list's scroll
+    // position on every click.
+    const table = tablesState.tables.find((t) => t.name === tableName);
+    const row = elTables.headingList.querySelector(`[data-table="${CSS.escape(tableName)}"]`);
+    if (table && row) row.textContent = headingLabel(table);
   } catch (err) {
     checkboxEl.checked = !nextEnabled; // revert - the write failed
     alert(`Couldn't update that bullet: ${err.message}`);

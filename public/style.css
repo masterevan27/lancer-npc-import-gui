@@ -461,11 +461,19 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   gap: 1rem;
   align-items: flex-start;
 }
+/* A fixed basis, not min-width. As a flex item with content-driven width, this
+   column widened the instant a heading's badge grew from "Stance (37)" to
+   "Stance (37, 1 disabled)" -- which shoved the bullet panel sideways every
+   time a checkbox was clicked. */
 .table-heading-list {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  min-width: 220px;
+  flex: 0 0 260px;
+  min-width: 0;
+}
+.table-heading-row {
+  overflow-wrap: anywhere;
 }
 .table-heading-row {
   text-align: left;
