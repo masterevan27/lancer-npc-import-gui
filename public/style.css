@@ -414,7 +414,31 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .reroll-btn:hover,
 .reroll-btn:focus { border-color: #3d6ef0; color: #e6e6e6; }
 .reroll-btn:disabled { opacity: 0.4; cursor: default; border-color: #2c2f38; }
-#detail-prompts h3 { font-size: 0.82rem; color: #9aa1ad; margin: 0.9rem 0 0.3rem; }
+#detail-prompts h3 { font-size: 0.82rem; color: #9aa1ad; margin: 0; }
+/* The heading and its Copy button share a row so the button sits against the
+   prompt it copies rather than floating above both of them. */
+.prompt-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin: 0.9rem 0 0.3rem;
+}
+.prompt-head-both { justify-content: flex-end; }
+.copy-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: #6b7280;
+  border-radius: 5px;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.copy-btn:hover,
+.copy-btn:focus { border-color: #3d6ef0; color: #e6e6e6; }
+.copy-btn.copied { border-color: #3f8f4f; color: #8fd39f; }
+.copy-btn.copy-failed { border-color: #a04040; color: #e08a8a; }
 #detail-prompts pre {
   white-space: pre-wrap;
   word-break: break-word;
