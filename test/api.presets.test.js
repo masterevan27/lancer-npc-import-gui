@@ -2,6 +2,17 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { startTestServer } = require('./helpers/testServer');
 
+/**
+ * /api/table-bullets only sends the grouped shape - a flat `tables` field
+ * alongside it would give the client two independent copies of every table
+ * after JSON.parse, since object identity does not survive serialization.
+ * Flatten back to a plain table list here for assertions that don't care
+ * about grouping.
+ */
+function flatten(groups) {
+    return groups.flatMap((g) => g.rows.map((r) => r.table));
+}
+
 const TABLES_FIXTURE = [
     '## Outfit',
     '- a heavy work jacket over a stained undersuit || civ',
@@ -105,8 +116,8 @@ test('POST /api/presets/import previews without writing anything to disk', async
     assert.deepEqual(diff.notFound, [{ table: 'Headgear', text: 'a hat that does not exist' }]);
 
     const tablesRes = await fetch(`${server.baseUrl}/api/table-bullets`);
-    const { tables } = await tablesRes.json();
-    const outfit = tables.find((t) => t.name === 'Outfit');
+    const { groups } = await tablesRes.json();
+    const outfit = flatten(groups).find((t) => t.name === 'Outfit');
     const jacket = outfit.bullets.find((b) => b.text === 'a heavy work jacket over a stained undersuit || civ');
     assert.equal(jacket.weight, 1, 'import must not write anything - the weight should be untouched');
 });
@@ -137,7 +148,8 @@ test('POST /api/presets/apply enables and reweights bullets in a covered table, 
     assert.deepEqual(diff.willDisable, []);
 
     const tablesRes = await fetch(`${server.baseUrl}/api/table-bullets`);
-    const { tables } = await tablesRes.json();
+    const { groups } = await tablesRes.json();
+    const tables = flatten(groups);
     const outfit = tables.find((t) => t.name === 'Outfit');
     const jacket = outfit.bullets.find((b) => b.text === 'a heavy work jacket over a stained undersuit || civ');
     assert.equal(jacket.weight, 3);
@@ -164,7 +176,8 @@ test('POST /api/presets/apply disables an enabled bullet the preset does not sel
     assert.deepEqual(diff.willDisable, [{ table: 'Outfit', text: 'a graffiti-tagged cropped t-shirt and cut-off shorts || civ' }]);
 
     const tablesRes = await fetch(`${server.baseUrl}/api/table-bullets`);
-    const { tables } = await tablesRes.json();
+    const { groups } = await tablesRes.json();
+    const tables = flatten(groups);
     const outfit = tables.find((t) => t.name === 'Outfit');
     const tee = outfit.bullets.find((b) => b.text === 'a graffiti-tagged cropped t-shirt and cut-off shorts || civ');
     assert.equal(tee.enabled, false);
@@ -196,8 +209,8 @@ test('POST /api/presets/apply rejects a hostile weight instead of corrupting the
     });
 
     const after = await (await fetch(`${server.baseUrl}/api/table-bullets`)).json();
-    const outfitBefore = before.tables.find((t) => t.name === 'Outfit');
-    const outfitAfter = after.tables.find((t) => t.name === 'Outfit');
+    const outfitBefore = flatten(before.groups).find((t) => t.name === 'Outfit');
+    const outfitAfter = flatten(after.groups).find((t) => t.name === 'Outfit');
     assert.deepEqual(outfitAfter, outfitBefore, 'a hostile weight must not change any bullet text or weight on disk');
 });
 

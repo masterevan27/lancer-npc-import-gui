@@ -20,8 +20,8 @@ test('GET /api/table-bullets does not serve the documentation section', async (t
     t.after(() => server.stop());
 
     const res = await fetch(`${server.baseUrl}/api/table-bullets`);
-    const { tables } = await res.json();
-    assert.deepEqual(tables.map((x) => x.name), ['Gear']);
+    const { groups } = await res.json();
+    assert.deepEqual(groups.flatMap((g) => g.rows.map((r) => r.table.name)), ['Gear']);
 });
 
 test('POST /api/table-bullets/toggle rejects a write to the documentation section', async (t) => {

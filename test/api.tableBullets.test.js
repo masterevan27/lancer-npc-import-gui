@@ -2,6 +2,17 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { startTestServer } = require('./helpers/testServer');
 
+/**
+ * /api/table-bullets only sends the grouped shape - a flat `tables` field
+ * alongside it would give the client two independent copies of every table
+ * after JSON.parse, since object identity does not survive serialization.
+ * Flatten back to a plain table list here for assertions that don't care
+ * about grouping.
+ */
+function flatten(groups) {
+    return groups.flatMap((g) => g.rows.map((r) => r.table));
+}
+
 const TABLES_FIXTURE = [
     '## Outfit',
     '- a heavy work jacket over a stained undersuit || civ',
@@ -19,7 +30,8 @@ test('GET /api/table-bullets returns every table with its bullets', async (t) =>
 
     const res = await fetch(`${server.baseUrl}/api/table-bullets`);
     assert.equal(res.status, 200);
-    const { tables } = await res.json();
+    const { groups } = await res.json();
+    const tables = flatten(groups);
     assert.equal(tables.length, 2);
     assert.equal(tables[0].name, 'Outfit');
     assert.equal(tables[0].bullets.length, 2);
@@ -38,8 +50,8 @@ test('POST /api/table-bullets/toggle disables a bullet, reflected on the next GE
     assert.equal(toggleRes.status, 200);
 
     const res = await fetch(`${server.baseUrl}/api/table-bullets`);
-    const { tables } = await res.json();
-    const gear = tables.find((t) => t.name === 'Gear');
+    const { groups } = await res.json();
+    const gear = flatten(groups).find((t) => t.name === 'Gear');
     const bullet = gear.bullets.find((b) => b.text === 'nothing at all, hands loose and empty');
     assert.equal(bullet.enabled, false);
 });
@@ -80,8 +92,8 @@ test("POST /api/table-bullets/set-weight changes a bullet's weight, reflected on
     assert.equal(res.status, 200);
 
     const tablesRes = await fetch(`${server.baseUrl}/api/table-bullets`);
-    const { tables } = await tablesRes.json();
-    const outfit = tables.find((t) => t.name === 'Outfit');
+    const { groups } = await tablesRes.json();
+    const outfit = flatten(groups).find((t) => t.name === 'Outfit');
     const bullet = outfit.bullets.find((b) => b.text === 'nondescript grey work coveralls');
     assert.equal(bullet.weight, 6);
 });

@@ -859,16 +859,20 @@ async function handleApi(req, res, url) {
         let subjects = [];
         try {
             subjects = pronouns.subjectsFrom(fs.readFileSync(NPC_TABLES_PATH, 'utf8'));
-        } catch { /* no tables file - the client falls back to a free-form field */ }
+        } catch { /* no tables file - the client rebuilds the <select> with only "Any" */ }
         return sendJson(res, 200, { subjects });
     }
 
     if (url.pathname === '/api/table-bullets' && req.method === 'GET') {
         const tables = tableBullets.readTables(NPC_TABLES_PATH);
         // Grouped server-side so the ordering logic stays a testable pure
-        // function in lib/ rather than becoming untestable DOM code. The flat
-        // list is kept in the response because the presets tab reads it.
-        return sendJson(res, 200, { tables, groups: tableGroups.groupTables(tables) });
+        // function in lib/ rather than becoming untestable DOM code. Only the
+        // grouped shape is sent - `groups[].rows[].table` are the same table
+        // objects as `tables` here, but that reference sharing does not
+        // survive JSON.parse on the client, so a flat `tables` field would
+        // give the client two independent copies of every table and silently
+        // desync whichever one it doesn't mutate.
+        return sendJson(res, 200, { groups: tableGroups.groupTables(tables) });
     }
 
     if (url.pathname === '/api/table-bullets/toggle' && req.method === 'POST') {

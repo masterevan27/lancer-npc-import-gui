@@ -26,13 +26,18 @@ test('variants nest under the base table they extend', () => {
     );
 });
 
-test('a variant whose base table is absent still appears, not nested', () => {
+test('a variant whose base table is absent still appears, still marked as a variant', () => {
     // Defensive: a tables file could disable every bullet of a base table,
     // and readTables drops a table with no bullets. The variant must not
-    // vanish with it.
+    // vanish with it - and it keeps its indentation, since it is still a
+    // variant of that base by name even though the base row itself isn't
+    // present to nest under.
     const grouped = groupTables([t('Hair (she) +')]);
     const appearance = grouped.find((g) => g.group === 'Appearance');
-    assert.deepEqual(appearance.rows.map((r) => r.table.name), ['Hair (she) +']);
+    assert.deepEqual(
+        appearance.rows.map((r) => [r.table.name, r.isVariant]),
+        [['Hair (she) +', true]],
+    );
 });
 
 test('a table named in no group lands in Other rather than disappearing', () => {

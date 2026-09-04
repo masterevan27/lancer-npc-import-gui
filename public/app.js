@@ -1176,9 +1176,16 @@ const elTables = {
 };
 
 async function loadTables() {
-  const { tables, groups } = await api('/api/table-bullets');
-  tablesState.tables = tables;
+  const { groups } = await api('/api/table-bullets');
   tablesState.groups = groups;
+  // The server sends only the grouped shape - groups[].rows[].table are the
+  // same table objects as a flat list would contain, but that object
+  // identity does not survive JSON.parse. Deriving tables from groups here
+  // (rather than the server sending both) keeps the client to one object
+  // graph, so a mutation like toggleBullet's stays visible everywhere,
+  // including the next renderTableHeadingList() rebuild.
+  const tables = groups.flatMap((g) => g.rows.map((r) => r.table));
+  tablesState.tables = tables;
   elTables.empty.hidden = tables.length > 0;
   if (!tablesState.selectedTable || !tables.some((t) => t.name === tablesState.selectedTable)) {
     tablesState.selectedTable = tables[0]?.name ?? null;
