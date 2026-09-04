@@ -536,7 +536,21 @@ function cancelDeleteConfirm() {
   elDeleteConfirm.cancel.click();
 }
 
-/** The overlays stacked above the NPC detail sheet, innermost first. */
+/**
+ * The overlays stacked above the NPC detail sheet, innermost first.
+ *
+ * Every other entry here lives as a top-level sibling after </main>, so
+ * `hidden` tracks real visibility. #preset-preview is the one exception -
+ * it is nested inside the Tables tab's own panel, so switchTab hiding that
+ * panel does not hide the preview element itself; left unhandled, `hidden`
+ * would stay false while the preview is actually invisible on every other
+ * tab, and this function would report it "open" when nothing is on screen
+ * to close. switchTab() dismisses any pending preview on the way out of the
+ * Tables tab (see below), so in practice this branch is only ever reached
+ * while the Tables tab is showing - it stays here as a direct, defensive
+ * translation of "not hidden" to "open" rather than relying solely on that
+ * invariant holding elsewhere.
+ */
 function topmostOverlay() {
   if (!el.imageZoom.hidden) return { close: () => { el.imageZoom.hidden = true; } };
   if (!elDeleteConfirm.overlay.hidden) return { close: () => cancelDeleteConfirm() };
@@ -557,7 +571,11 @@ function stepDetail(offset) {
 
 document.addEventListener('keydown', (e) => {
   if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
-  if (isTypingTarget(document.activeElement)) return;
+  // Esc must work even while focus is in a field (e.g. the regenerate-seed
+  // input) - the hint line advertises "Esc close" unconditionally. Arrow
+  // keys stay blocked while typing, since those belong to the NPC sheet's
+  // navigation, not to whatever field is focused.
+  if (e.key !== 'Escape' && isTypingTarget(document.activeElement)) return;
 
   if (e.key === 'Escape') {
     const nested = topmostOverlay();
@@ -724,6 +742,12 @@ for (const btn of document.querySelectorAll('#tabs button')) {
 
 function switchTab(tab) {
   if (tab === tabState.current) return;
+  // #preset-preview sits inside the Tables panel rather than as a top-level
+  // overlay, so hiding that panel alone would leave a pending preview
+  // "open" (not hidden) but invisible - silently eating the first Esc
+  // press and blocking arrow-key navigation on whatever tab comes next.
+  // Dismiss it explicitly on the way out.
+  if (tabState.current === 'tables' && !elTables.preview.hidden) cancelPresetPreview();
   tabState.current = tab;
   for (const btn of document.querySelectorAll('#tabs button')) {
     btn.classList.toggle('active', btn.dataset.tab === tab);
@@ -779,10 +803,20 @@ async function loadOverrideTables() {
     createState.overrideTables = tables;
     createState.tablesLoaded = true;
     renderOverrideRows();
+  } catch (err) {
+    elCreate.status.textContent = `Failed to load trait tables: ${err.message}`;
+    return;
+  }
 
+  try {
     // Built from the tables file rather than hardcoded in the markup. The
     // generator removed they/them and the hardcoded option outlived it by
     // months, silently sending a value that matched nothing.
+    //
+    // Own try/catch: the tables fetch above already succeeded by this
+    // point, so a pronouns failure must not be blamed on "trait tables",
+    // and must not stop createState.tablesLoaded from being true - the
+    // override rows it gates loaded fine.
     const { subjects } = await api('/api/pronouns');
     const select = document.getElementById('create-pronouns');
     select.innerHTML = '<option value="">Any</option>';
@@ -793,7 +827,7 @@ async function loadOverrideTables() {
       select.appendChild(option);
     }
   } catch (err) {
-    elCreate.status.textContent = `Failed to load trait tables: ${err.message}`;
+    elCreate.status.textContent = `Failed to load pronoun options: ${err.message}`;
   }
 }
 
