@@ -55,6 +55,7 @@ const presets = require('./lib/presets');
 const { derivePaths } = require('./lib/paths');
 const pronouns = require('./lib/pronouns');
 const traitOptions = require('./lib/traitOptions');
+const traitOdds = require('./lib/traitOdds');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -80,6 +81,13 @@ const DEFAULT_CONFIG = {
     npcTablesPath: '',
     stagedImportsDir: '',
     presetsDir: '',
+    // Rolls behind each percentage on the Tables page. The trade is precision
+    // against how long the number takes to settle after an edit: 20,000 rolls
+    // is about six seconds and holds still at whole-percent precision, while
+    // 8,000 settles in half the time and wobbles a point either way. A
+    // property of the machine rather than of any one request, so it lives
+    // here rather than in a query parameter.
+    traitOddsSamples: 20000,
 };
 
 function loadConfig() {
@@ -626,6 +634,101 @@ function allTraitCandidates() {
     return out;
 }
 
+/* ------------------------------------------------------------------ */
+/* Trait roll odds                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The one cached odds run: { key, promise }, or null before the first request.
+ *
+ * A promise rather than a resolved value, so that concurrent callers share one
+ * spawn instead of starting two six-second Python processes - a page load and
+ * a weight edit landing together do exactly that.
+ *
+ * Only the newest key is kept. There is no use for the odds of a version of
+ * the tables file that no longer exists.
+ */
+let oddsCache = null;
+
+const ODDS_LOG_LIMIT = 4000; // chars of stderr kept for an error message
+
+/**
+ * Roll the odds, or hand back the run already in flight or just finished.
+ *
+ * Resolves to `{ ok: true, samples, tables }` or `{ ok: false, reason }` and
+ * never rejects. The percentages are advisory: someone running this GUI purely
+ * to review staged imports needs no Python interpreter at all, and must not be
+ * shown a broken Tables page because they haven't got one. The page falls back
+ * to its own local estimate and says so.
+ *
+ * Cached against the tables file's mtime and size, which is the whole of the
+ * reactivity story: every input to these numbers lives in that file, and every
+ * way of changing one - a weight edit, a toggle, a preset apply, a trait
+ * import - rewrites it through this same server. So one stat() invalidates the
+ * cache for all four and no write path has to remember to do anything.
+ */
+function readTraitOdds() {
+    let key;
+    try {
+        key = traitOdds.cacheKeyFor(fs.statSync(NPC_TABLES_PATH));
+    } catch (err) {
+        return Promise.resolve({ ok: false, reason: `cannot read ${NPC_TABLES_PATH}: ${err.message}` });
+    }
+    if (oddsCache && oddsCache.key === key) return oddsCache.promise;
+
+    const promise = runTraitOdds().then((result) => {
+        // A failed run is not worth caching: the cause is usually something
+        // the user can fix (install Python, correct a path) without touching
+        // the tables file, and a cached failure would survive the fix.
+        if (!result.ok && oddsCache && oddsCache.key === key) oddsCache = null;
+        return result;
+    });
+    oddsCache = { key, promise };
+    return promise;
+}
+
+function runTraitOdds() {
+    if (!fs.existsSync(GENERATE_NPC_SCRIPT)) {
+        return Promise.resolve({ ok: false, reason: `generate-npc.py not found at ${GENERATE_NPC_SCRIPT}` });
+    }
+
+    let args;
+    try {
+        args = traitOdds.oddsArgs(GENERATE_NPC_SCRIPT, config.traitOddsSamples);
+    } catch (err) {
+        return Promise.resolve({ ok: false, reason: err.message });
+    }
+
+    return new Promise((resolve) => {
+        let child;
+        try {
+            child = spawn(config.pythonExecutable, args, { cwd: path.dirname(GENERATE_NPC_SCRIPT) });
+        } catch (err) {
+            return resolve({ ok: false, reason: `could not run ${config.pythonExecutable}: ${err.message}` });
+        }
+
+        let out = '';
+        let errText = '';
+        child.stdout.on('data', (chunk) => { out += chunk.toString(); });
+        child.stderr.on('data', (chunk) => { errText = (errText + chunk.toString()).slice(-ODDS_LOG_LIMIT); });
+        child.on('error', (err) => resolve({ ok: false, reason: `could not run ${config.pythonExecutable}: ${err.message}` }));
+        child.on('close', (code) => {
+            if (code !== 0) {
+                return resolve({
+                    ok: false,
+                    reason: errText.trim() || `generate-npc.py --trait-odds exited with code ${code}`,
+                });
+            }
+            try {
+                const { samples, tables } = traitOdds.parseOddsOutput(out);
+                return resolve({ ok: true, samples, tables });
+            } catch (err) {
+                return resolve({ ok: false, reason: err.message });
+            }
+        });
+    });
+}
+
 /**
  * Appends one bullet to npc-generator-tables.md under its exact '## <table>'
  * heading, right before the next heading (or EOF) - i.e. as the new last
@@ -955,6 +1058,12 @@ async function handleApi(req, res, url) {
         // give the client two independent copies of every table and silently
         // desync whichever one it doesn't mutate.
         return sendJson(res, 200, { groups: tableGroups.groupTables(tables) });
+    }
+
+    if (url.pathname === '/api/table-odds' && req.method === 'GET') {
+        // 200 either way - see readTraitOdds(). A page that can still edit
+        // tables without percentages is worth more than a correct status code.
+        return sendJson(res, 200, await readTraitOdds());
     }
 
     if (url.pathname === '/api/table-bullets/toggle' && req.method === 'POST') {
