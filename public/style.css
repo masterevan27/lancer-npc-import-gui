@@ -31,6 +31,51 @@ body {
 }
 .tabs button.active { background: #262a33; border-color: #3d6ef0; color: #e6e6e6; }
 
+/* Sits between .topbar and <main>, outside every .tab-panel, so a finished
+   generate run is announced on whichever tab the user is standing on. Sticky
+   under the topbar (z-index one below it) rather than fixed, so it never
+   covers content it would otherwise sit on top of. */
+.batch-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 1.25rem;
+  background: #1d3324;
+  border-bottom: 1px solid #2f6b45;
+  color: #d6f2e0;
+  font-size: 0.9rem;
+  position: sticky;
+  top: 3.1rem;
+  z-index: 4;
+}
+.batch-banner button {
+  background: #2f6b45;
+  border: 1px solid #3f8a5b;
+  color: #eafff2;
+  padding: 0.3rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.batch-banner button:hover { background: #3f8a5b; }
+.batch-banner .batch-banner-dismiss {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #9ec5ad;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0 0.3rem;
+}
+.batch-banner .batch-banner-dismiss:hover { background: none; color: #eafff2; }
+
+/* A bullet switched off on the Tables tab, still offered here because
+   --set-trait bypasses the roll pool and forcing one is legitimate. Native
+   <option> styling is limited and ignored outright on some platforms, so the
+   label also carries a "[disabled]" suffix - this is the hint, not the
+   mechanism. */
+.trait-option-disabled { color: #8b93a1; font-style: italic; }
+
 .categories { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
 .categories button {
   background: #262a33;
@@ -344,6 +389,24 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 #detail-traits { border-collapse: collapse; font-size: 0.85rem; }
 #detail-traits td { padding: 0.15rem 0.6rem 0.15rem 0; vertical-align: top; }
 #detail-traits td:first-child { color: #9aa1ad; white-space: nowrap; }
+#detail-traits td:last-child { padding-right: 0; }
+.reroll-btn {
+  background: none;
+  border: 1px solid #363b47;
+  color: #9aa1ad;
+  border-radius: 5px;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  visibility: hidden;
+}
+/* Revealed on hover so a dense trait table is not a wall of buttons, but kept
+   in the layout (visibility, not display) so rows do not reflow under the
+   cursor. Focus reveals it too, so it stays reachable by keyboard. */
+#detail-traits tr:hover .reroll-btn,
+.reroll-btn:focus { visibility: visible; }
+.reroll-btn:hover { border-color: #3d6ef0; color: #e6e6e6; }
+.reroll-btn:disabled { opacity: 0.4; cursor: default; border-color: #2c2f38; }
 #detail-prompts h3 { font-size: 0.82rem; color: #9aa1ad; margin: 0.9rem 0 0.3rem; }
 #detail-prompts pre {
   white-space: pre-wrap;

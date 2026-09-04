@@ -1,8 +1,11 @@
 # Known Issues
 
-Parked technical debt in this tool. None of these block anything
-today; they are recorded because this repo has no ticket system and they would
-otherwise only exist in the head of whoever last touched the code.
+Parked technical debt in this tool, recorded because this repo has no ticket
+system and these would otherwise only exist in the head of whoever last touched
+the code. Everything here is currently resolved; the entries are kept with
+their original wording struck through rather than deleted, because the reason a
+thing was done is the part that goes missing first, and a fixed issue is the
+cheapest place to read it.
 
 These were carried over from
 `docs/superpowers/plans/2026-09-01-tables-and-presets-refinements.md`, which was
@@ -21,39 +24,71 @@ with `generate-npc.py`'s `REQUIRED_TABLES` (missing `Weapon`, `Theme`,
 
 ## Tables & Presets (Import GUI)
 
-1. **`/api/presets/apply` swallows failed writes.** The route's write loops
-   discard the `{ok:false}` returned by `toggleBulletOnDisk` /
-   `setBulletWeightOnDisk`, so a rejected write — the
-   `Number.isInteger(weight) && weight >= 1` guard in `lib/tableBullets.js`
-   tripping, say — never reaches the response. The caller is told the apply
-   succeeded.
+Nothing open. Every item this file carried has been fixed; they are kept below
+rather than deleted, because the reason a thing was done is the part that goes
+missing first.
 
-2. **Duplicate bullet text within one table makes the diff lie.**
-   `toggleBulletInText` has always operated on the *first* matching line under a
-   heading, while `diffPresetAgainstTables` counts every match. Pre-existing
-   behavior, but the preset whitelist semantics newly surface it: the preview
-   can promise more changes than the apply performs.
+One limitation survives its fix and is recorded here as a known shape of the
+code rather than as a bug to chase:
 
-3. **Apply is O(n) full-file rewrites.** Every changed bullet triggers its own
-   read + parse + write of `npc-generator-tables.md`, so an apply is neither
-   atomic nor cheap. Fine for a local single-user tool; it would not survive
-   concurrent use.
-
-4. **No test covers the preset format break.** The refinements plan promised
-   that an old `{ disabled: {...} }` preset would get a `400` ("missing
-   \"selected\"") from `/api/presets/import` and `/api/presets/apply`, and that
-   `listPresets` would report `count: 0` for one rather than erroring. That
-   behavior is implemented but unverified by the suite.
-
-5. **The preset row's `(N)` count changed meaning without changing its label.**
-   It used to be the number of *disabled* bullets and is now the number of
-   *selected* ones. Nothing in the UI says which.
-
-6. **The weight input fires a `POST` per spinner click.** The Tables tab sends
-   one `/api/table-bullets/set-weight` request per arrow press rather than
-   debouncing or committing on blur, so holding an arrow key floods the server.
+- **A bullet text repeated inside one table is editable only in its first
+  copy.** `toggleBulletInText`, `setBulletWeightInText` and the newer
+  `applyEditsInText` all resolve a bullet to its *first* matching line under a
+  heading, and the preset format keys a table's entries by text, so later
+  copies of an identical text are not addressable at all. The diff no longer
+  *lies* about this (see Resolved 2), but nor can it act on them. Making a
+  duplicate individually editable needs an identity other than its text -
+  a line index, or a stable id - which is a larger change than any of these
+  were, and worth doing only if duplicate bullets ever turn out to be
+  deliberate rather than accidental.
 
 ## Resolved
+
+1. ~~**`/api/presets/apply` swallows failed writes.**~~ Fixed. The route's
+   write loops discarded the `{ok:false}` returned by `toggleBulletOnDisk` /
+   `setBulletWeightOnDisk`, so a rejected write never reached the response and
+   the caller was told the apply succeeded. The loops are gone: the route now
+   builds one edit list and hands it to `applyEditsOnDisk`, which returns the
+   rejected edits with their reasons as `failed`. The response carries that
+   list, and the Tables tab reports it rather than closing the preview as
+   though everything landed.
+
+2. ~~**Duplicate bullet text within one table makes the diff lie.**~~ Fixed.
+   `diffPresetAgainstTables` counted every matching bullet while
+   `toggleBulletInText` only ever changed the first, so a preview could promise
+   more changes than the apply performed - and the second write then found the
+   first line already in the requested state and returned early having changed
+   nothing. The diff now emits one entry per unique bullet text, taking the
+   first copy, which is exactly what the writers do. The underlying
+   addressability limit is unchanged and is recorded above.
+
+3. ~~**Apply is O(n) full-file rewrites.**~~ Fixed. Every changed bullet used
+   to trigger its own read + parse + write of `npc-generator-tables.md`, so a
+   40-bullet preset was 80 full rewrites and the file was observably
+   half-applied in between. `applyEditsInText` indexes the file's bullet lines
+   in a single pass and resolves every edit against that index;
+   `applyEditsOnDisk` wraps it in one read and one write, and skips the write
+   entirely when nothing applied.
+
+4. ~~**No test covers the preset format break.**~~ Fixed. The behaviour was
+   correct and merely unverified - all three assertions passed the moment they
+   were written. `test/api.presets.test.js` now covers an old
+   `{ disabled: {...} }` preset getting a `400` from both `/api/presets/import`
+   and `/api/presets/apply` (and changing nothing on disk on the way out), and
+   `listPresets` reporting `count: 0` for one rather than erroring.
+
+5. ~~**The preset row's `(N)` count changed meaning without changing its
+   label.**~~ Fixed. It reads `(N selected)` now. The number used to count
+   *disabled* bullets and now counts *selected* ones - the opposite reading -
+   and a bare `(N)` gave no way to tell which.
+
+6. ~~**The weight input fires a `POST` per spinner click.**~~ Fixed. The
+   handler was already on `change` rather than `input`, but a number input
+   fires `change` on every spinner click and every arrow keypress, not only on
+   blur, so holding an arrow key still sent one full read-parse-write per
+   repeat. Weight writes are now debounced per bullet
+   (`WEIGHT_DEBOUNCE_MS`, 400ms), and only the last value in a burst is sent -
+   the intermediate ones are values the user scrolled past.
 
 - ~~The design spec documented the superseded `disabled`-only preset format with
   nothing marking it superseded.~~ Fixed: the spec now carries a "Superseded in

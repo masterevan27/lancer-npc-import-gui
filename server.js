@@ -54,6 +54,7 @@ const tableGroups = require('./lib/tableGroups');
 const presets = require('./lib/presets');
 const { derivePaths } = require('./lib/paths');
 const pronouns = require('./lib/pronouns');
+const traitOptions = require('./lib/traitOptions');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -394,7 +395,7 @@ const regenJobsByItemId = new Map();
 
 const REGEN_LOG_LIMIT = 4000; // chars of stdout+stderr kept for an error message
 
-function startRegenJob(item, { which, seedMode, seed }) {
+function startRegenJob(item, { which, seedMode, seed, rerollTrait }) {
     const existing = regenJobsByItemId.get(item.id);
     if (existing?.status === 'running') return { ok: false, reason: 'already regenerating' };
     if (item.kind !== 'npc') {
@@ -416,8 +417,17 @@ function startRegenJob(item, { which, seedMode, seed }) {
     ];
     if (which === 'portrait') args.push('--no-token');
     if (which === 'token') args.push('--no-portrait');
+    // The generator seeds the re-roll from --new-seed, so a reroll and its
+    // render share one seed. That is what makes a reroll repeatable at the
+    // command line; here it is why the route always asks for a random seed,
+    // since clicking "reroll" twice on the same NPC should not hand back the
+    // same haircut both times.
+    if (rerollTrait) args.push('--reroll-trait', rerollTrait);
 
-    const job = { status: 'running', which, seedMode, seed: newSeed, startedAt: Date.now(), log: '' };
+    const job = {
+        status: 'running', which, seedMode, seed: newSeed,
+        rerollTrait: rerollTrait || null, startedAt: Date.now(), log: '',
+    };
     regenJobsByItemId.set(item.id, job);
 
     let child;
@@ -499,6 +509,25 @@ const OVERRIDE_TABLES = (() => {
             + 'falling back to the hard-coded OVERRIDE_TABLES_FALLBACK list.',
         );
         return OVERRIDE_TABLES_FALLBACK;
+    }
+})();
+
+/**
+ * Traits `--reroll-trait` accepts, derived from the generator's own
+ * REROLLABLE_TRAITS. No hard-coded fallback, deliberately: which traits can be
+ * re-rolled alone is a property of what the manifest stores, and guessing it
+ * here would be guessing about the generator's internals. An empty list means
+ * the UI offers no reroll buttons, which is a safe way to be wrong.
+ */
+const REROLLABLE_TRAITS = (() => {
+    try {
+        return overrideTables.rerollableTraitsFrom(fs.readFileSync(GENERATE_NPC_SCRIPT, 'utf8'));
+    } catch (err) {
+        console.warn(
+            `Could not read REROLLABLE_TRAITS from ${GENERATE_NPC_SCRIPT} (${err.message}) - `
+            + 'the per-trait reroll button will not be offered.',
+        );
+        return [];
     }
 })();
 
@@ -858,7 +887,51 @@ async function handleApi(req, res, url) {
     }
 
     if (url.pathname === '/api/npc-tables' && req.method === 'GET') {
-        return sendJson(res, 200, { tables: OVERRIDE_TABLES });
+        return sendJson(res, 200, { tables: OVERRIDE_TABLES, rerollable: REROLLABLE_TRAITS });
+    }
+
+    if (url.pathname === '/api/reroll-trait' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const item = body.id && findItem(body.id);
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+
+        const table = typeof body.table === 'string' ? body.table : '';
+        if (!table) return sendJson(res, 400, { error: 'table is required' });
+        if (REROLLABLE_TRAITS.length && !REROLLABLE_TRAITS.includes(table)) {
+            // Refused here as well as in the generator, so the UI gets a clean
+            // 400 rather than a spawned process that exits with a message.
+            // The generator stays the authority on the reason.
+            return sendJson(res, 400, {
+                error: `"${table}" cannot be re-rolled on its own. Re-rollable: `
+                    + REROLLABLE_TRAITS.join(', '),
+            });
+        }
+
+        // Always a fresh seed: re-rolling a trait produces a different
+        // character detail, so there is nothing to reproduce, and the
+        // generator draws the new value from this same seed.
+        const result = startRegenJob(item, {
+            which: 'both', seedMode: 'random', rerollTrait: table,
+        });
+        return sendJson(res, result.ok ? 202 : 409, result);
+    }
+
+    if (url.pathname === '/api/trait-options' && req.method === 'GET') {
+        // Every table's bullets, keyed by base table name, for the Create
+        // form's per-override value dropdown. Same source as
+        // /api/table-bullets - the parsed tables file - but shaped for
+        // picking one value rather than for editing the file, and with
+        // per-pronoun variants folded into the base table the override
+        // dropdown actually names. See lib/traitOptions.js for why an
+        // option's value keeps its '||' flags.
+        const parsed = tableBullets.readTables(NPC_TABLES_PATH);
+        return sendJson(res, 200, { options: traitOptions.traitOptionsFrom(parsed) });
     }
 
     if (url.pathname === '/api/pronouns' && req.method === 'GET') {
@@ -1000,14 +1073,23 @@ async function handleApi(req, res, url) {
         // client may have shown a while ago - the file could have changed.
         const parsed = tableBullets.readTables(NPC_TABLES_PATH);
         const diff = presets.diffPresetAgainstTables(body.selected, parsed);
-        for (const { table, text, weight } of [...diff.willEnable, ...diff.willReweight]) {
-            tableBullets.toggleBulletOnDisk(NPC_TABLES_PATH, table, text, true);
-            tableBullets.setBulletWeightOnDisk(NPC_TABLES_PATH, table, text, weight);
-        }
-        for (const { table, text } of diff.willDisable) {
-            tableBullets.toggleBulletOnDisk(NPC_TABLES_PATH, table, text, false);
-        }
-        return sendJson(res, 200, diff);
+
+        // One batch, one read, one write. This used to be a call to
+        // toggleBulletOnDisk() and setBulletWeightOnDisk() per changed
+        // bullet - each re-reading, re-parsing and re-writing the whole
+        // tables file, so a 40-bullet preset was 80 full rewrites and the
+        // file was observably half-applied in between - and the {ok:false}
+        // every one of those calls returned was thrown away, so a write a
+        // guard rejected still came back to the client as a plain success.
+        const edits = [
+            // An enable carries its weight in the same edit, so the line is
+            // rewritten once rather than toggled and then reweighted.
+            ...diff.willEnable.map(({ table, text, weight }) => ({ table, text, enabled: true, weight })),
+            ...diff.willReweight.map(({ table, text, weight }) => ({ table, text, weight })),
+            ...diff.willDisable.map(({ table, text }) => ({ table, text, enabled: false })),
+        ];
+        const { failed } = tableBullets.applyEditsOnDisk(NPC_TABLES_PATH, edits);
+        return sendJson(res, 200, { ...diff, failed });
     }
 
     if (url.pathname === '/api/create-npc' && req.method === 'POST') {

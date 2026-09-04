@@ -396,9 +396,23 @@ function openDetail(item) {
     .filter(Boolean)
     .join(' — ');
   el.detailGenerated.textContent = formatGeneratedWhen(item.when);
+  // A reroll button per trait the generator will re-roll on its own. The list
+  // comes from the server, which derives it from generate-npc.py's
+  // REROLLABLE_TRAITS - it is not every trait, because a manifest entry stores
+  // bullets with their flags stripped and a trait gated by another trait's
+  // flags cannot be re-rolled correctly from one. Traits not on the list
+  // simply get no button rather than a disabled one: there is nothing the user
+  // can do about it, so an inert control would only invite clicking.
   el.detailTraits.innerHTML = Object.entries(item.traits || {})
     .filter(([k]) => !['name', 'Given names', 'Family names'].includes(k))
-    .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`)
+    .map(([k, v]) => {
+      const canReroll = createState.rerollableTraits.includes(k);
+      const button = canReroll
+        ? `<button type="button" class="reroll-btn" data-trait="${escapeHtml(k)}"
+             title="Re-roll ${escapeHtml(k)} and re-render this NPC">Re-roll</button>`
+        : '';
+      return `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td><td>${button}</td></tr>`;
+    })
     .join('');
 
   // Only recorded by generate-npc.py versions new enough to save it - older
@@ -432,6 +446,11 @@ function renderRegenPanel(item) {
   el.regenBtn.textContent = running ? 'Regenerating…' : 'Regenerate';
   for (const radio of document.querySelectorAll('#regen-panel input[type="radio"]')) radio.disabled = running;
   el.regenSeedInput.disabled = running || seedMode !== 'specific';
+  // A reroll IS a regen job, so it shares the running flag - two at once on
+  // one NPC would have the second overwrite the first's output.
+  for (const button of el.detailTraits.querySelectorAll('.reroll-btn')) {
+    button.disabled = running;
+  }
 
   const justFinished = item.regenStatus === 'done' && state.regenLastStatus !== 'done';
   if (running) {
@@ -769,13 +788,73 @@ function switchTab(tab) {
 }
 
 /* ==================================================================== */
+/* Batch-complete banner                                                 */
+/* ==================================================================== */
+
+const elBanner = {
+  root: document.getElementById('batch-banner'),
+  text: document.getElementById('batch-banner-text'),
+  show: document.getElementById('batch-banner-show'),
+  dismiss: document.getElementById('batch-banner-dismiss'),
+};
+
+/**
+ * Announce a finished generate run wherever the user happens to be standing.
+ *
+ * pollCreateJob() used to call refreshItems() and nothing else, guarded on
+ * `state.category === 'npc'`. That guard is correct as far as it goes -
+ * refreshItems() reloads whichever category is currently selected, so from
+ * any other one it would do nothing useful - but it meant a run finishing
+ * while the user sat on the Create, Tables or Trait Imports tab left no trace
+ * at all. The images were on disk and the page never said so, which is the
+ * whole complaint: you had to know to reload.
+ *
+ * The banner lives outside every .tab-panel, so it is visible from all four
+ * tabs rather than only the one that owns the list it refers to.
+ */
+function announceBatchComplete(count) {
+  elBanner.text.textContent = count === 1
+    ? '1 new NPC finished generating.'
+    : `${count} new NPCs finished generating.`;
+  elBanner.root.hidden = false;
+  // Refresh in place as well when the list on screen is the one that grew, so
+  // sitting on the Import tab still shows the new cards without a click. The
+  // banner stays up regardless - it is also the "that run is over" signal.
+  if (tabState.current === 'import' && state.category === 'npc') refreshItems();
+}
+
+function dismissBatchBanner() {
+  elBanner.root.hidden = true;
+}
+
+elBanner.dismiss.addEventListener('click', dismissBatchBanner);
+
+elBanner.show.addEventListener('click', async () => {
+  dismissBatchBanner();
+  switchTab('import');
+  // loadCategories() first, not selectCategory('npc') alone: on the very
+  // first run there was no NPC category to render a button for, so selecting
+  // it without reloading would leave the category row without the one that
+  // is now showing. loadCategories() ends by selecting categories[0], which
+  // is why the explicit selection has to come after it rather than before.
+  try {
+    await loadCategories();
+    await selectCategory('npc');
+  } catch (err) {
+    el.status.textContent = `Couldn't load the new NPCs: ${err.message}`;
+  }
+});
+
+/* ==================================================================== */
 /* Create NPC                                                            */
 /* ==================================================================== */
 
 const createState = {
   overrideTables: [],
+  rerollableTraits: [],   // traits --reroll-trait accepts; see renderDetail()
+  traitOptions: {},   // { [baseTableName]: Array<{ value, label, heading, isVariant, enabled }> }
   tablesLoaded: false,
-  overrides: [], // { table, value }
+  overrides: [], // { table, value, custom }
   pollTimer: null,
 };
 
@@ -799,8 +878,9 @@ const elCreate = {
 
 async function loadOverrideTables() {
   try {
-    const { tables } = await api('/api/npc-tables');
+    const { tables, rerollable } = await api('/api/npc-tables');
     createState.overrideTables = tables;
+    createState.rerollableTraits = rerollable || [];
     createState.tablesLoaded = true;
     renderOverrideRows();
   } catch (err) {
@@ -817,6 +897,16 @@ async function loadOverrideTables() {
     // point, so a pronouns failure must not be blamed on "trait tables",
     // and must not stop createState.tablesLoaded from being true - the
     // override rows it gates loaded fine.
+    // Own try/catch for the same reason as pronouns below: the picker is an
+    // enhancement over the free-text input, which still works without it.
+    try {
+      const { options } = await api('/api/trait-options');
+      createState.traitOptions = options;
+      renderOverrideRows();
+    } catch {
+      createState.traitOptions = {};   // every row falls back to free text
+    }
+
     const { subjects } = await api('/api/pronouns');
     const select = document.getElementById('create-pronouns');
     select.innerHTML = '<option value="">Any</option>';
@@ -830,6 +920,9 @@ async function loadOverrideTables() {
     elCreate.status.textContent = `Failed to load pronoun options: ${err.message}`;
   }
 }
+
+/** Sentinel <option> value meaning "let me type something not in the table". */
+const CUSTOM_OVERRIDE = '__custom__';
 
 function renderOverrideRows() {
   elCreate.overrideRows.innerHTML = '';
@@ -850,13 +943,86 @@ function renderOverrideRows() {
     tableSelect.addEventListener('change', () => { override.table = tableSelect.value; });
     row.appendChild(tableSelect);
 
+
+    // A picker over the table's own bullets, plus the free-text input that
+    // was here before it. --set-trait takes a bullet verbatim including its
+    // '||' flags, and those flags gate the Weapon, Gear and Backdrop rolls
+    // that follow - so an option's value is the raw bullet text and only its
+    // label is prettied up. Typing one by hand stays possible (the generator
+    // accepts values that are in no table at all), which is what CUSTOM is
+    // for; it is also the whole behaviour when /api/trait-options failed.
+    const options = createState.traitOptions[override.table] || [];
+
+    const valueSelect = document.createElement('select');
+    valueSelect.className = 'filter-value';
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = options.length ? '— pick a value —' : '— no values loaded —';
+    valueSelect.appendChild(blank);
+
+    // Grouped by the heading each bullet came from, so a woman-only option is
+    // visibly a woman-only option rather than sitting unmarked among the
+    // neutral ones.
+    let group = null;
+    let groupName = null;
+    for (const option of options) {
+      if (option.heading !== groupName) {
+        groupName = option.heading;
+        group = document.createElement('optgroup');
+        group.label = option.isVariant ? `${option.heading} (this pronoun set only)` : option.heading;
+        valueSelect.appendChild(group);
+      }
+      const opt = document.createElement('option');
+      opt.value = option.value;
+      // Disabled bullets are offered, since --set-trait bypasses the roll
+      // pool entirely and forcing one is legitimate - marked, not hidden.
+      opt.textContent = option.enabled ? option.label : `${option.label}  [disabled]`;
+      if (!option.enabled) opt.className = 'trait-option-disabled';
+      opt.selected = !override.custom && option.value === override.value;
+      group.appendChild(opt);
+    }
+
+    const customOpt = document.createElement('option');
+    customOpt.value = CUSTOM_OVERRIDE;
+    customOpt.textContent = 'Custom value…';
+    customOpt.selected = !!override.custom;
+    valueSelect.appendChild(customOpt);
+    row.appendChild(valueSelect);
+
     const valueInput = document.createElement('input');
     valueInput.type = 'text';
     valueInput.className = 'filter-value';
     valueInput.placeholder = 'value, e.g. "a field medic" or "in her sixties || young"';
     valueInput.value = override.value;
+    // With no options to pick from - a table the generator has that the
+    // tables file does not, or a failed /api/trait-options - the row falls
+    // back to exactly the free-text input it was before the picker existed,
+    // rather than making the user select 'Custom value...' to reach it.
+    valueInput.hidden = !override.custom && options.length > 0;
     valueInput.addEventListener('input', () => { override.value = valueInput.value; });
     row.appendChild(valueInput);
+
+    valueSelect.addEventListener('change', () => {
+      if (valueSelect.value === CUSTOM_OVERRIDE) {
+        override.custom = true;
+        valueInput.hidden = false;
+        valueInput.focus();
+        return;
+      }
+      override.custom = false;
+      override.value = valueSelect.value;
+      valueInput.value = valueSelect.value;
+      valueInput.hidden = true;
+    });
+
+    // Changing the table changes which bullets are on offer, so the row has
+    // to be rebuilt - and the old value, which belonged to the old table, is
+    // dropped rather than carried into a table it means nothing in.
+    tableSelect.addEventListener('change', () => {
+      override.value = '';
+      override.custom = false;
+      renderOverrideRows();
+    });
 
     const remove = document.createElement('button');
     remove.type = 'button';
@@ -913,11 +1079,12 @@ async function startCreateJob(dryRun) {
   elCreate.log.hidden = true;
   elCreate.log.textContent = '';
 
+  const body = createRequestBody(dryRun);
   try {
     const res = await fetch('/api/create-npc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(createRequestBody(dryRun)),
+      body: JSON.stringify(body),
     });
     const result = await res.json();
     if (!res.ok) {
@@ -926,7 +1093,7 @@ async function startCreateJob(dryRun) {
       elCreate.generateBtn.disabled = false;
       return;
     }
-    pollCreateJob(result.jobId, dryRun);
+    pollCreateJob(result.jobId, dryRun, body.count);
   } catch (err) {
     elCreate.status.textContent = `Couldn't start: ${err.message}`;
     elCreate.dryRunBtn.disabled = false;
@@ -934,7 +1101,7 @@ async function startCreateJob(dryRun) {
   }
 }
 
-function pollCreateJob(jobId, dryRun) {
+function pollCreateJob(jobId, dryRun, jobCount) {
   if (createState.pollTimer) clearInterval(createState.pollTimer);
   let ticks = 0;
   createState.pollTimer = setInterval(async () => {
@@ -975,7 +1142,7 @@ function pollCreateJob(jobId, dryRun) {
       elCreate.status.textContent = dryRun
         ? 'Preview complete — see the rolled NPC(s) and prompts below.'
         : 'Done — see the "Import Generated Art" tab for the new NPC(s).';
-      if (!dryRun && state.category === 'npc') refreshItems();
+      if (!dryRun) announceBatchComplete(jobCount);
     } else {
       elCreate.status.textContent = `Failed: ${job.error || 'unknown error'}`;
     }
@@ -1178,9 +1345,55 @@ elTraits.importBtn.addEventListener('click', async () => {
   await refreshTraitCandidates();
 });
 
+el.detailTraits.addEventListener('click', async (event) => {
+  const button = event.target.closest('.reroll-btn');
+  if (!button) return;
+  const id = state.detailItemId;
+  if (!id) return;
+  const trait = button.dataset.trait;
+
+  button.disabled = true;
+  try {
+    const res = await fetch('/api/reroll-trait', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, table: trait }),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      el.regenStatus.textContent =
+        `Couldn't re-roll ${trait}: ${result.reason || result.error || res.status}`;
+      button.disabled = false;
+      return;
+    }
+    el.regenStatus.textContent =
+      `Re-rolling ${trait} and re-rendering… this can take a few minutes `
+      + '(ComfyUI must be running).';
+    // Hand over to the regen poller, which already watches regenStatus, swaps
+    // the art in when the job finishes and reports a failure - a reroll is a
+    // regen job, so none of that needs a second copy here.
+    state.regenLastStatus = 'running';
+    await refreshItems();
+  } catch (err) {
+    el.regenStatus.textContent = `Couldn't re-roll ${trait}: ${err.message}`;
+    button.disabled = false;
+  }
+});
+
 loadCategories().catch((err) => {
   el.status.textContent = `Failed to load: ${err.message}`;
 });
+
+// The reroll buttons need this list, and the detail sheet can be opened
+// without ever visiting the Create tab that would otherwise load it. Failure
+// is silent by design: the buttons simply do not appear, which is the same
+// state as a generator too old to have REROLLABLE_TRAITS at all.
+api('/api/npc-tables')
+  .then(({ tables, rerollable }) => {
+    createState.overrideTables = tables;
+    createState.rerollableTraits = rerollable || [];
+  })
+  .catch(() => { /* no reroll buttons; the Create tab reports its own failure */ });
 
 /* ==================================================================== */
 /* Tables (per-bullet enable/disable)                                   */
@@ -1283,7 +1496,7 @@ function renderTableBullets() {
     weightInput.step = '1';
     weightInput.value = String(bullet.weight);
     weightInput.title = 'Weight (relative roll chance)';
-    weightInput.addEventListener('change', () => setBulletWeight(table.name, bullet, weightInput));
+    weightInput.addEventListener('change', () => queueBulletWeight(table.name, bullet, weightInput));
     row.appendChild(weightInput);
 
     const text = document.createElement('span');
@@ -1316,6 +1529,40 @@ async function toggleBullet(tableName, bullet, checkboxEl) {
   } finally {
     checkboxEl.disabled = false;
   }
+}
+
+/**
+ * Debounce window for a weight edit, in ms.
+ *
+ * A number input fires 'change' on every spinner click and every arrow
+ * keypress, not only when the field is left, so holding an arrow key sent one
+ * POST per repeat - each of which was a full read-parse-write of
+ * npc-generator-tables.md on the server. Long enough that a burst of clicks
+ * settles into one request; short enough that a single deliberate edit still
+ * feels immediate.
+ */
+const WEIGHT_DEBOUNCE_MS = 400;
+const weightTimers = new Map();
+
+/** Key a pending weight write by the bullet it targets, not by the element. */
+function weightKey(tableName, bullet) {
+    return `${tableName}\u0000${bullet.text}`;
+}
+
+/**
+ * Schedule a weight write, replacing any still-pending one for that bullet.
+ *
+ * Only the last value in a burst is ever sent: the intermediate ones are
+ * values the user scrolled past, and writing them would be both wasted work
+ * and a sequence of file states nobody asked for.
+ */
+function queueBulletWeight(tableName, bullet, inputEl) {
+  const key = weightKey(tableName, bullet);
+  clearTimeout(weightTimers.get(key));
+  weightTimers.set(key, setTimeout(() => {
+    weightTimers.delete(key);
+    setBulletWeight(tableName, bullet, inputEl);
+  }, WEIGHT_DEBOUNCE_MS));
 }
 
 async function setBulletWeight(tableName, bullet, inputEl) {
@@ -1364,7 +1611,11 @@ function renderPresetList() {
 
     const name = document.createElement('span');
     name.className = 'preset-name';
-    name.textContent = `${preset.name} (${preset.count})`;
+    // "(12 selected)", not a bare "(12)". The number used to be the count of
+    // *disabled* bullets and is now the count of selected ones - the opposite
+    // reading - and nothing in the UI said which, so an old preset and a new
+    // one showed the same kind of number meaning inverse things.
+    name.textContent = `${preset.name} (${preset.count} selected)`;
     row.appendChild(name);
 
     const date = document.createElement('span');
@@ -1474,8 +1725,9 @@ function renderPresetPreview(diff) {
 
 elTables.applyBtn.addEventListener('click', async () => {
   if (!tablesState.pendingPreset) return;
+  let result;
   try {
-    await api('/api/presets/apply', {
+    result = await api('/api/presets/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(tablesState.pendingPreset),
@@ -1483,6 +1735,17 @@ elTables.applyBtn.addEventListener('click', async () => {
   } catch (err) {
     alert(`Couldn't apply preset: ${err.message}`);
     return;
+  }
+  // A 200 no longer means every bullet was written. The route reports the
+  // edits its own guards rejected instead of discarding them, so say which -
+  // silently applying most of a preset and calling it done is the thing this
+  // list exists to stop.
+  const failed = result?.failed ?? [];
+  if (failed.length) {
+    const lines = failed.slice(0, 10).map((f) => `  ${f.table}: "${f.text}" - ${f.error}`);
+    const more = failed.length > 10 ? `\n  ...and ${failed.length - 10} more` : '';
+    alert(`Applied, but ${failed.length} bullet(s) could not be written:\n\n`
+      + lines.join('\n') + more);
   }
   tablesState.pendingPreset = null;
   elTables.preview.hidden = true;

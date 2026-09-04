@@ -83,6 +83,28 @@ and open <http://127.0.0.1:5089>.
   dry-run-vs-generate) that rolls new NPCs into the same review flow as the CLI.
   An **Unarmed run** checkbox maps to the generator's `--unarmed`; it does not
   disarm everyone — military and criminal roles keep their weapons.
+  When a generate run finishes, a banner appears above the tabs — on whichever
+  tab you are standing on — with a **Show new NPCs** button that jumps to the
+  Import tab and reloads the list. The list also refreshes in place if you were
+  already looking at it, so the new NPCs never need a manual page reload.
+  Each trait override offers a **dropdown of that table's own bullets**
+  alongside the free-text box, grouped by the heading each came from so a
+  per-pronoun variant is visibly one. The option's value is the raw bullet
+  *including its `||` flags* — `--set-trait` takes a bullet verbatim, and those
+  flags gate the Weapon, Gear and Backdrop rolls that follow, so a value typed
+  without them quietly changes what the rest of the roll may do. Bullets
+  disabled on the Tables tab are still listed, marked `[disabled]`, since
+  `--set-trait` bypasses the roll pool anyway. Pick **Custom value…** to type
+  something that is in no table at all.
+  An NPC's detail sheet lists its rolled traits, and each trait the generator
+  can re-roll on its own gets a **Re-roll** button (revealed on row hover) that
+  re-rolls just that one and re-renders the NPC in place — same folder, same
+  manifest id, fresh seed. Not every trait is offered: the manifest stores
+  bullets with their flags stripped, so a trait gated by *another* trait's
+  flags (Outfit by Role's `mil`, Stance by the Weapon's `hands`) cannot be
+  re-rolled correctly from a stored entry and is left without a button. The
+  list is derived from `generate-npc.py`'s own `REROLLABLE_TRAITS` rather than
+  restated here.
 - **Trait Imports** — lists reference-image trait candidates staged by the
   `npc-trait-import` skill, sortable and dated, and appends the ones you approve
   as new bullets in `npc-generator-tables.md`.
@@ -126,11 +148,23 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test "test/*.test.js"
 ```
 
-Expect `pass 97`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 134`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other
 file uses.
+
+Ports are written two ways, which is worth knowing before you pick one: most
+files pass `port: 5199` inline at each `startTestServer` call, but at least one
+(`importerContract.test.js`) declares `const PORT = 5196` and passes that. So
+grep for both before claiming a number — a collision does not fail loudly, it
+hangs the run until the whole suite times out:
+
+```bash
+grep -rhoE "(port: |PORT = )5[0-9]+" test/*.test.js | sort -u
+```
+
+Ports 5193–5199, 5201 and 5202 are taken.
 
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs bare
 `node --test` instead, which also picks up `test/helpers/testServer.js` as a

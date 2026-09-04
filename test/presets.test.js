@@ -105,3 +105,48 @@ test('diffPresetAgainstTables leaves a table with no key in the preset completel
     assert.deepEqual(diff.willDisable, []);
     assert.deepEqual(diff.alreadyMatching, [{ table: 'Outfit', text: 'a jacket' }]);
 });
+
+/* ---- known-issues 2: a duplicated bullet text made the diff overpromise ---- */
+
+test('a bullet text repeated in one table is diffed once, not once per copy', () => {
+    // The writers in lib/tableBullets.js resolve a bullet to its FIRST
+    // matching line, so a table carrying the same text twice can only ever
+    // have one of them changed. The diff walked every copy, so a preview
+    // promised two changes where the apply performs one - and the second
+    // apply call found the first line already in the requested state and
+    // returned early, changing nothing.
+    const parsed = [
+        { name: 'Outfit', bullets: [
+            { text: 'a jacket', weight: 1, enabled: true },
+            { text: 'a jacket', weight: 1, enabled: true },
+        ] },
+    ];
+    const diff = diffPresetAgainstTables({ Outfit: [] }, parsed);
+    assert.deepEqual(diff.willDisable, [{ table: 'Outfit', text: 'a jacket' }]);
+});
+
+test('the first copy of a duplicated bullet decides, matching the writers', () => {
+    // Enabled copy first, disabled copy second. The writers would flip the
+    // enabled one, so the diff must describe that and not the other.
+    const parsed = [
+        { name: 'Outfit', bullets: [
+            { text: 'a jacket', weight: 1, enabled: true },
+            { text: 'a jacket', weight: 1, enabled: false },
+        ] },
+    ];
+    const diff = diffPresetAgainstTables({ Outfit: [] }, parsed);
+    assert.deepEqual(diff.willDisable, [{ table: 'Outfit', text: 'a jacket' }]);
+    assert.deepEqual(diff.alreadyMatching, []);
+});
+
+test('a duplicated bullet the preset does select is counted once as matching', () => {
+    const parsed = [
+        { name: 'Outfit', bullets: [
+            { text: 'a jacket', weight: 1, enabled: true },
+            { text: 'a jacket', weight: 1, enabled: true },
+        ] },
+    ];
+    const diff = diffPresetAgainstTables({ Outfit: [{ text: 'a jacket', weight: 1 }] }, parsed);
+    assert.deepEqual(diff.alreadyMatching, [{ table: 'Outfit', text: 'a jacket' }]);
+    assert.deepEqual(diff.willReweight, []);
+});
