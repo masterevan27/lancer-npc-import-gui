@@ -376,6 +376,14 @@ function formatGeneratedWhen(when) {
   })}`;
 }
 
+// Faction bullets are `Name || visual signature || flags` - only the name
+// belongs in the subtitle, the visual segment feeds the image prompt instead.
+// Older manifest entries have no `||` at all, so pass those through unchanged.
+function factionDisplayName(faction) {
+  if (!faction) return faction;
+  return faction.split('||')[0].trim();
+}
+
 function openDetail(item) {
   // portraitUrl/tokenUrl carry the source file's mtime as a version query
   // param (see itemView in server.js), so a Regenerate since this item was
@@ -384,7 +392,7 @@ function openDetail(item) {
   el.detailPortrait.src = item.portraitUrl || '';
   el.detailToken.src = item.tokenUrl || '';
   el.detailName.textContent = item.name;
-  el.detailSub.textContent = [item.roleCategory, item.traits?.Role, item.traits?.Faction]
+  el.detailSub.textContent = [item.roleCategory, item.traits?.Role, factionDisplayName(item.traits?.Faction)]
     .filter(Boolean)
     .join(' — ');
   el.detailGenerated.textContent = formatGeneratedWhen(item.when);
@@ -504,6 +512,64 @@ el.overlay.addEventListener('click', (e) => {
     el.overlay.hidden = true;
     el.imageZoom.hidden = true;
     state.detailItemId = null;
+  }
+});
+
+/** Whether focus is somewhere typing should win over navigation. */
+function isTypingTarget(el) {
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName);
+}
+
+/** The overlays stacked above the NPC detail sheet, innermost first. */
+function topmostOverlay() {
+  if (!el.imageZoom.hidden) return { close: () => { el.imageZoom.hidden = true; } };
+  if (!elDeleteConfirm.overlay.hidden) return { close: () => { elDeleteConfirm.overlay.hidden = true; } };
+  if (!elTraits.overlay.hidden) return { close: () => { elTraits.overlay.hidden = true; } };
+  if (!elTables.preview.hidden) return { close: () => cancelPresetPreview() };
+  return null;
+}
+
+/** Move `offset` places through the grid's current order and open that NPC. */
+function stepDetail(offset) {
+  const index = state.visibleItems.findIndex((i) => i.id === state.detailItemId);
+  if (index === -1) return;
+  // Clamped, not wrapping: arrowing off the end of a filtered list and
+  // landing back at the start reads as a bug rather than a convenience.
+  const next = state.visibleItems[index + offset];
+  if (next) openDetail(next);
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (isTypingTarget(document.activeElement)) return;
+
+  if (e.key === 'Escape') {
+    const nested = topmostOverlay();
+    if (nested) {
+      nested.close();
+      e.preventDefault();
+      return;
+    }
+    if (!el.overlay.hidden) {
+      el.overlay.hidden = true;
+      el.imageZoom.hidden = true;
+      e.preventDefault();
+    }
+    return;
+  }
+
+  // Arrow navigation belongs to the NPC sheet alone, and only when nothing
+  // is stacked on top of it - arrowing the list out from under an open
+  // delete confirmation would be actively dangerous.
+  if (el.overlay.hidden || topmostOverlay()) return;
+  if (e.key === 'ArrowLeft') {
+    stepDetail(-1);
+    e.preventDefault();
+  } else if (e.key === 'ArrowRight') {
+    stepDetail(1);
+    e.preventDefault();
   }
 });
 
@@ -1366,7 +1432,9 @@ elTables.applyBtn.addEventListener('click', async () => {
   await loadTables();
 });
 
-elTables.cancelBtn.addEventListener('click', () => {
+/** Dismiss the pending preset-import preview without applying it. */
+function cancelPresetPreview() {
   tablesState.pendingPreset = null;
   elTables.preview.hidden = true;
-});
+}
+elTables.cancelBtn.addEventListener('click', cancelPresetPreview);
