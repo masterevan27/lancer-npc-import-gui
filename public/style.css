@@ -596,6 +596,26 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   text-align: center;
 }
 .table-bullet-row .weight-input:disabled { opacity: 0.5; }
+/* Fixed width, wide enough for '~100%', so a column of rows stays aligned as
+   the numbers change under it rather than shuffling sideways. */
+.chance-cell {
+  width: 3.2rem;
+  flex: 0 0 3.2rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: #b8c0cc;
+  font-size: 0.8rem;
+}
+/* The local weight-share estimate, before the sampled figure lands. Dimmed and
+   tilde-prefixed so that changing to the settled number reads as an estimate
+   resolving rather than a number moving on its own. */
+.chance-cell.estimate { color: #7c8ba1; font-style: italic; }
+.chance-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: #8b93a1;
+}
 .table-bullet-text { flex: 1; }
 
 .presets-panel { margin-top: 1.5rem; border-top: 1px solid #363b47; padding-top: 1rem; }

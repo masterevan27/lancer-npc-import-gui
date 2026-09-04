@@ -54,6 +54,8 @@ Everything else in `config.example.json` is optional and derived by default:
   `npc-generator-tables.md` and its `npc-trait-import` skill's staged candidates
   live, for the **Tables** and **Trait Imports** tabs.
 - `presetsDir` — where saved table presets are written.
+- `traitOddsSamples` — rolls behind each percentage on the **Tables** tab.
+  Default 20000, about six seconds; fewer settles sooner and wobbles more.
 
 Then:
 
@@ -127,6 +129,24 @@ and open <http://127.0.0.1:5089>.
   preset, hand it to another GM, and they can import it, preview exactly what
   it would change, and apply it.
 
+  Beside each weight is **how often that bullet actually gets rolled**, which
+  is not what the weight says: a weight compares a bullet to its neighbour,
+  and the generator filters most tables before drawing from them — a Stance
+  flagged `|| gun` needs the Weapon roll to have produced a firearm, and comes
+  out far below its share of the table. The figure comes from
+  `generate-npc.py --trait-odds`, which samples the real roller, so it cannot
+  drift from what the generator actually does. It follows your edits: weights,
+  enabling and disabling, and newly imported candidates alike. A tilde
+  (`~12%`) marks the instant local estimate shown while the sampled figure is
+  still being calculated, and a dash marks a disabled bullet. Percentages on a
+  per-pronoun variant table total less than 100%, because only some NPCs roll
+  from it at all.
+
+  Sampling takes a few seconds. `traitOddsSamples` in `config.json` trades
+  precision for speed; the default 20,000 holds still at whole-percent
+  precision. Without a working `pythonExecutable` the column falls back to the
+  local weight-share estimate and says so, rather than breaking the page.
+
 Only NPCs exist as generated content today — mechs and spaceships have no
 generator yet, so their categories won't appear until something writes manifest
 entries in the same shape.
@@ -153,7 +173,7 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test "test/*.test.js"
 ```
 
-Expect `pass 134`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 155`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other

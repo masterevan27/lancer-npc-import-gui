@@ -13,7 +13,7 @@ const SERVER_JS = path.join(__dirname, '..', '..', 'server.js');
  * concurrently, and every server in this suite binds a fixed port rather
  * than an OS-assigned one, so two files sharing a port would collide.
  */
-async function startTestServer({ tablesText, port, generatorSource }) {
+async function startTestServer({ tablesText, port, generatorSource, extraConfig }) {
     if (!port) throw new Error('startTestServer requires an explicit port');
     const host = '127.0.0.1';
     const baseUrl = `http://${host}:${port}`;
@@ -53,6 +53,11 @@ async function startTestServer({ tablesText, port, generatorSource }) {
         stagedImportsDir: path.join(dir, 'staged-imports'),
         presetsDir,
         ...(generateNpcScript ? { generateNpcScript, pythonExecutable: process.execPath } : {}),
+        // Last, so a test can override any of the above - written for
+        // traitOddsSamples, which a test needs to see reach the generator's
+        // command line, and general because the next such key would otherwise
+        // add a third named parameter here.
+        ...(extraConfig || {}),
     }));
 
     const child = spawn(process.execPath, [SERVER_JS], {

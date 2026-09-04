@@ -1412,6 +1412,9 @@ const tablesState = {
   selectedTable: null,
   presets: [],
   pendingPreset: null, // the parsed preset object currently shown in the preview, or null
+  odds: null,          // the last settled /api/table-odds report, or null
+  oddsStale: false,    // an edit has landed that the settled odds predate
+  oddsReason: null,    // why the last run failed, or null
 };
 
 const elTables = {
@@ -1427,6 +1430,7 @@ const elTables = {
   previewList: document.getElementById('preset-preview-list'),
   applyBtn: document.getElementById('preset-apply-btn'),
   cancelBtn: document.getElementById('preset-cancel-btn'),
+  chanceNote: document.getElementById('chance-note'),
 };
 
 async function loadTables() {
@@ -1446,6 +1450,11 @@ async function loadTables() {
   }
   renderTableHeadingList();
   renderTableBullets();
+  // Not queueOdds(): nothing has been edited, so there is nothing to debounce,
+  // and the server serves an unchanged tables file from cache. This is also
+  // what makes the odds follow a trait import with no plumbing of its own -
+  // importing rewrites the tables file, and coming back to this tab reloads.
+  refreshOdds();
 }
 
 function renderTableHeadingList() {
@@ -1504,7 +1513,20 @@ function renderTableBullets() {
     weightInput.value = String(bullet.weight);
     weightInput.title = 'Weight (relative roll chance)';
     weightInput.addEventListener('change', () => queueBulletWeight(table.name, bullet, weightInput));
+    // The write is debounced and the sampled odds take seconds; the estimate
+    // costs an arithmetic pass over one table, so it can follow the typing.
+    // Held apart from bullet.weight, which stays what the FILE says until a
+    // write has actually succeeded.
+    weightInput.addEventListener('input', () => {
+      const typed = Math.trunc(Number(weightInput.value));
+      bullet.pendingWeight = Number.isInteger(typed) && typed >= 1 ? typed : undefined;
+      renderChances();
+    });
     row.appendChild(weightInput);
+
+    const chance = document.createElement('span');
+    chance.className = 'chance-cell';
+    row.appendChild(chance);
 
     const text = document.createElement('span');
     text.className = 'table-bullet-text';
@@ -1512,6 +1534,168 @@ function renderTableBullets() {
     row.appendChild(text);
     elTables.bulletList.appendChild(row);
   }
+  renderChances();
+}
+
+/* ==================================================================== */
+/* Roll chances                                                          */
+/* ==================================================================== */
+
+/*
+ * How often a bullet actually gets rolled, which is not what its weight says.
+ *
+ * A weight compares a bullet to its neighbour. It does not give a rate, and
+ * dividing by the table total does not either: disabled bullets are not in the
+ * pool, and generate-npc.py filters most tables before drawing from them - a
+ * Stance flagged '|| gun' needs the Weapon roll to have produced a firearm.
+ *
+ * So there are two numbers, and the cell shows both in turn. The estimate is
+ * the local weight share, computed here, instantly, on every keystroke. The
+ * settled figure comes from `generate-npc.py --trait-odds`, which samples its
+ * own roller, and takes a few seconds.
+ *
+ * The tilde on the estimate is doing real work. On a filtered table the two
+ * legitimately differ - that is the entire point of the feature - so the cell
+ * visibly changes when the sampled value lands. Marked as an estimate, that
+ * reads as "the estimate resolved". Unmarked, it reads as "the number moved on
+ * its own", and a number that appears to move on its own is worse than none.
+ */
+
+/**
+ * The share of this table's enabled weight one bullet holds.
+ *
+ * Reads pendingWeight where there is one - the value currently typed into a
+ * weight box, which has not been written to the file yet. Without it the
+ * estimate would lag the typing by the write's own debounce and then jump.
+ */
+function effectiveWeight(bullet) {
+  return bullet.pendingWeight ?? bullet.weight;
+}
+
+function weightShare(table, bullet) {
+  const total = table.bullets.reduce(
+    (sum, b) => sum + (b.enabled ? effectiveWeight(b) : 0), 0);
+  return total ? effectiveWeight(bullet) / total : 0;
+}
+
+/**
+ * A probability as a whole percentage.
+ *
+ * Whole numbers because the sampling error at the default 20,000 rolls is
+ * about 0.2 points - stable here, and not at one decimal place, which would
+ * need roughly a hundred times the rolls. A digit that flickered between runs
+ * would read as though the edit had done something.
+ *
+ * '<1%' rather than '0%' below half a point: the difference between rare and
+ * unreachable is exactly what someone reads this column for.
+ */
+function formatChance(probability) {
+  if (probability <= 0) return '0%';
+  return probability < 0.005 ? '<1%' : `${Math.round(probability * 100)}%`;
+}
+
+/** Repaint every chance cell in the open table from whatever is currently known. */
+function renderChances() {
+  const table = tablesState.tables.find((t) => t.name === tablesState.selectedTable);
+  if (!table) return;
+  const settled = tablesState.odds?.tables?.[table.name] ?? null;
+  const cells = elTables.bulletList.querySelectorAll('.chance-cell');
+  // A weight typed but not yet written makes every settled figure in this
+  // table out of date, not just its own row's.
+  const typing = table.bullets.some((b) => b.pendingWeight !== undefined);
+
+  table.bullets.forEach((bullet, i) => {
+    const cell = cells[i];
+    if (!cell) return;
+    cell.className = 'chance-cell';
+    cell.title = '';
+
+    if (!bullet.enabled) {
+      // Not '0%': a disabled bullet was never in the running, and 0% would
+      // say it was in the running and lost.
+      cell.textContent = '—';
+      cell.title = 'Disabled — never rolled';
+      return;
+    }
+
+    const sampled = settled ? settled[bullet.text] : undefined;
+    if (sampled === undefined || tablesState.oddsStale || typing) {
+      cell.textContent = `~${formatChance(weightShare(table, bullet))}`;
+      cell.classList.add('estimate');
+      cell.title = settled
+        ? 'Estimate from the weights — the sampled figure is being recalculated'
+        : 'Estimate from the weights alone, ignoring the generator\'s filters';
+      return;
+    }
+    cell.textContent = formatChance(sampled);
+    cell.title = `Rolled on about ${(sampled * 100).toFixed(1)}% of NPCs, `
+      + `sampled over ${tablesState.odds.samples.toLocaleString()} rolls`;
+  });
+
+  renderChanceNote(table);
+}
+
+function renderChanceNote(table) {
+  const note = elTables.chanceNote;
+  const lines = [];
+
+  if (tablesState.oddsReason) {
+    lines.push(`Percentages are estimates from the weights alone — the generator could not be sampled (${tablesState.oddsReason}).`);
+  } else if (!tablesState.odds || tablesState.oddsStale) {
+    lines.push('Percentages are estimates from the weights alone; sampling the generator…');
+  } else {
+    lines.push(`Chance a rolled NPC gets this option, sampled over ${tablesState.odds.samples.toLocaleString()} rolls. `
+      + 'The generator\'s filters are included, so a flagged option can read well below its weight.');
+  }
+
+  // Two facts about specific headings, hardcoded because they are facts about
+  // specific headings. A general "which tables are conditional" facility would
+  // be inventing a category to hold one member.
+  if (table.name === 'Weather') {
+    lines.push('Weather is always rolled, but only reaches the prompt when the Backdrop is flagged `weather` — most NPCs show none.');
+  }
+  if (/\(\w+\)/.test(table.name)) {
+    lines.push('This is a per-pronoun variant table, so its rows total less than 100% — only some NPCs roll from it.');
+  }
+
+  note.textContent = lines.join(' ');
+  note.hidden = false;
+}
+
+/**
+ * Debounce beyond the weight input's own 400ms, so holding an arrow key is one
+ * run and not thirty. A run costs a Python process and several seconds.
+ */
+const ODDS_DEBOUNCE_MS = 1000;
+let oddsTimer = null;
+let oddsRequest = 0;
+
+function queueOdds() {
+  tablesState.oddsStale = true;
+  renderChances();
+  clearTimeout(oddsTimer);
+  oddsTimer = setTimeout(refreshOdds, ODDS_DEBOUNCE_MS);
+}
+
+async function refreshOdds() {
+  const mine = ++oddsRequest;
+  let result;
+  try {
+    result = await api('/api/table-odds');
+  } catch (err) {
+    result = { ok: false, reason: err.message };
+  }
+  // A slower earlier run must not overwrite a newer one's answer.
+  if (mine !== oddsRequest) return;
+
+  if (result.ok) {
+    tablesState.odds = result;
+    tablesState.oddsReason = null;
+  } else {
+    tablesState.oddsReason = result.reason;
+  }
+  tablesState.oddsStale = false;
+  renderChances();
 }
 
 async function toggleBullet(tableName, bullet, checkboxEl) {
@@ -1530,6 +1714,9 @@ async function toggleBullet(tableName, bullet, checkboxEl) {
     const table = tablesState.tables.find((t) => t.name === tableName);
     const row = elTables.headingList.querySelector(`[data-table="${CSS.escape(tableName)}"]`);
     if (table && row) row.textContent = headingLabel(table);
+    // Enabling or disabling a bullet changes the denominator for every other
+    // row in the table, not just this one's own chance.
+    queueOdds();
   } catch (err) {
     checkboxEl.checked = !nextEnabled; // revert - the write failed
     alert(`Couldn't update that bullet: ${err.message}`);
@@ -1576,10 +1763,16 @@ async function setBulletWeight(tableName, bullet, inputEl) {
   const nextWeight = Math.trunc(Number(inputEl.value));
   if (!Number.isInteger(nextWeight) || nextWeight < 1) {
     inputEl.value = bullet.weight;
+    bullet.pendingWeight = undefined;
+    renderChances();
     alert('Weight must be a whole number of 1 or more.');
     return;
   }
-  if (nextWeight === bullet.weight) return;
+  if (nextWeight === bullet.weight) {
+    bullet.pendingWeight = undefined;
+    renderChances();
+    return;
+  }
   inputEl.disabled = true;
   try {
     await api('/api/table-bullets/set-weight', {
@@ -1588,11 +1781,14 @@ async function setBulletWeight(tableName, bullet, inputEl) {
       body: JSON.stringify({ table: tableName, text: bullet.text, weight: nextWeight }),
     });
     bullet.weight = nextWeight;
+    queueOdds();
   } catch (err) {
     inputEl.value = bullet.weight;
     alert(`Couldn't update that bullet's weight: ${err.message}`);
   } finally {
+    bullet.pendingWeight = undefined;   // the file and the box agree again, either way
     inputEl.disabled = false;
+    renderChances();
   }
 }
 
