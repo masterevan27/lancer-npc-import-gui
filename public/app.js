@@ -1072,6 +1072,7 @@ loadCategories().catch((err) => {
 
 const tablesState = {
   tables: [],
+  groups: [],
   selectedTable: null,
   presets: [],
   pendingPreset: null, // the parsed preset object currently shown in the preview, or null
@@ -1093,8 +1094,9 @@ const elTables = {
 };
 
 async function loadTables() {
-  const { tables } = await api('/api/table-bullets');
+  const { tables, groups } = await api('/api/table-bullets');
   tablesState.tables = tables;
+  tablesState.groups = groups;
   elTables.empty.hidden = tables.length > 0;
   if (!tablesState.selectedTable || !tables.some((t) => t.name === tablesState.selectedTable)) {
     tablesState.selectedTable = tables[0]?.name ?? null;
@@ -1105,21 +1107,36 @@ async function loadTables() {
 
 function renderTableHeadingList() {
   elTables.headingList.innerHTML = '';
-  for (const table of tablesState.tables) {
-    const disabledCount = table.bullets.filter((b) => !b.enabled).length;
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'table-heading-row' + (table.name === tablesState.selectedTable ? ' active' : '');
-    row.textContent = disabledCount
-      ? `${table.name} (${table.bullets.length}, ${disabledCount} disabled)`
-      : `${table.name} (${table.bullets.length})`;
-    row.addEventListener('click', () => {
-      tablesState.selectedTable = table.name;
-      renderTableHeadingList();
-      renderTableBullets();
-    });
-    elTables.headingList.appendChild(row);
+  for (const { group, rows } of tablesState.groups) {
+    const header = document.createElement('div');
+    header.className = 'table-group-header';
+    header.textContent = group;
+    elTables.headingList.appendChild(header);
+
+    for (const { table, isVariant } of rows) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'table-heading-row'
+        + (isVariant ? ' variant' : '')
+        + (table.name === tablesState.selectedTable ? ' active' : '');
+      row.dataset.table = table.name;
+      row.textContent = headingLabel(table);
+      row.addEventListener('click', () => {
+        tablesState.selectedTable = table.name;
+        renderTableHeadingList();
+        renderTableBullets();
+      });
+      elTables.headingList.appendChild(row);
+    }
   }
+}
+
+/** The row's label, including its disabled-count badge. */
+function headingLabel(table) {
+  const disabledCount = table.bullets.filter((b) => !b.enabled).length;
+  return disabledCount
+    ? `${table.name} (${table.bullets.length}, ${disabledCount} disabled)`
+    : `${table.name} (${table.bullets.length})`;
 }
 
 function renderTableBullets() {

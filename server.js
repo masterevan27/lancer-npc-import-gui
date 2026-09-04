@@ -50,6 +50,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const tableBullets = require('./lib/tableBullets');
+const tableGroups = require('./lib/tableGroups');
 const presets = require('./lib/presets');
 const { derivePaths } = require('./lib/paths');
 const pronouns = require('./lib/pronouns');
@@ -862,7 +863,11 @@ async function handleApi(req, res, url) {
     }
 
     if (url.pathname === '/api/table-bullets' && req.method === 'GET') {
-        return sendJson(res, 200, { tables: tableBullets.readTables(NPC_TABLES_PATH) });
+        const tables = tableBullets.readTables(NPC_TABLES_PATH);
+        // Grouped server-side so the ordering logic stays a testable pure
+        // function in lib/ rather than becoming untestable DOM code. The flat
+        // list is kept in the response because the presets tab reads it.
+        return sendJson(res, 200, { tables, groups: tableGroups.groupTables(tables) });
     }
 
     if (url.pathname === '/api/table-bullets/toggle' && req.method === 'POST') {
