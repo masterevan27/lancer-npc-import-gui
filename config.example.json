@@ -9,6 +9,7 @@
   "foundryNpcSubdir": "LancerNPCs",
   "npcTablesPath": "",
   "stagedImportsDir": "",
+  "stagedRefsDir": "",
   "presetsDir": "",
   "traitOddsSamples": 20000
 }

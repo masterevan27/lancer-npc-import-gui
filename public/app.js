@@ -1189,7 +1189,13 @@ const elTraits = {
   detailPlacement: document.getElementById('trait-detail-placement'),
   detailBookkeeping: document.getElementById('trait-detail-bookkeeping'),
   detailNotes: document.getElementById('trait-detail-notes'),
+  detailImage: document.getElementById('trait-detail-image'),
 };
+
+// The same hover-to-full-size the generated-art detail sheet uses. A reference
+// image is a wide hero crop that a bullet describes one corner of, so the
+// thumbnail in the sheet is for recognising it and the zoom is for reading it.
+attachImageZoom(elTraits.detailImage);
 
 async function refreshTraitCandidates() {
   const { candidates } = await api('/api/trait-candidates');
@@ -1301,6 +1307,22 @@ function updateTraitToolbar() {
 function openTraitDetail(c) {
   elTraits.detailTable.textContent = c.table;
   elTraits.detailSource.textContent = c.sourceImage ? `From: ${c.sourceImage}` : '';
+  // hasSourceImage is the server's answer about refs/, not a guess from the
+  // filename: a run staged before the skill copied its images, or one whose
+  // copies have since been cleaned out, still names its source but has nothing
+  // to show, and falls back to the line above on its own.
+  if (c.hasSourceImage) {
+    elTraits.detailImage.src = `/api/trait-image?file=${encodeURIComponent(c.file)}`
+      + `&id=${encodeURIComponent(c.id)}`;
+    elTraits.detailImage.alt = `Reference image ${c.sourceImage}`;
+    elTraits.detailImage.hidden = false;
+  } else {
+    // Cleared rather than just hidden, so opening a candidate that has no
+    // reference image cannot flash the last one that did.
+    elTraits.detailImage.removeAttribute('src');
+    elTraits.detailImage.alt = '';
+    elTraits.detailImage.hidden = true;
+  }
   elTraits.detailBullet.textContent = c.bullet;
   elTraits.detailPlacement.textContent = c.placementHint || '—';
   elTraits.detailBookkeeping.textContent = c.bookkeepingNote || '—';

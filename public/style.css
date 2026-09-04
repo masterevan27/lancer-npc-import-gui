@@ -396,13 +396,18 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 #detail-traits td:nth-child(2) { color: #9aa1ad; white-space: nowrap; }
 #detail-traits td:last-child { padding-right: 0; }
 /* Always visible, because a control you have to find by hovering is not one
-   you reach quickly. Dim and borderless at rest so twenty-odd of them read as
-   a gutter rather than a wall of buttons; the border is transparent rather
-   than absent so nothing reflows when hover paints it in. */
+   you reach quickly - and filled, because a control you have to hover to
+   discover IS a button is not one either. This column was borderless at rest
+   once, on the argument that twenty-odd outlines read as a wall; the answer
+   that survived contact with users is that a wall of buttons is what the
+   column actually is, and dimming it only hid the affordance. The blue is
+   muted rather than the full #3d6ef0 of a primary action so the gutter still
+   sits behind the trait values it belongs to, and brightens to that primary
+   blue on hover or focus. */
 .reroll-btn {
-  background: none;
-  border: 1px solid transparent;
-  color: #6b7280;
+  background: #2b4a9e;
+  border: 1px solid #2b4a9e;
+  color: #dbe4ff;
   border-radius: 5px;
   padding: 0.05rem 0.4rem;
   font-size: 0.75rem;
@@ -412,8 +417,15 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   white-space: nowrap;
 }
 .reroll-btn:hover,
-.reroll-btn:focus { border-color: #3d6ef0; color: #e6e6e6; }
-.reroll-btn:disabled { opacity: 0.4; cursor: default; border-color: #2c2f38; }
+.reroll-btn:focus { background: #3d6ef0; border-color: #3d6ef0; color: #ffffff; }
+/* Flat grey rather than a dimmed blue: at 0.4 opacity the fill was still
+   plainly blue, so a re-roll already running read as one still on offer. */
+.reroll-btn:disabled {
+  background: #2c2f38;
+  border-color: #2c2f38;
+  color: #6b7280;
+  cursor: default;
+}
 #detail-prompts h3 { font-size: 0.82rem; color: #9aa1ad; margin: 0.9rem 0 0.3rem; }
 #detail-prompts pre {
   white-space: pre-wrap;
@@ -533,6 +545,23 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   margin: 0;
 }
 .trait-detail-info p { margin: 0; font-size: 0.85rem; color: #d7dae0; }
+
+/* The reference image the candidate was read from. Capped by height rather
+   than width because these are wide hero crops: bounding the width would let
+   a 3:1 banner sit two lines tall and an upright portrait fill the sheet, and
+   the point of the preview is that every candidate's takes the same glance.
+   zoom-in rather than pointer as the cursor - hovering enlarges it, it is not
+   a link to anywhere. */
+.trait-detail-image {
+  display: block;
+  max-width: 100%;
+  max-height: 200px;
+  margin: 0.6rem 0 0;
+  border: 1px solid #2c2f38;
+  border-radius: 6px;
+  cursor: zoom-in;
+}
+.trait-detail-image[hidden] { display: none; }
 
 .tables-layout {
   display: flex;
