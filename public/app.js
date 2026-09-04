@@ -769,6 +769,64 @@ function switchTab(tab) {
 }
 
 /* ==================================================================== */
+/* Batch-complete banner                                                 */
+/* ==================================================================== */
+
+const elBanner = {
+  root: document.getElementById('batch-banner'),
+  text: document.getElementById('batch-banner-text'),
+  show: document.getElementById('batch-banner-show'),
+  dismiss: document.getElementById('batch-banner-dismiss'),
+};
+
+/**
+ * Announce a finished generate run wherever the user happens to be standing.
+ *
+ * pollCreateJob() used to call refreshItems() and nothing else, guarded on
+ * `state.category === 'npc'`. That guard is correct as far as it goes -
+ * refreshItems() reloads whichever category is currently selected, so from
+ * any other one it would do nothing useful - but it meant a run finishing
+ * while the user sat on the Create, Tables or Trait Imports tab left no trace
+ * at all. The images were on disk and the page never said so, which is the
+ * whole complaint: you had to know to reload.
+ *
+ * The banner lives outside every .tab-panel, so it is visible from all four
+ * tabs rather than only the one that owns the list it refers to.
+ */
+function announceBatchComplete(count) {
+  elBanner.text.textContent = count === 1
+    ? '1 new NPC finished generating.'
+    : `${count} new NPCs finished generating.`;
+  elBanner.root.hidden = false;
+  // Refresh in place as well when the list on screen is the one that grew, so
+  // sitting on the Import tab still shows the new cards without a click. The
+  // banner stays up regardless - it is also the "that run is over" signal.
+  if (tabState.current === 'import' && state.category === 'npc') refreshItems();
+}
+
+function dismissBatchBanner() {
+  elBanner.root.hidden = true;
+}
+
+elBanner.dismiss.addEventListener('click', dismissBatchBanner);
+
+elBanner.show.addEventListener('click', async () => {
+  dismissBatchBanner();
+  switchTab('import');
+  // loadCategories() first, not selectCategory('npc') alone: on the very
+  // first run there was no NPC category to render a button for, so selecting
+  // it without reloading would leave the category row without the one that
+  // is now showing. loadCategories() ends by selecting categories[0], which
+  // is why the explicit selection has to come after it rather than before.
+  try {
+    await loadCategories();
+    await selectCategory('npc');
+  } catch (err) {
+    el.status.textContent = `Couldn't load the new NPCs: ${err.message}`;
+  }
+});
+
+/* ==================================================================== */
 /* Create NPC                                                            */
 /* ==================================================================== */
 
@@ -913,11 +971,12 @@ async function startCreateJob(dryRun) {
   elCreate.log.hidden = true;
   elCreate.log.textContent = '';
 
+  const body = createRequestBody(dryRun);
   try {
     const res = await fetch('/api/create-npc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(createRequestBody(dryRun)),
+      body: JSON.stringify(body),
     });
     const result = await res.json();
     if (!res.ok) {
@@ -926,7 +985,7 @@ async function startCreateJob(dryRun) {
       elCreate.generateBtn.disabled = false;
       return;
     }
-    pollCreateJob(result.jobId, dryRun);
+    pollCreateJob(result.jobId, dryRun, body.count);
   } catch (err) {
     elCreate.status.textContent = `Couldn't start: ${err.message}`;
     elCreate.dryRunBtn.disabled = false;
@@ -934,7 +993,7 @@ async function startCreateJob(dryRun) {
   }
 }
 
-function pollCreateJob(jobId, dryRun) {
+function pollCreateJob(jobId, dryRun, jobCount) {
   if (createState.pollTimer) clearInterval(createState.pollTimer);
   let ticks = 0;
   createState.pollTimer = setInterval(async () => {
@@ -975,7 +1034,7 @@ function pollCreateJob(jobId, dryRun) {
       elCreate.status.textContent = dryRun
         ? 'Preview complete — see the rolled NPC(s) and prompts below.'
         : 'Done — see the "Import Generated Art" tab for the new NPC(s).';
-      if (!dryRun && state.category === 'npc') refreshItems();
+      if (!dryRun) announceBatchComplete(jobCount);
     } else {
       elCreate.status.textContent = `Failed: ${job.error || 'unknown error'}`;
     }

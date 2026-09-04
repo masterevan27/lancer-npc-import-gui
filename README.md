@@ -83,6 +83,10 @@ and open <http://127.0.0.1:5089>.
   dry-run-vs-generate) that rolls new NPCs into the same review flow as the CLI.
   An **Unarmed run** checkbox maps to the generator's `--unarmed`; it does not
   disarm everyone — military and criminal roles keep their weapons.
+  When a generate run finishes, a banner appears above the tabs — on whichever
+  tab you are standing on — with a **Show new NPCs** button that jumps to the
+  Import tab and reloads the list. The list also refreshes in place if you were
+  already looking at it, so the new NPCs never need a manual page reload.
 - **Trait Imports** — lists reference-image trait candidates staged by the
   `npc-trait-import` skill, sortable and dated, and appends the ones you approve
   as new bullets in `npc-generator-tables.md`.
