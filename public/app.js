@@ -764,6 +764,7 @@ const elCreate = {
   portrait: document.getElementById('create-portrait'),
   token: document.getElementById('create-token'),
   keepRaw: document.getElementById('create-keep-raw'),
+  unarmed: document.getElementById('create-unarmed'),
   overrideRows: document.getElementById('override-rows'),
   addOverrideBtn: document.getElementById('add-override'),
   dryRunBtn: document.getElementById('create-dry-run-btn'),
@@ -861,6 +862,7 @@ function createRequestBody(dryRun) {
     noPortrait: !elCreate.portrait.checked,
     noToken: !elCreate.token.checked,
     keepRawToken: elCreate.keepRaw.checked,
+    unarmed: elCreate.unarmed.checked,
     overrides: createState.overrides.filter((o) => o.table && o.value.trim()),
     dryRun,
   };

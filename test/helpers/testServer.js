@@ -13,7 +13,7 @@ const SERVER_JS = path.join(__dirname, '..', '..', 'server.js');
  * concurrently, and every server in this suite binds a fixed port rather
  * than an OS-assigned one, so two files sharing a port would collide.
  */
-async function startTestServer({ tablesText, port }) {
+async function startTestServer({ tablesText, port, generatorSource }) {
     if (!port) throw new Error('startTestServer requires an explicit port');
     const host = '127.0.0.1';
     const baseUrl = `http://${host}:${port}`;
@@ -27,6 +27,16 @@ async function startTestServer({ tablesText, port }) {
     const foundryRoot = path.join(dir, 'FoundryData');
     fs.mkdirSync(foundryRoot, { recursive: true });
 
+    // Most tests never spawn generate-npc.py at all, so there's normally
+    // nothing to stub. When a caller wants to assert on the command line the
+    // server builds, generatorSource writes that source as a stub script and
+    // points the config at it - see api.createArgs.test.js.
+    let generateNpcScript;
+    if (generatorSource) {
+        generateNpcScript = path.join(dir, 'generate-npc.py');
+        fs.writeFileSync(generateNpcScript, generatorSource);
+    }
+
     const configPath = path.join(dir, 'config.json');
     fs.writeFileSync(configPath, JSON.stringify({
         port,
@@ -37,6 +47,7 @@ async function startTestServer({ tablesText, port }) {
         npcTablesPath: tablesPath,
         stagedImportsDir: path.join(dir, 'staged-imports'),
         presetsDir,
+        ...(generateNpcScript ? { generateNpcScript } : {}),
     }));
 
     const child = spawn(process.execPath, [SERVER_JS], {

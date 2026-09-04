@@ -506,6 +506,7 @@ function startCreateJob(opts) {
     if (opts.noPortrait) args.push('--no-portrait');
     if (opts.noToken) args.push('--no-token');
     if (opts.keepRawToken) args.push('--keep-raw-token');
+    if (opts.unarmed) args.push('--unarmed');
     if (opts.server) args.push('--server', opts.server);
     if (opts.dryRun) args.push('--dry-run');
 
@@ -1049,6 +1050,7 @@ async function handleApi(req, res, url) {
             noPortrait: !!body.noPortrait,
             noToken: !!body.noToken,
             keepRawToken: !!body.keepRawToken,
+            unarmed: !!body.unarmed,
             server: typeof body.server === 'string' && body.server ? body.server : null,
             dryRun: !!body.dryRun,
         });
