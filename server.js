@@ -463,16 +463,33 @@ function startRegenJob(item, { which, seedMode, seed }) {
 const createJobs = new Map();
 const CREATE_LOG_LIMIT = 20000;
 
-// Mirrors generate-npc.py's REQUIRED_TABLES, minus Pronouns (which gets its
-// own field in the GUI, same as --pronouns on the CLI). Kept as a plain
-// constant rather than parsed out of npc-generator-tables.md: the table
-// *headings* required by the prompt templates are fixed by the script, while
-// the file's per-gender variant headings are what's actually free to grow.
-const OVERRIDE_TABLES = [
-    'Given names', 'Family names', 'Callsigns', 'Age', 'Build', 'Skin', 'Hair',
-    'Eyes', 'Feature', 'Demeanor', 'Role', 'Faction', 'Outfit', 'Headgear',
-    'Gear', 'Accent', 'Backdrop', 'Weather', 'Stance',
+const overrideTables = require('./lib/overrideTables');
+
+// Derived from generate-npc.py's REQUIRED_TABLES rather than restated, because
+// a restated copy drifted: Weapon, Theme, Height and Hair colour were all
+// unreachable from the override dropdown, and Accent outlived its rename.
+// Read once at startup - the generator does not change under a running server,
+// and a per-request read would stat the script on every page load.
+//
+// The fallback is the list as it stood when this was derived, so a generator
+// whose REQUIRED_TABLES cannot be parsed still yields a working dropdown
+// rather than an empty one.
+const OVERRIDE_TABLES_FALLBACK = [
+    'Given names', 'Family names', 'Callsigns', 'Theme', 'Age', 'Build',
+    'Height', 'Skin', 'Hair', 'Hair colour', 'Eyes', 'Feature', 'Demeanor',
+    'Role', 'Faction', 'Outfit', 'Headgear', 'Weapon', 'Gear', 'Glow colour',
+    'Backdrop', 'Weather', 'Stance',
 ];
+
+const OVERRIDE_TABLES = (() => {
+    try {
+        const source = fs.readFileSync(GENERATE_NPC_SCRIPT, 'utf8');
+        const derived = overrideTables.overrideTablesFrom(source);
+        return derived.length ? derived : OVERRIDE_TABLES_FALLBACK;
+    } catch {
+        return OVERRIDE_TABLES_FALLBACK;
+    }
+})();
 
 function startCreateJob(opts) {
     if (!fs.existsSync(GENERATE_NPC_SCRIPT)) {
