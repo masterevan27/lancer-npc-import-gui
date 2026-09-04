@@ -487,8 +487,17 @@ const OVERRIDE_TABLES = (() => {
     try {
         const source = fs.readFileSync(GENERATE_NPC_SCRIPT, 'utf8');
         const derived = overrideTables.overrideTablesFrom(source);
-        return derived.length ? derived : OVERRIDE_TABLES_FALLBACK;
-    } catch {
+        if (derived.length) return derived;
+        console.warn(
+            `REQUIRED_TABLES in ${GENERATE_NPC_SCRIPT} parsed to zero entries - `
+            + 'falling back to the hard-coded OVERRIDE_TABLES_FALLBACK list.',
+        );
+        return OVERRIDE_TABLES_FALLBACK;
+    } catch (err) {
+        console.warn(
+            `Could not read/parse REQUIRED_TABLES from ${GENERATE_NPC_SCRIPT} (${err.message}) - `
+            + 'falling back to the hard-coded OVERRIDE_TABLES_FALLBACK list.',
+        );
         return OVERRIDE_TABLES_FALLBACK;
     }
 })();
