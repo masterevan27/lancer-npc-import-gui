@@ -389,6 +389,24 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 #detail-traits { border-collapse: collapse; font-size: 0.85rem; }
 #detail-traits td { padding: 0.15rem 0.6rem 0.15rem 0; vertical-align: top; }
 #detail-traits td:first-child { color: #9aa1ad; white-space: nowrap; }
+#detail-traits td:last-child { padding-right: 0; }
+.reroll-btn {
+  background: none;
+  border: 1px solid #363b47;
+  color: #9aa1ad;
+  border-radius: 5px;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  visibility: hidden;
+}
+/* Revealed on hover so a dense trait table is not a wall of buttons, but kept
+   in the layout (visibility, not display) so rows do not reflow under the
+   cursor. Focus reveals it too, so it stays reachable by keyboard. */
+#detail-traits tr:hover .reroll-btn,
+.reroll-btn:focus { visibility: visible; }
+.reroll-btn:hover { border-color: #3d6ef0; color: #e6e6e6; }
+.reroll-btn:disabled { opacity: 0.4; cursor: default; border-color: #2c2f38; }
 #detail-prompts h3 { font-size: 0.82rem; color: #9aa1ad; margin: 0.9rem 0 0.3rem; }
 #detail-prompts pre {
   white-space: pre-wrap;

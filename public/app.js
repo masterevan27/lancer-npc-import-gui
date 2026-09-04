@@ -396,9 +396,23 @@ function openDetail(item) {
     .filter(Boolean)
     .join(' — ');
   el.detailGenerated.textContent = formatGeneratedWhen(item.when);
+  // A reroll button per trait the generator will re-roll on its own. The list
+  // comes from the server, which derives it from generate-npc.py's
+  // REROLLABLE_TRAITS - it is not every trait, because a manifest entry stores
+  // bullets with their flags stripped and a trait gated by another trait's
+  // flags cannot be re-rolled correctly from one. Traits not on the list
+  // simply get no button rather than a disabled one: there is nothing the user
+  // can do about it, so an inert control would only invite clicking.
   el.detailTraits.innerHTML = Object.entries(item.traits || {})
     .filter(([k]) => !['name', 'Given names', 'Family names'].includes(k))
-    .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`)
+    .map(([k, v]) => {
+      const canReroll = createState.rerollableTraits.includes(k);
+      const button = canReroll
+        ? `<button type="button" class="reroll-btn" data-trait="${escapeHtml(k)}"
+             title="Re-roll ${escapeHtml(k)} and re-render this NPC">Re-roll</button>`
+        : '';
+      return `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td><td>${button}</td></tr>`;
+    })
     .join('');
 
   // Only recorded by generate-npc.py versions new enough to save it - older
@@ -432,6 +446,11 @@ function renderRegenPanel(item) {
   el.regenBtn.textContent = running ? 'Regenerating…' : 'Regenerate';
   for (const radio of document.querySelectorAll('#regen-panel input[type="radio"]')) radio.disabled = running;
   el.regenSeedInput.disabled = running || seedMode !== 'specific';
+  // A reroll IS a regen job, so it shares the running flag - two at once on
+  // one NPC would have the second overwrite the first's output.
+  for (const button of el.detailTraits.querySelectorAll('.reroll-btn')) {
+    button.disabled = running;
+  }
 
   const justFinished = item.regenStatus === 'done' && state.regenLastStatus !== 'done';
   if (running) {
@@ -832,6 +851,7 @@ elBanner.show.addEventListener('click', async () => {
 
 const createState = {
   overrideTables: [],
+  rerollableTraits: [],   // traits --reroll-trait accepts; see renderDetail()
   traitOptions: {},   // { [baseTableName]: Array<{ value, label, heading, isVariant, enabled }> }
   tablesLoaded: false,
   overrides: [], // { table, value, custom }
@@ -858,8 +878,9 @@ const elCreate = {
 
 async function loadOverrideTables() {
   try {
-    const { tables } = await api('/api/npc-tables');
+    const { tables, rerollable } = await api('/api/npc-tables');
     createState.overrideTables = tables;
+    createState.rerollableTraits = rerollable || [];
     createState.tablesLoaded = true;
     renderOverrideRows();
   } catch (err) {
@@ -1324,9 +1345,55 @@ elTraits.importBtn.addEventListener('click', async () => {
   await refreshTraitCandidates();
 });
 
+el.detailTraits.addEventListener('click', async (event) => {
+  const button = event.target.closest('.reroll-btn');
+  if (!button) return;
+  const id = state.detailItemId;
+  if (!id) return;
+  const trait = button.dataset.trait;
+
+  button.disabled = true;
+  try {
+    const res = await fetch('/api/reroll-trait', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, table: trait }),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      el.regenStatus.textContent =
+        `Couldn't re-roll ${trait}: ${result.reason || result.error || res.status}`;
+      button.disabled = false;
+      return;
+    }
+    el.regenStatus.textContent =
+      `Re-rolling ${trait} and re-rendering… this can take a few minutes `
+      + '(ComfyUI must be running).';
+    // Hand over to the regen poller, which already watches regenStatus, swaps
+    // the art in when the job finishes and reports a failure - a reroll is a
+    // regen job, so none of that needs a second copy here.
+    state.regenLastStatus = 'running';
+    await refreshItems();
+  } catch (err) {
+    el.regenStatus.textContent = `Couldn't re-roll ${trait}: ${err.message}`;
+    button.disabled = false;
+  }
+});
+
 loadCategories().catch((err) => {
   el.status.textContent = `Failed to load: ${err.message}`;
 });
+
+// The reroll buttons need this list, and the detail sheet can be opened
+// without ever visiting the Create tab that would otherwise load it. Failure
+// is silent by design: the buttons simply do not appear, which is the same
+// state as a generator too old to have REROLLABLE_TRAITS at all.
+api('/api/npc-tables')
+  .then(({ tables, rerollable }) => {
+    createState.overrideTables = tables;
+    createState.rerollableTraits = rerollable || [];
+  })
+  .catch(() => { /* no reroll buttons; the Create tab reports its own failure */ });
 
 /* ==================================================================== */
 /* Tables (per-bullet enable/disable)                                   */

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseRequiredTables, overrideTablesFrom } = require('../lib/overrideTables');
+const { parseRequiredTables, overrideTablesFrom, rerollableTraitsFrom } = require('../lib/overrideTables');
 
 // A verbatim excerpt of generate-npc.py's REQUIRED_TABLES, wrapped in enough
 // surrounding source that the parser has to actually find it rather than
@@ -60,4 +60,32 @@ test('overrideTablesFrom offers Glow colour and not the old Accent name', () => 
 test('parseRequiredTables returns an empty list when the constant is absent', () => {
     // A generator too old or too new to have it must not crash the server.
     assert.deepEqual(parseRequiredTables('x = 1\n'), []);
+});
+
+/* ---- rerollableTraitsFrom: the --reroll-trait list, derived not restated ---- */
+
+test('rerollableTraitsFrom reads the generator REROLLABLE_TRAITS tuple', () => {
+    const source = [
+        'REQUIRED_TABLES = [',
+        '    "Pronouns", "Hair", "Outfit",',
+        ']',
+        '',
+        'REROLLABLE_TRAITS = (',
+        '    "Callsigns", "Hair", "Eyes",',
+        '    "Glow placement",',
+        ')',
+    ].join('\n');
+    assert.deepEqual(rerollableTraitsFrom(source),
+        ['Callsigns', 'Hair', 'Eyes', 'Glow placement']);
+});
+
+test('rerollableTraitsFrom returns an empty list rather than throwing on a miss', () => {
+    // Same contract parseRequiredTables has: a reformatted or renamed constant
+    // degrades to "offer no reroll buttons", never to a crashed server.
+    assert.deepEqual(rerollableTraitsFrom('nothing of interest here'), []);
+});
+
+test('rerollableTraitsFrom does not pick up REQUIRED_TABLES by mistake', () => {
+    const source = 'REQUIRED_TABLES = [\n    "Pronouns", "Hair",\n]\n';
+    assert.deepEqual(rerollableTraitsFrom(source), []);
 });
