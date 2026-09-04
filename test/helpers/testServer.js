@@ -27,13 +27,18 @@ async function startTestServer({ tablesText, port, generatorSource }) {
     const foundryRoot = path.join(dir, 'FoundryData');
     fs.mkdirSync(foundryRoot, { recursive: true });
 
-    // Most tests never spawn generate-npc.py at all, so there's normally
-    // nothing to stub. When a caller wants to assert on the command line the
-    // server builds, generatorSource writes that source as a stub script and
-    // points the config at it - see api.createArgs.test.js.
+    // Several existing tests already reach startCreateJob and spawn
+    // generate-npc.py - they just never assert on what it prints. When a
+    // caller wants to assert on the command line the server builds,
+    // generatorSource writes that source as a stub script and points the
+    // config at it - see api.createArgs.test.js. The stub is plain Node
+    // (not Python), and pythonExecutable is repointed at process.execPath
+    // to run it, so asserting on the server's argv-building never depends
+    // on a `python` interpreter being on PATH - CI's ubuntu-latest images
+    // ship python3 but not reliably a bare `python`.
     let generateNpcScript;
     if (generatorSource) {
-        generateNpcScript = path.join(dir, 'generate-npc.py');
+        generateNpcScript = path.join(dir, 'generate-npc.js');
         fs.writeFileSync(generateNpcScript, generatorSource);
     }
 
@@ -47,7 +52,7 @@ async function startTestServer({ tablesText, port, generatorSource }) {
         npcTablesPath: tablesPath,
         stagedImportsDir: path.join(dir, 'staged-imports'),
         presetsDir,
-        ...(generateNpcScript ? { generateNpcScript } : {}),
+        ...(generateNpcScript ? { generateNpcScript, pythonExecutable: process.execPath } : {}),
     }));
 
     const child = spawn(process.execPath, [SERVER_JS], {

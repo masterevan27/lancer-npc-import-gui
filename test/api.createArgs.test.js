@@ -12,13 +12,10 @@ const TABLES_FIXTURE = [
 ].join('\n');
 
 // A stub standing in for generate-npc.py: it echoes its own argv so the test
-// can assert on the command line the server built, without needing Python or
-// a ComfyUI server present.
-const STUB = [
-    'import sys',
-    'print(" ".join(sys.argv[1:]))',
-    '',
-].join('\n');
+// can assert on the command line the server built, without needing Python,
+// a ComfyUI server, or any interpreter beyond the Node binary already
+// running this test (startTestServer runs it via process.execPath).
+const STUB = 'console.log(process.argv.slice(2).join(" "));\n';
 
 async function runCreate(server, body) {
     const res = await fetch(`${server.baseUrl}/api/create-npc`, {
