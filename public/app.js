@@ -516,16 +516,30 @@ el.overlay.addEventListener('click', (e) => {
 });
 
 /** Whether focus is somewhere typing should win over navigation. */
-function isTypingTarget(el) {
-  if (!el) return false;
-  if (el.isContentEditable) return true;
-  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName);
+function isTypingTarget(target) {
+  if (!target) return false;
+  if (target.isContentEditable) return true;
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+}
+
+/**
+ * Cancel the open delete-confirmation dialog exactly as its own Cancel
+ * button would, rather than just hiding it. confirmDelete() is Promise-based
+ * and only resolves (and removes its onOk/onCancel/onBackdrop listeners)
+ * inside cleanup(), which the Ok/Cancel/backdrop paths call - if Esc merely
+ * hid the overlay, that Promise would stay unresolved and those listeners
+ * would stay attached, so the *next* confirmDelete() call stacks its own
+ * listeners on top, and a later click on Ok fires both: the abandoned one
+ * resolves true and deletes whatever NPC was open when it was raised.
+ */
+function cancelDeleteConfirm() {
+  elDeleteConfirm.cancel.click();
 }
 
 /** The overlays stacked above the NPC detail sheet, innermost first. */
 function topmostOverlay() {
   if (!el.imageZoom.hidden) return { close: () => { el.imageZoom.hidden = true; } };
-  if (!elDeleteConfirm.overlay.hidden) return { close: () => { elDeleteConfirm.overlay.hidden = true; } };
+  if (!elDeleteConfirm.overlay.hidden) return { close: () => cancelDeleteConfirm() };
   if (!elTraits.overlay.hidden) return { close: () => { elTraits.overlay.hidden = true; } };
   if (!elTables.preview.hidden) return { close: () => cancelPresetPreview() };
   return null;
