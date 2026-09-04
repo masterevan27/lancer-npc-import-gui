@@ -832,8 +832,9 @@ elBanner.show.addEventListener('click', async () => {
 
 const createState = {
   overrideTables: [],
+  traitOptions: {},   // { [baseTableName]: Array<{ value, label, heading, isVariant, enabled }> }
   tablesLoaded: false,
-  overrides: [], // { table, value }
+  overrides: [], // { table, value, custom }
   pollTimer: null,
 };
 
@@ -875,6 +876,16 @@ async function loadOverrideTables() {
     // point, so a pronouns failure must not be blamed on "trait tables",
     // and must not stop createState.tablesLoaded from being true - the
     // override rows it gates loaded fine.
+    // Own try/catch for the same reason as pronouns below: the picker is an
+    // enhancement over the free-text input, which still works without it.
+    try {
+      const { options } = await api('/api/trait-options');
+      createState.traitOptions = options;
+      renderOverrideRows();
+    } catch {
+      createState.traitOptions = {};   // every row falls back to free text
+    }
+
     const { subjects } = await api('/api/pronouns');
     const select = document.getElementById('create-pronouns');
     select.innerHTML = '<option value="">Any</option>';
@@ -888,6 +899,9 @@ async function loadOverrideTables() {
     elCreate.status.textContent = `Failed to load pronoun options: ${err.message}`;
   }
 }
+
+/** Sentinel <option> value meaning "let me type something not in the table". */
+const CUSTOM_OVERRIDE = '__custom__';
 
 function renderOverrideRows() {
   elCreate.overrideRows.innerHTML = '';
@@ -908,13 +922,86 @@ function renderOverrideRows() {
     tableSelect.addEventListener('change', () => { override.table = tableSelect.value; });
     row.appendChild(tableSelect);
 
+
+    // A picker over the table's own bullets, plus the free-text input that
+    // was here before it. --set-trait takes a bullet verbatim including its
+    // '||' flags, and those flags gate the Weapon, Gear and Backdrop rolls
+    // that follow - so an option's value is the raw bullet text and only its
+    // label is prettied up. Typing one by hand stays possible (the generator
+    // accepts values that are in no table at all), which is what CUSTOM is
+    // for; it is also the whole behaviour when /api/trait-options failed.
+    const options = createState.traitOptions[override.table] || [];
+
+    const valueSelect = document.createElement('select');
+    valueSelect.className = 'filter-value';
+    const blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = options.length ? '— pick a value —' : '— no values loaded —';
+    valueSelect.appendChild(blank);
+
+    // Grouped by the heading each bullet came from, so a woman-only option is
+    // visibly a woman-only option rather than sitting unmarked among the
+    // neutral ones.
+    let group = null;
+    let groupName = null;
+    for (const option of options) {
+      if (option.heading !== groupName) {
+        groupName = option.heading;
+        group = document.createElement('optgroup');
+        group.label = option.isVariant ? `${option.heading} (this pronoun set only)` : option.heading;
+        valueSelect.appendChild(group);
+      }
+      const opt = document.createElement('option');
+      opt.value = option.value;
+      // Disabled bullets are offered, since --set-trait bypasses the roll
+      // pool entirely and forcing one is legitimate - marked, not hidden.
+      opt.textContent = option.enabled ? option.label : `${option.label}  [disabled]`;
+      if (!option.enabled) opt.className = 'trait-option-disabled';
+      opt.selected = !override.custom && option.value === override.value;
+      group.appendChild(opt);
+    }
+
+    const customOpt = document.createElement('option');
+    customOpt.value = CUSTOM_OVERRIDE;
+    customOpt.textContent = 'Custom value…';
+    customOpt.selected = !!override.custom;
+    valueSelect.appendChild(customOpt);
+    row.appendChild(valueSelect);
+
     const valueInput = document.createElement('input');
     valueInput.type = 'text';
     valueInput.className = 'filter-value';
     valueInput.placeholder = 'value, e.g. "a field medic" or "in her sixties || young"';
     valueInput.value = override.value;
+    // With no options to pick from - a table the generator has that the
+    // tables file does not, or a failed /api/trait-options - the row falls
+    // back to exactly the free-text input it was before the picker existed,
+    // rather than making the user select 'Custom value...' to reach it.
+    valueInput.hidden = !override.custom && options.length > 0;
     valueInput.addEventListener('input', () => { override.value = valueInput.value; });
     row.appendChild(valueInput);
+
+    valueSelect.addEventListener('change', () => {
+      if (valueSelect.value === CUSTOM_OVERRIDE) {
+        override.custom = true;
+        valueInput.hidden = false;
+        valueInput.focus();
+        return;
+      }
+      override.custom = false;
+      override.value = valueSelect.value;
+      valueInput.value = valueSelect.value;
+      valueInput.hidden = true;
+    });
+
+    // Changing the table changes which bullets are on offer, so the row has
+    // to be rebuilt - and the old value, which belonged to the old table, is
+    // dropped rather than carried into a table it means nothing in.
+    tableSelect.addEventListener('change', () => {
+      override.value = '';
+      override.custom = false;
+      renderOverrideRows();
+    });
 
     const remove = document.createElement('button');
     remove.type = 'button';

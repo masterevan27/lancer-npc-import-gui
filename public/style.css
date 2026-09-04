@@ -69,6 +69,13 @@ body {
 }
 .batch-banner .batch-banner-dismiss:hover { background: none; color: #eafff2; }
 
+/* A bullet switched off on the Tables tab, still offered here because
+   --set-trait bypasses the roll pool and forcing one is legitimate. Native
+   <option> styling is limited and ignored outright on some platforms, so the
+   label also carries a "[disabled]" suffix - this is the hint, not the
+   mechanism. */
+.trait-option-disabled { color: #8b93a1; font-style: italic; }
+
 .categories { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
 .categories button {
   background: #262a33;

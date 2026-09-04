@@ -54,6 +54,7 @@ const tableGroups = require('./lib/tableGroups');
 const presets = require('./lib/presets');
 const { derivePaths } = require('./lib/paths');
 const pronouns = require('./lib/pronouns');
+const traitOptions = require('./lib/traitOptions');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -859,6 +860,18 @@ async function handleApi(req, res, url) {
 
     if (url.pathname === '/api/npc-tables' && req.method === 'GET') {
         return sendJson(res, 200, { tables: OVERRIDE_TABLES });
+    }
+
+    if (url.pathname === '/api/trait-options' && req.method === 'GET') {
+        // Every table's bullets, keyed by base table name, for the Create
+        // form's per-override value dropdown. Same source as
+        // /api/table-bullets - the parsed tables file - but shaped for
+        // picking one value rather than for editing the file, and with
+        // per-pronoun variants folded into the base table the override
+        // dropdown actually names. See lib/traitOptions.js for why an
+        // option's value keeps its '||' flags.
+        const parsed = tableBullets.readTables(NPC_TABLES_PATH);
+        return sendJson(res, 200, { options: traitOptions.traitOptionsFrom(parsed) });
     }
 
     if (url.pathname === '/api/pronouns' && req.method === 'GET') {
