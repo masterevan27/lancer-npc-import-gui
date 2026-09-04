@@ -376,6 +376,14 @@ function formatGeneratedWhen(when) {
   })}`;
 }
 
+// Faction bullets are `Name || visual signature || flags` - only the name
+// belongs in the subtitle, the visual segment feeds the image prompt instead.
+// Older manifest entries have no `||` at all, so pass those through unchanged.
+function factionDisplayName(faction) {
+  if (!faction) return faction;
+  return faction.split('||')[0].trim();
+}
+
 function openDetail(item) {
   // portraitUrl/tokenUrl carry the source file's mtime as a version query
   // param (see itemView in server.js), so a Regenerate since this item was
@@ -384,7 +392,7 @@ function openDetail(item) {
   el.detailPortrait.src = item.portraitUrl || '';
   el.detailToken.src = item.tokenUrl || '';
   el.detailName.textContent = item.name;
-  el.detailSub.textContent = [item.roleCategory, item.traits?.Role, item.traits?.Faction]
+  el.detailSub.textContent = [item.roleCategory, item.traits?.Role, factionDisplayName(item.traits?.Faction)]
     .filter(Boolean)
     .join(' — ');
   el.detailGenerated.textContent = formatGeneratedWhen(item.when);
@@ -504,6 +512,96 @@ el.overlay.addEventListener('click', (e) => {
     el.overlay.hidden = true;
     el.imageZoom.hidden = true;
     state.detailItemId = null;
+  }
+});
+
+/** Whether focus is somewhere typing should win over navigation. */
+function isTypingTarget(target) {
+  if (!target) return false;
+  if (target.isContentEditable) return true;
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+}
+
+/**
+ * Cancel the open delete-confirmation dialog exactly as its own Cancel
+ * button would, rather than just hiding it. confirmDelete() is Promise-based
+ * and only resolves (and removes its onOk/onCancel/onBackdrop listeners)
+ * inside cleanup(), which the Ok/Cancel/backdrop paths call - if Esc merely
+ * hid the overlay, that Promise would stay unresolved and those listeners
+ * would stay attached, so the *next* confirmDelete() call stacks its own
+ * listeners on top, and a later click on Ok fires both: the abandoned one
+ * resolves true and deletes whatever NPC was open when it was raised.
+ */
+function cancelDeleteConfirm() {
+  elDeleteConfirm.cancel.click();
+}
+
+/**
+ * The overlays stacked above the NPC detail sheet, innermost first.
+ *
+ * Every other entry here lives as a top-level sibling after </main>, so
+ * `hidden` tracks real visibility. #preset-preview is the one exception -
+ * it is nested inside the Tables tab's own panel, so switchTab hiding that
+ * panel does not hide the preview element itself; left unhandled, `hidden`
+ * would stay false while the preview is actually invisible on every other
+ * tab, and this function would report it "open" when nothing is on screen
+ * to close. switchTab() dismisses any pending preview on the way out of the
+ * Tables tab (see below), so in practice this branch is only ever reached
+ * while the Tables tab is showing - it stays here as a direct, defensive
+ * translation of "not hidden" to "open" rather than relying solely on that
+ * invariant holding elsewhere.
+ */
+function topmostOverlay() {
+  if (!el.imageZoom.hidden) return { close: () => { el.imageZoom.hidden = true; } };
+  if (!elDeleteConfirm.overlay.hidden) return { close: () => cancelDeleteConfirm() };
+  if (!elTraits.overlay.hidden) return { close: () => { elTraits.overlay.hidden = true; } };
+  if (!elTables.preview.hidden) return { close: () => cancelPresetPreview() };
+  return null;
+}
+
+/** Move `offset` places through the grid's current order and open that NPC. */
+function stepDetail(offset) {
+  const index = state.visibleItems.findIndex((i) => i.id === state.detailItemId);
+  if (index === -1) return;
+  // Clamped, not wrapping: arrowing off the end of a filtered list and
+  // landing back at the start reads as a bug rather than a convenience.
+  const next = state.visibleItems[index + offset];
+  if (next) openDetail(next);
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+  // Esc must work even while focus is in a field (e.g. the regenerate-seed
+  // input) - the hint line advertises "Esc close" unconditionally. Arrow
+  // keys stay blocked while typing, since those belong to the NPC sheet's
+  // navigation, not to whatever field is focused.
+  if (e.key !== 'Escape' && isTypingTarget(document.activeElement)) return;
+
+  if (e.key === 'Escape') {
+    const nested = topmostOverlay();
+    if (nested) {
+      nested.close();
+      e.preventDefault();
+      return;
+    }
+    if (!el.overlay.hidden) {
+      el.overlay.hidden = true;
+      el.imageZoom.hidden = true;
+      e.preventDefault();
+    }
+    return;
+  }
+
+  // Arrow navigation belongs to the NPC sheet alone, and only when nothing
+  // is stacked on top of it - arrowing the list out from under an open
+  // delete confirmation would be actively dangerous.
+  if (el.overlay.hidden || topmostOverlay()) return;
+  if (e.key === 'ArrowLeft') {
+    stepDetail(-1);
+    e.preventDefault();
+  } else if (e.key === 'ArrowRight') {
+    stepDetail(1);
+    e.preventDefault();
   }
 });
 
@@ -644,6 +742,12 @@ for (const btn of document.querySelectorAll('#tabs button')) {
 
 function switchTab(tab) {
   if (tab === tabState.current) return;
+  // #preset-preview sits inside the Tables panel rather than as a top-level
+  // overlay, so hiding that panel alone would leave a pending preview
+  // "open" (not hidden) but invisible - silently eating the first Esc
+  // press and blocking arrow-key navigation on whatever tab comes next.
+  // Dismiss it explicitly on the way out.
+  if (tabState.current === 'tables' && !elTables.preview.hidden) cancelPresetPreview();
   tabState.current = tab;
   for (const btn of document.querySelectorAll('#tabs button')) {
     btn.classList.toggle('active', btn.dataset.tab === tab);
@@ -684,6 +788,7 @@ const elCreate = {
   portrait: document.getElementById('create-portrait'),
   token: document.getElementById('create-token'),
   keepRaw: document.getElementById('create-keep-raw'),
+  unarmed: document.getElementById('create-unarmed'),
   overrideRows: document.getElementById('override-rows'),
   addOverrideBtn: document.getElementById('add-override'),
   dryRunBtn: document.getElementById('create-dry-run-btn'),
@@ -700,6 +805,29 @@ async function loadOverrideTables() {
     renderOverrideRows();
   } catch (err) {
     elCreate.status.textContent = `Failed to load trait tables: ${err.message}`;
+    return;
+  }
+
+  try {
+    // Built from the tables file rather than hardcoded in the markup. The
+    // generator removed they/them and the hardcoded option outlived it by
+    // months, silently sending a value that matched nothing.
+    //
+    // Own try/catch: the tables fetch above already succeeded by this
+    // point, so a pronouns failure must not be blamed on "trait tables",
+    // and must not stop createState.tablesLoaded from being true - the
+    // override rows it gates loaded fine.
+    const { subjects } = await api('/api/pronouns');
+    const select = document.getElementById('create-pronouns');
+    select.innerHTML = '<option value="">Any</option>';
+    for (const subject of subjects) {
+      const option = document.createElement('option');
+      option.value = subject;
+      option.textContent = subject;
+      select.appendChild(option);
+    }
+  } catch (err) {
+    elCreate.status.textContent = `Failed to load pronoun options: ${err.message}`;
   }
 }
 
@@ -768,6 +896,7 @@ function createRequestBody(dryRun) {
     noPortrait: !elCreate.portrait.checked,
     noToken: !elCreate.token.checked,
     keepRawToken: elCreate.keepRaw.checked,
+    unarmed: elCreate.unarmed.checked,
     overrides: createState.overrides.filter((o) => o.table && o.value.trim()),
     dryRun,
   };
@@ -1059,6 +1188,7 @@ loadCategories().catch((err) => {
 
 const tablesState = {
   tables: [],
+  groups: [],
   selectedTable: null,
   presets: [],
   pendingPreset: null, // the parsed preset object currently shown in the preview, or null
@@ -1080,7 +1210,15 @@ const elTables = {
 };
 
 async function loadTables() {
-  const { tables } = await api('/api/table-bullets');
+  const { groups } = await api('/api/table-bullets');
+  tablesState.groups = groups;
+  // The server sends only the grouped shape - groups[].rows[].table are the
+  // same table objects as a flat list would contain, but that object
+  // identity does not survive JSON.parse. Deriving tables from groups here
+  // (rather than the server sending both) keeps the client to one object
+  // graph, so a mutation like toggleBullet's stays visible everywhere,
+  // including the next renderTableHeadingList() rebuild.
+  const tables = groups.flatMap((g) => g.rows.map((r) => r.table));
   tablesState.tables = tables;
   elTables.empty.hidden = tables.length > 0;
   if (!tablesState.selectedTable || !tables.some((t) => t.name === tablesState.selectedTable)) {
@@ -1092,21 +1230,36 @@ async function loadTables() {
 
 function renderTableHeadingList() {
   elTables.headingList.innerHTML = '';
-  for (const table of tablesState.tables) {
-    const disabledCount = table.bullets.filter((b) => !b.enabled).length;
-    const row = document.createElement('button');
-    row.type = 'button';
-    row.className = 'table-heading-row' + (table.name === tablesState.selectedTable ? ' active' : '');
-    row.textContent = disabledCount
-      ? `${table.name} (${table.bullets.length}, ${disabledCount} disabled)`
-      : `${table.name} (${table.bullets.length})`;
-    row.addEventListener('click', () => {
-      tablesState.selectedTable = table.name;
-      renderTableHeadingList();
-      renderTableBullets();
-    });
-    elTables.headingList.appendChild(row);
+  for (const { group, rows } of tablesState.groups) {
+    const header = document.createElement('div');
+    header.className = 'table-group-header';
+    header.textContent = group;
+    elTables.headingList.appendChild(header);
+
+    for (const { table, isVariant } of rows) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'table-heading-row'
+        + (isVariant ? ' variant' : '')
+        + (table.name === tablesState.selectedTable ? ' active' : '');
+      row.dataset.table = table.name;
+      row.textContent = headingLabel(table);
+      row.addEventListener('click', () => {
+        tablesState.selectedTable = table.name;
+        renderTableHeadingList();
+        renderTableBullets();
+      });
+      elTables.headingList.appendChild(row);
+    }
   }
+}
+
+/** The row's label, including its disabled-count badge. */
+function headingLabel(table) {
+  const disabledCount = table.bullets.filter((b) => !b.enabled).length;
+  return disabledCount
+    ? `${table.name} (${table.bullets.length}, ${disabledCount} disabled)`
+    : `${table.name} (${table.bullets.length})`;
 }
 
 function renderTableBullets() {
@@ -1151,7 +1304,12 @@ async function toggleBullet(tableName, bullet, checkboxEl) {
       body: JSON.stringify({ table: tableName, text: bullet.text, enabled: nextEnabled }),
     });
     bullet.enabled = nextEnabled;
-    renderTableHeadingList(); // the disabled-count badge changed
+    // Only this row's badge changed. Rebuilding the whole list -- thirty-odd
+    // buttons and their group headers -- also threw away the list's scroll
+    // position on every click.
+    const table = tablesState.tables.find((t) => t.name === tableName);
+    const row = elTables.headingList.querySelector(`[data-table="${CSS.escape(tableName)}"]`);
+    if (table && row) row.textContent = headingLabel(table);
   } catch (err) {
     checkboxEl.checked = !nextEnabled; // revert - the write failed
     alert(`Couldn't update that bullet: ${err.message}`);
@@ -1331,7 +1489,9 @@ elTables.applyBtn.addEventListener('click', async () => {
   await loadTables();
 });
 
-elTables.cancelBtn.addEventListener('click', () => {
+/** Dismiss the pending preset-import preview without applying it. */
+function cancelPresetPreview() {
   tablesState.pendingPreset = null;
   elTables.preview.hidden = true;
-});
+}
+elTables.cancelBtn.addEventListener('click', cancelPresetPreview);

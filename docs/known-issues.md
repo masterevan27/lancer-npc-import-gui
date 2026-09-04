@@ -11,6 +11,14 @@ shipped (branch `tables-presets-refinements`, merged to
 `main` at `eb06a0a`). Read that commit and its parents for the surrounding
 context if any of these become worth fixing.
 
+One drift this list never carried is already fixed, so a future reader does
+not go looking for it: the override dropdown's table list used to be a
+hand-maintained constant in `server.js` that had silently fallen out of sync
+with `generate-npc.py`'s `REQUIRED_TABLES` (missing `Weapon`, `Theme`,
+`Height` and `Hair colour`, and still naming the renamed `Glow colour` table
+`Accent`). It is now derived from `REQUIRED_TABLES` directly — see
+`lib/overrideTables.js` — so the two cannot drift again.
+
 ## Tables & Presets (Import GUI)
 
 1. **`/api/presets/apply` swallows failed writes.** The route's write loops

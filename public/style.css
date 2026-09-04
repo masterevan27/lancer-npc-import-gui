@@ -269,6 +269,14 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .detail-title-row h2 { flex: 1; }
 .detail-title-row .danger { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
 
+/* Present for someone looking for it, not competing with the NPC's name. */
+.detail-shortcuts {
+  margin: 0.15rem 0 0;
+  font-size: 0.72rem;
+  color: #6b7280;
+  letter-spacing: 0.02em;
+}
+
 .confirm-dialog { max-width: 480px; }
 .confirm-dialog h2 { margin: 0 0 0.6rem; }
 .confirm-dialog p { color: #d7dae0; }
@@ -461,11 +469,19 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   gap: 1rem;
   align-items: flex-start;
 }
+/* A fixed basis, not min-width. As a flex item with content-driven width, this
+   column widened the instant a heading's badge grew from "Stance (37)" to
+   "Stance (37, 1 disabled)" -- which shoved the bullet panel sideways every
+   time a checkbox was clicked. */
 .table-heading-list {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  min-width: 220px;
+  flex: 0 0 260px;
+  min-width: 0;
+}
+.table-heading-row {
+  overflow-wrap: anywhere;
 }
 .table-heading-row {
   text-align: left;
@@ -478,6 +494,15 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   cursor: pointer;
 }
 .table-heading-row.active { border-color: #7c8ba1; background: #262a33; color: #fff; }
+.table-group-header {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7c8ba1;
+  margin: 0.6rem 0 0.1rem;
+}
+.table-group-header:first-child { margin-top: 0; }
+.table-heading-row.variant { margin-left: 0.9rem; }
 .table-bullet-panel { flex: 1; min-width: 0; }
 .table-bullet-row {
   display: flex;

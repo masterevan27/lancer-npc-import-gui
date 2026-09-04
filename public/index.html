@@ -71,9 +71,6 @@
         Pronouns
         <select id="create-pronouns">
           <option value="">Any</option>
-          <option value="she">she</option>
-          <option value="he">he</option>
-          <option value="they">they</option>
         </select>
       </label>
       <label class="form-field">
@@ -86,6 +83,7 @@
       <label><input type="checkbox" id="create-portrait" checked /> Generate portrait</label>
       <label><input type="checkbox" id="create-token" checked /> Generate token</label>
       <label><input type="checkbox" id="create-keep-raw" /> Keep raw (pre-background-removal) token</label>
+      <label><input type="checkbox" id="create-unarmed" /> Unarmed run <span class="hint">(military and criminal roles keep their weapons)</span></label>
     </div>
 
     <h3>Trait overrides <span class="hint">(force specific rolled traits, e.g. Role = a field medic)</span></h3>
@@ -183,6 +181,7 @@
         <h2 id="detail-name"></h2>
         <button id="detail-delete-btn" class="danger" type="button">Delete…</button>
       </div>
+      <p class="detail-shortcuts">&larr; &rarr; navigate &middot; Esc close</p>
       <p id="detail-sub"></p>
       <p class="detail-generated" id="detail-generated"></p>
 

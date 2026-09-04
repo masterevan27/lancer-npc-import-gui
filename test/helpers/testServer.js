@@ -13,7 +13,7 @@ const SERVER_JS = path.join(__dirname, '..', '..', 'server.js');
  * concurrently, and every server in this suite binds a fixed port rather
  * than an OS-assigned one, so two files sharing a port would collide.
  */
-async function startTestServer({ tablesText, port }) {
+async function startTestServer({ tablesText, port, generatorSource }) {
     if (!port) throw new Error('startTestServer requires an explicit port');
     const host = '127.0.0.1';
     const baseUrl = `http://${host}:${port}`;
@@ -27,6 +27,21 @@ async function startTestServer({ tablesText, port }) {
     const foundryRoot = path.join(dir, 'FoundryData');
     fs.mkdirSync(foundryRoot, { recursive: true });
 
+    // Several existing tests already reach startCreateJob and spawn
+    // generate-npc.py - they just never assert on what it prints. When a
+    // caller wants to assert on the command line the server builds,
+    // generatorSource writes that source as a stub script and points the
+    // config at it - see api.createArgs.test.js. The stub is plain Node
+    // (not Python), and pythonExecutable is repointed at process.execPath
+    // to run it, so asserting on the server's argv-building never depends
+    // on a `python` interpreter being on PATH - CI's ubuntu-latest images
+    // ship python3 but not reliably a bare `python`.
+    let generateNpcScript;
+    if (generatorSource) {
+        generateNpcScript = path.join(dir, 'generate-npc.js');
+        fs.writeFileSync(generateNpcScript, generatorSource);
+    }
+
     const configPath = path.join(dir, 'config.json');
     fs.writeFileSync(configPath, JSON.stringify({
         port,
@@ -37,6 +52,7 @@ async function startTestServer({ tablesText, port }) {
         npcTablesPath: tablesPath,
         stagedImportsDir: path.join(dir, 'staged-imports'),
         presetsDir,
+        ...(generateNpcScript ? { generateNpcScript, pythonExecutable: process.execPath } : {}),
     }));
 
     const child = spawn(process.execPath, [SERVER_JS], {

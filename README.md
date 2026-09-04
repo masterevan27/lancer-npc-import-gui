@@ -72,18 +72,33 @@ and open <http://127.0.0.1:5089>.
   hand. Sort and filter the grid, see when each NPC was generated and the prompt
   that produced its art, regenerate art on any of them, and **Delete Selected**
   to remove an NPC's generated files entirely (blocked while an import or regen
-  is in flight; never touches an Actor already created in Foundry).
+  is in flight; never touches an Actor already created in Foundry). The detail
+  sheet a card opens supports the keyboard: **←/→** step to the previous/next
+  NPC in the grid's current filtered and sorted order (clamped at either end,
+  not wrapping), and **Esc** closes whatever overlay is topmost — a zoomed
+  image, a delete confirmation, the trait list, a preset preview — before
+  closing the sheet itself.
 - **Create NPC** — a form over `generate-npc.py`'s roll options (count, seed,
   name, pronouns, per-table trait overrides, portrait/token toggles,
   dry-run-vs-generate) that rolls new NPCs into the same review flow as the CLI.
+  An **Unarmed run** checkbox maps to the generator's `--unarmed`; it does not
+  disarm everyone — military and criminal roles keep their weapons.
 - **Trait Imports** — lists reference-image trait candidates staged by the
   `npc-trait-import` skill, sortable and dated, and appends the ones you approve
   as new bullets in `npc-generator-tables.md`.
-- **Tables** — shows every bullet in every table of `npc-generator-tables.md`.
-  Disable ones you don't want rolled without deleting them, set per-bullet roll
-  weights, and save the whole selection as a named preset. Download a preset,
-  hand it to another GM, and they can import it, preview exactly what it would
-  change, and apply it.
+- **Tables** — shows every bullet in every roll table of
+  `npc-generator-tables.md`. Headings are grouped as Identity, Body,
+  Appearance, Kit and Scene (a table the generator adds later that fits none
+  of those falls into a trailing Other rather than disappearing), with
+  per-pronoun variants like `Hair (she) +` nested under the `Hair` heading
+  they extend. The generator's own documentation sections — `How the script
+  reads this file` and `Prompt templates` — read like tables (they use `- `
+  bullets to explain the format) but aren't served as ones, so a stray click
+  can't comment out a paragraph of prose or prefix it with a roll weight.
+  Disable bullets you don't want rolled without deleting them, set per-bullet
+  roll weights, and save the whole selection as a named preset. Download a
+  preset, hand it to another GM, and they can import it, preview exactly what
+  it would change, and apply it.
 
 Only NPCs exist as generated content today — mechs and spaceships have no
 generator yet, so their categories won't appear until something writes manifest
@@ -108,14 +123,18 @@ before changing any `/importer/*` route — the client ships inside a released
 ## Development
 
 ```bash
-node --test
+node --test "test/*.test.js"
 ```
 
-Expect `pass 62`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 97`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other
 file uses.
+
+CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs bare
+`node --test` instead, which also picks up `test/helpers/testServer.js` as a
+file with no tests in it — expect `pass 98` there.
 
 Parked technical debt is in [docs/known-issues.md](docs/known-issues.md). The
 design behind the Tables and Presets features is in

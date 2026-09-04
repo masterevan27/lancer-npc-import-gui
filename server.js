@@ -50,8 +50,10 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const tableBullets = require('./lib/tableBullets');
+const tableGroups = require('./lib/tableGroups');
 const presets = require('./lib/presets');
 const { derivePaths } = require('./lib/paths');
+const pronouns = require('./lib/pronouns');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -463,16 +465,42 @@ function startRegenJob(item, { which, seedMode, seed }) {
 const createJobs = new Map();
 const CREATE_LOG_LIMIT = 20000;
 
-// Mirrors generate-npc.py's REQUIRED_TABLES, minus Pronouns (which gets its
-// own field in the GUI, same as --pronouns on the CLI). Kept as a plain
-// constant rather than parsed out of npc-generator-tables.md: the table
-// *headings* required by the prompt templates are fixed by the script, while
-// the file's per-gender variant headings are what's actually free to grow.
-const OVERRIDE_TABLES = [
-    'Given names', 'Family names', 'Callsigns', 'Age', 'Build', 'Skin', 'Hair',
-    'Eyes', 'Feature', 'Demeanor', 'Role', 'Faction', 'Outfit', 'Headgear',
-    'Gear', 'Accent', 'Backdrop', 'Weather', 'Stance',
+const overrideTables = require('./lib/overrideTables');
+
+// Derived from generate-npc.py's REQUIRED_TABLES rather than restated, because
+// a restated copy drifted: Weapon, Theme, Height and Hair colour were all
+// unreachable from the override dropdown, and Accent outlived its rename.
+// Read once at startup - the generator does not change under a running server,
+// and a per-request read would stat the script on every page load.
+//
+// The fallback is the list as it stood when this was derived, so a generator
+// whose REQUIRED_TABLES cannot be parsed still yields a working dropdown
+// rather than an empty one.
+const OVERRIDE_TABLES_FALLBACK = [
+    'Given names', 'Family names', 'Callsigns', 'Theme', 'Age', 'Build',
+    'Height', 'Skin', 'Hair', 'Hair colour', 'Eyes', 'Feature', 'Demeanor',
+    'Role', 'Faction', 'Outfit', 'Headgear', 'Weapon', 'Gear', 'Glow colour',
+    'Backdrop', 'Weather', 'Stance',
 ];
+
+const OVERRIDE_TABLES = (() => {
+    try {
+        const source = fs.readFileSync(GENERATE_NPC_SCRIPT, 'utf8');
+        const derived = overrideTables.overrideTablesFrom(source);
+        if (derived.length) return derived;
+        console.warn(
+            `REQUIRED_TABLES in ${GENERATE_NPC_SCRIPT} parsed to zero entries - `
+            + 'falling back to the hard-coded OVERRIDE_TABLES_FALLBACK list.',
+        );
+        return OVERRIDE_TABLES_FALLBACK;
+    } catch (err) {
+        console.warn(
+            `Could not read/parse REQUIRED_TABLES from ${GENERATE_NPC_SCRIPT} (${err.message}) - `
+            + 'falling back to the hard-coded OVERRIDE_TABLES_FALLBACK list.',
+        );
+        return OVERRIDE_TABLES_FALLBACK;
+    }
+})();
 
 function startCreateJob(opts) {
     if (!fs.existsSync(GENERATE_NPC_SCRIPT)) {
@@ -487,6 +515,7 @@ function startCreateJob(opts) {
     if (opts.noPortrait) args.push('--no-portrait');
     if (opts.noToken) args.push('--no-token');
     if (opts.keepRawToken) args.push('--keep-raw-token');
+    if (opts.unarmed) args.push('--unarmed');
     if (opts.server) args.push('--server', opts.server);
     if (opts.dryRun) args.push('--dry-run');
 
@@ -832,8 +861,27 @@ async function handleApi(req, res, url) {
         return sendJson(res, 200, { tables: OVERRIDE_TABLES });
     }
 
+    if (url.pathname === '/api/pronouns' && req.method === 'GET') {
+        // Read per request rather than cached at startup: the Tables tab can
+        // disable a Pronouns bullet while the server is running, and a stale
+        // dropdown would offer a set the generator will no longer roll.
+        let subjects = [];
+        try {
+            subjects = pronouns.subjectsFrom(fs.readFileSync(NPC_TABLES_PATH, 'utf8'));
+        } catch { /* no tables file - the client rebuilds the <select> with only "Any" */ }
+        return sendJson(res, 200, { subjects });
+    }
+
     if (url.pathname === '/api/table-bullets' && req.method === 'GET') {
-        return sendJson(res, 200, { tables: tableBullets.readTables(NPC_TABLES_PATH) });
+        const tables = tableBullets.readTables(NPC_TABLES_PATH);
+        // Grouped server-side so the ordering logic stays a testable pure
+        // function in lib/ rather than becoming untestable DOM code. Only the
+        // grouped shape is sent - `groups[].rows[].table` are the same table
+        // objects as `tables` here, but that reference sharing does not
+        // survive JSON.parse on the client, so a flat `tables` field would
+        // give the client two independent copies of every table and silently
+        // desync whichever one it doesn't mutate.
+        return sendJson(res, 200, { groups: tableGroups.groupTables(tables) });
     }
 
     if (url.pathname === '/api/table-bullets/toggle' && req.method === 'POST') {
@@ -992,15 +1040,30 @@ async function handleApi(req, res, url) {
             return sendJson(res, 400, { error: '--no-portrait and --no-token together leave nothing to generate' });
         }
 
+        const requestedPronouns = typeof body.pronouns === 'string' && body.pronouns
+            ? body.pronouns : null;
+        if (requestedPronouns) {
+            let known = [];
+            try {
+                known = pronouns.subjectsFrom(fs.readFileSync(NPC_TABLES_PATH, 'utf8'));
+            } catch { /* fall through - an unreadable tables file is its own error later */ }
+            if (known.length && !known.includes(requestedPronouns)) {
+                return sendJson(res, 400, {
+                    error: `unknown pronoun "${requestedPronouns}". Available: ${known.join(', ')}`,
+                });
+            }
+        }
+
         const result = startCreateJob({
             count,
             seed,
             name: name || null,
-            pronouns: typeof body.pronouns === 'string' && body.pronouns ? body.pronouns : null,
+            pronouns: requestedPronouns,
             overrides,
             noPortrait: !!body.noPortrait,
             noToken: !!body.noToken,
             keepRawToken: !!body.keepRawToken,
+            unarmed: !!body.unarmed,
             server: typeof body.server === 'string' && body.server ? body.server : null,
             dryRun: !!body.dryRun,
         });
