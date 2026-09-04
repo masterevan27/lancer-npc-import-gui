@@ -403,6 +403,13 @@ function openDetail(item) {
   // flags cannot be re-rolled correctly from one. Traits not on the list
   // simply get no button rather than a disabled one: there is nothing the user
   // can do about it, so an inert control would only invite clicking.
+  //
+  // The button leads the row rather than trailing it. Trailing, it sat past a
+  // trait value that runs to a couple of hundred characters on Backdrop and
+  // Stance, so its left edge moved with every row and the eye had to hunt for
+  // it. Leading, the buttons stack in one fixed gutter. A trait that cannot be
+  // re-rolled still emits the cell, empty, so the names stay in a straight
+  // column either way.
   el.detailTraits.innerHTML = Object.entries(item.traits || {})
     .filter(([k]) => !['name', 'Given names', 'Family names'].includes(k))
     .map(([k, v]) => {
@@ -411,7 +418,7 @@ function openDetail(item) {
         ? `<button type="button" class="reroll-btn" data-trait="${escapeHtml(k)}"
              title="Re-roll ${escapeHtml(k)} and re-render this NPC">Re-roll</button>`
         : '';
-      return `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td><td>${button}</td></tr>`;
+      return `<tr><td class="reroll-cell">${button}</td><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`;
     })
     .join('');
 
