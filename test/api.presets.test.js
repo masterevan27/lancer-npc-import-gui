@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { startTestServer } = require('./helpers/testServer');
 
 /**
@@ -238,4 +240,94 @@ test('POST /api/presets/delete returns 404 for an unknown slug', async (t) => {
         body: JSON.stringify({ slug: 'nope' }),
     });
     assert.equal(res.status, 404);
+});
+
+/* ---- known-issues 4: the preset format break was implemented but untested ---- */
+
+/**
+ * A preset saved before the format changed carries `{ disabled: {...} }` where
+ * the current one carries `{ selected: {...} }`. The two mean opposite things,
+ * so applying an old file under the new reading would enable precisely the
+ * bullets it was saved to turn off. Both routes reject it and listPresets
+ * reports it as covering nothing - behaviour the refinements plan promised and
+ * nothing verified until now.
+ */
+const LEGACY_PRESET = {
+    name: 'Old Format',
+    created: '2026-08-01T00:00:00.000Z',
+    disabled: { Outfit: ['a heavy work jacket over a stained undersuit || civ'] },
+};
+
+test('POST /api/presets/import rejects a preset in the superseded disabled-only format', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: 5198 });
+    t.after(() => server.stop());
+
+    const res = await fetch(`${server.baseUrl}/api/presets/import`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(LEGACY_PRESET),
+    });
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.match(body.error, /selected/);
+});
+
+test('POST /api/presets/apply rejects a preset in the superseded disabled-only format', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: 5198 });
+    t.after(() => server.stop());
+
+    const before = await (await fetch(`${server.baseUrl}/api/table-bullets`)).json();
+    const res = await fetch(`${server.baseUrl}/api/presets/apply`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(LEGACY_PRESET),
+    });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /selected/);
+
+    // And it changed nothing on the way out.
+    const after = await (await fetch(`${server.baseUrl}/api/table-bullets`)).json();
+    assert.deepEqual(flatten(after.groups), flatten(before.groups));
+});
+
+test('GET /api/presets reports a legacy preset as covering nothing rather than erroring', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: 5198 });
+    t.after(() => server.stop());
+
+    // Written straight to the presets dir: the import route now refuses this
+    // shape, so the only way one exists is having been saved before the
+    // change - which is exactly the case listPresets has to survive.
+    fs.mkdirSync(server.presetsDir, { recursive: true });
+    fs.writeFileSync(path.join(server.presetsDir, 'old-format.json'),
+        JSON.stringify(LEGACY_PRESET, null, 2));
+
+    const res = await fetch(`${server.baseUrl}/api/presets`);
+    assert.equal(res.status, 200);
+    const { presets } = await res.json();
+    const legacy = presets.find((p) => p.slug === 'old-format');
+    assert.ok(legacy, 'the legacy preset should still be listed');
+    assert.equal(legacy.count, 0);
+});
+
+/* ---- known-issues 1: a rejected write used to be reported as a success ---- */
+
+test('POST /api/presets/apply reports bullets it could not write rather than claiming success', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: 5198 });
+    t.after(() => server.stop());
+
+    // A preset naming a bullet that is not in the live file at all. It lands
+    // in notFound, so nothing is written for it - and the response has to say
+    // so rather than returning a bare 200 the client reads as "all applied".
+    const res = await fetch(`${server.baseUrl}/api/presets/apply`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            selected: {
+                Outfit: [{ text: 'a bullet that is not in this file', weight: 1 }],
+                Gear: [{ text: 'nothing at all, hands loose and empty', weight: 1 }],
+            },
+        }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.notFound.length, 1);
+    assert.equal(body.notFound[0].text, 'a bullet that is not in this file');
+    assert.ok(Array.isArray(body.failed), 'the response must carry a failed list');
 });

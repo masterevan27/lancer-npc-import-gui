@@ -1342,7 +1342,7 @@ function renderTableBullets() {
     weightInput.step = '1';
     weightInput.value = String(bullet.weight);
     weightInput.title = 'Weight (relative roll chance)';
-    weightInput.addEventListener('change', () => setBulletWeight(table.name, bullet, weightInput));
+    weightInput.addEventListener('change', () => queueBulletWeight(table.name, bullet, weightInput));
     row.appendChild(weightInput);
 
     const text = document.createElement('span');
@@ -1375,6 +1375,40 @@ async function toggleBullet(tableName, bullet, checkboxEl) {
   } finally {
     checkboxEl.disabled = false;
   }
+}
+
+/**
+ * Debounce window for a weight edit, in ms.
+ *
+ * A number input fires 'change' on every spinner click and every arrow
+ * keypress, not only when the field is left, so holding an arrow key sent one
+ * POST per repeat - each of which was a full read-parse-write of
+ * npc-generator-tables.md on the server. Long enough that a burst of clicks
+ * settles into one request; short enough that a single deliberate edit still
+ * feels immediate.
+ */
+const WEIGHT_DEBOUNCE_MS = 400;
+const weightTimers = new Map();
+
+/** Key a pending weight write by the bullet it targets, not by the element. */
+function weightKey(tableName, bullet) {
+    return `${tableName}\u0000${bullet.text}`;
+}
+
+/**
+ * Schedule a weight write, replacing any still-pending one for that bullet.
+ *
+ * Only the last value in a burst is ever sent: the intermediate ones are
+ * values the user scrolled past, and writing them would be both wasted work
+ * and a sequence of file states nobody asked for.
+ */
+function queueBulletWeight(tableName, bullet, inputEl) {
+  const key = weightKey(tableName, bullet);
+  clearTimeout(weightTimers.get(key));
+  weightTimers.set(key, setTimeout(() => {
+    weightTimers.delete(key);
+    setBulletWeight(tableName, bullet, inputEl);
+  }, WEIGHT_DEBOUNCE_MS));
 }
 
 async function setBulletWeight(tableName, bullet, inputEl) {
@@ -1423,7 +1457,11 @@ function renderPresetList() {
 
     const name = document.createElement('span');
     name.className = 'preset-name';
-    name.textContent = `${preset.name} (${preset.count})`;
+    // "(12 selected)", not a bare "(12)". The number used to be the count of
+    // *disabled* bullets and is now the count of selected ones - the opposite
+    // reading - and nothing in the UI said which, so an old preset and a new
+    // one showed the same kind of number meaning inverse things.
+    name.textContent = `${preset.name} (${preset.count} selected)`;
     row.appendChild(name);
 
     const date = document.createElement('span');
@@ -1533,8 +1571,9 @@ function renderPresetPreview(diff) {
 
 elTables.applyBtn.addEventListener('click', async () => {
   if (!tablesState.pendingPreset) return;
+  let result;
   try {
-    await api('/api/presets/apply', {
+    result = await api('/api/presets/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(tablesState.pendingPreset),
@@ -1542,6 +1581,17 @@ elTables.applyBtn.addEventListener('click', async () => {
   } catch (err) {
     alert(`Couldn't apply preset: ${err.message}`);
     return;
+  }
+  // A 200 no longer means every bullet was written. The route reports the
+  // edits its own guards rejected instead of discarding them, so say which -
+  // silently applying most of a preset and calling it done is the thing this
+  // list exists to stop.
+  const failed = result?.failed ?? [];
+  if (failed.length) {
+    const lines = failed.slice(0, 10).map((f) => `  ${f.table}: "${f.text}" - ${f.error}`);
+    const more = failed.length > 10 ? `\n  ...and ${failed.length - 10} more` : '';
+    alert(`Applied, but ${failed.length} bullet(s) could not be written:\n\n`
+      + lines.join('\n') + more);
   }
   tablesState.pendingPreset = null;
   elTables.preview.hidden = true;

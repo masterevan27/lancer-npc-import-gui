@@ -1000,14 +1000,23 @@ async function handleApi(req, res, url) {
         // client may have shown a while ago - the file could have changed.
         const parsed = tableBullets.readTables(NPC_TABLES_PATH);
         const diff = presets.diffPresetAgainstTables(body.selected, parsed);
-        for (const { table, text, weight } of [...diff.willEnable, ...diff.willReweight]) {
-            tableBullets.toggleBulletOnDisk(NPC_TABLES_PATH, table, text, true);
-            tableBullets.setBulletWeightOnDisk(NPC_TABLES_PATH, table, text, weight);
-        }
-        for (const { table, text } of diff.willDisable) {
-            tableBullets.toggleBulletOnDisk(NPC_TABLES_PATH, table, text, false);
-        }
-        return sendJson(res, 200, diff);
+
+        // One batch, one read, one write. This used to be a call to
+        // toggleBulletOnDisk() and setBulletWeightOnDisk() per changed
+        // bullet - each re-reading, re-parsing and re-writing the whole
+        // tables file, so a 40-bullet preset was 80 full rewrites and the
+        // file was observably half-applied in between - and the {ok:false}
+        // every one of those calls returned was thrown away, so a write a
+        // guard rejected still came back to the client as a plain success.
+        const edits = [
+            // An enable carries its weight in the same edit, so the line is
+            // rewritten once rather than toggled and then reweighted.
+            ...diff.willEnable.map(({ table, text, weight }) => ({ table, text, enabled: true, weight })),
+            ...diff.willReweight.map(({ table, text, weight }) => ({ table, text, weight })),
+            ...diff.willDisable.map(({ table, text }) => ({ table, text, enabled: false })),
+        ];
+        const { failed } = tableBullets.applyEditsOnDisk(NPC_TABLES_PATH, edits);
+        return sendJson(res, 200, { ...diff, failed });
     }
 
     if (url.pathname === '/api/create-npc' && req.method === 'POST') {
