@@ -97,9 +97,14 @@ and open <http://127.0.0.1:5089>.
   `--set-trait` bypasses the roll pool anyway. Pick **Custom value…** to type
   something that is in no table at all.
   An NPC's detail sheet lists its rolled traits, and each trait the generator
-  can re-roll on its own gets a **Re-roll** button (revealed on row hover) that
-  re-rolls just that one and re-renders the NPC in place — same folder, same
-  manifest id, fresh seed. Not every trait is offered: the manifest stores
+  can re-roll on its own gets a **Re-roll** button. The buttons lead their rows,
+  stacked in one gutter down the left of the trait table rather than trailing a
+  value that runs to a couple of hundred characters on Backdrop or Stance, so
+  the one you want is a glance rather than a scan. They are always present —
+  dim and borderless at rest, painting in a border and a full-contrast label on
+  hover or focus, so the column reads as a gutter until you look at it. Clicking
+  one re-rolls just that trait and re-renders the NPC in place — same folder,
+  same manifest id, fresh seed. Not every trait is offered: the manifest stores
   bullets with their flags stripped, so a trait gated by *another* trait's
   flags (Outfit by Role's `mil`, Stance by the Weapon's `hands`) cannot be
   re-rolled correctly from a stored entry and is left without a button. The
@@ -168,7 +173,9 @@ Ports 5193–5199, 5201 and 5202 are taken.
 
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs bare
 `node --test` instead, which also picks up `test/helpers/testServer.js` as a
-file with no tests in it — expect `pass 98` there.
+file with no tests in it — so expect one more there, `pass 135`, for a helper
+that declares no tests and therefore cannot fail. Both numbers move whenever a
+test is added; they are worth updating together.
 
 Parked technical debt is in [docs/known-issues.md](docs/known-issues.md). The
 design behind the Tables and Presets features is in
