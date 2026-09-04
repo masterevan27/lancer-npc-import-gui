@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseTableFile, toggleBulletInText, setBulletWeightInText } = require('../lib/tableBullets');
+const {
+    parseTableFile, toggleBulletInText, setBulletWeightInText,
+    isRollTable, NON_TABLE_SECTIONS,
+} = require('../lib/tableBullets');
 
 const SAMPLE = [
     '# Random NPC Generator Tables',
@@ -128,4 +131,61 @@ test('setBulletWeightInText rejects a weight that is not a positive integer', ()
         const result = setBulletWeightInText(SAMPLE, 'Gear', 'nothing at all, hands loose and empty', badWeight);
         assert.equal(result.ok, false);
     }
+});
+
+const DOC_SECTION_FIXTURE = [
+    '## How the script reads this file',
+    '',
+    'Every `## Heading` starts a table; every `-` bullet under it is one option.',
+    '',
+    '- **Age** and **Build** bullets carry a paired flag.',
+    '- **Gear**, **Weapon** and **Stance** bullets may end `|| hands`.',
+    '',
+    '## Gear',
+    '- a battered data-slate',
+    '',
+    '## Prompt templates',
+    '',
+    'These are the sentences the script assembles the rolled traits into.',
+    '',
+].join('\n');
+
+test('readTables omits the generator\'s own documentation sections', () => {
+    // Those bullets are prose explaining the || conventions. Served as roll
+    // entries they got checkboxes and weight inputs, so a stray click wrapped
+    // a paragraph of documentation in <!-- --> or prefixed it with "x2 ".
+    const tables = parseTableFile(DOC_SECTION_FIXTURE).filter(
+        (t) => isRollTable(t.name, t.bullets));
+    assert.deepEqual(tables.map((t) => t.name), ['Gear']);
+});
+
+test('isRollTable rejects a section with no bullets at all', () => {
+    // Prompt templates is prose and blockquotes. A section added later with
+    // no bullets should never appear either.
+    assert.equal(isRollTable('Prompt templates', []), false);
+});
+
+test('isRollTable accepts an ordinary roll table', () => {
+    assert.equal(isRollTable('Gear', [{ text: 'a thermos', weight: 1, enabled: true }]), true);
+});
+
+test('NON_TABLE_SECTIONS names the generator\'s prose headings', () => {
+    assert.ok(NON_TABLE_SECTIONS.includes('How the script reads this file'));
+    assert.ok(NON_TABLE_SECTIONS.includes('Prompt templates'));
+});
+
+test('toggleBulletInText refuses to write to a documentation section', () => {
+    const result = toggleBulletInText(
+        DOC_SECTION_FIXTURE, 'How the script reads this file',
+        '**Age** and **Build** bullets carry a paired flag.', false);
+    assert.equal(result.ok, false);
+    assert.match(result.error, /not a roll table/i);
+});
+
+test('setBulletWeightInText refuses to write to a documentation section', () => {
+    const result = setBulletWeightInText(
+        DOC_SECTION_FIXTURE, 'How the script reads this file',
+        '**Age** and **Build** bullets carry a paired flag.', 2);
+    assert.equal(result.ok, false);
+    assert.match(result.error, /not a roll table/i);
 });
