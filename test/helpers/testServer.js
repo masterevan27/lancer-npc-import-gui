@@ -65,21 +65,60 @@ async function startTestServer({ tablesText, port, generatorSource, extraConfig 
         stdio: ['ignore', 'pipe', 'pipe'],
     });
 
+    // Nobody read these pipes before, which cost two things. A test server that
+    // crashed did so in total silence - the test saw only ECONNREFUSED and the
+    // reason went in the bin. And an OS pipe buffer is finite (~64KB on
+    // Windows), so a server that wrote enough would block forever mid-write:
+    // a hang with no output, which is the worst shape a failure can take.
+    // Keep the tail, echo it when IMPORT_GUI_TEST_VERBOSE is set, and hand it
+    // back with a readiness failure.
+    let log = '';
+    const collect = (chunk) => {
+        log = (log + chunk).slice(-8000);
+        if (process.env.IMPORT_GUI_TEST_VERBOSE) process.stderr.write(`[:${port}] ${chunk}`);
+    };
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', collect);
+    child.stderr.on('data', collect);
+
+    let exited = null;
+    child.on('exit', (code, signal) => { exited = { code, signal }; });
+
+    // Two details here are load-bearing under `node --test`, which runs test
+    // FILES as concurrent processes:
+    //
+    //   - AbortSignal.timeout, because a bare `await fetch()` has no deadline
+    //     of its own. The `Date.now()` guard below is only consulted between
+    //     iterations, so one poll whose socket stalls hangs this loop forever
+    //     - and with it every test file the runner is holding output for, not
+    //     just this one. That failure looks exactly like a slow suite, and
+    //     cost an afternoon to find once.
+    //   - Draining the body, because an unread response keeps its socket
+    //     alive, and a readiness loop is the one place that reliably makes
+    //     several of them.
+    //
+    // The budget is generous for the same reason: a dozen servers starting at
+    // once on a loaded machine are slow, and a timeout here is a confusing
+    // failure in an unrelated test rather than a useful signal.
     let ready = false;
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + 20000;
     while (!ready && Date.now() < deadline) {
         try {
-            const res = await fetch(`${baseUrl}/health`);
+            const res = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(1000) });
+            await res.arrayBuffer();
             ready = res.ok;
-        } catch {
-            await new Promise((r) => setTimeout(r, 100));
-        }
-        if (!ready) await new Promise((r) => setTimeout(r, 50));
+        } catch { /* not listening yet, or this poll timed out */ }
+        if (!ready) await new Promise((r) => setTimeout(r, 100));
     }
     if (!ready) {
         child.kill();
         fs.rmSync(dir, { recursive: true, force: true });
-        throw new Error(`test server on port ${port} did not become ready within 5s`);
+        throw new Error(
+            `test server on port ${port} did not become ready within 20s`
+            + (exited ? ` (it exited: code=${exited.code} signal=${exited.signal})` : '')
+            + (log ? `\n--- server output ---\n${log}` : '\n--- server printed nothing ---'),
+        );
     }
 
     return {

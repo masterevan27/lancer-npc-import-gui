@@ -53,6 +53,11 @@ Everything else in `config.example.json` is optional and derived by default:
 - `npcTablesPath` / `stagedImportsDir` — where the generator's own
   `npc-generator-tables.md` and its `npc-trait-import` skill's staged candidates
   live, for the **Tables** and **Trait Imports** tabs.
+- `stagedRefsDir` — the reference images copied beside each staged run, shown
+  on the **Trait Imports** detail sheet. Defaults to `refs/` inside
+  `stagedImportsDir`; worth pointing elsewhere only to put them on another
+  disk, since at roughly a megabyte an image they are the one thing here that
+  gets large.
 - `presetsDir` — where saved table presets are written.
 - `traitOddsSamples` — rolls behind each percentage on the **Tables** tab.
   Default 20000, about six seconds; fewer settles sooner and wobbles more.
@@ -102,9 +107,10 @@ and open <http://127.0.0.1:5089>.
   can re-roll on its own gets a **Re-roll** button. The buttons lead their rows,
   stacked in one gutter down the left of the trait table rather than trailing a
   value that runs to a couple of hundred characters on Backdrop or Stance, so
-  the one you want is a glance rather than a scan. They are always present —
-  dim and borderless at rest, painting in a border and a full-contrast label on
-  hover or focus, so the column reads as a gutter until you look at it. Clicking
+  the one you want is a glance rather than a scan. They are always present and
+  filled in a muted blue, brightening to the primary blue on hover or focus —
+  loud enough to read as buttons at a glance, quiet enough that twenty of them
+  stay behind the trait values beside them. Clicking
   one re-rolls just that trait and re-renders the NPC in place — same folder,
   same manifest id, fresh seed. Not every trait is offered: the manifest stores
   bullets with their flags stripped, so a trait gated by *another* trait's
@@ -114,7 +120,15 @@ and open <http://127.0.0.1:5089>.
   restated here.
 - **Trait Imports** — lists reference-image trait candidates staged by the
   `npc-trait-import` skill, sortable and dated, and appends the ones you approve
-  as new bullets in `npc-generator-tables.md`.
+  as new bullets in `npc-generator-tables.md`. Clicking a candidate opens its
+  detail sheet, which names the reference image the bullet was read from and
+  shows it — hover the preview for the full-size image, the same way the
+  generated-art sheet works. The picture is the point: whether a bullet
+  describes what is really in the frame is a judgment you can only make
+  against the frame. The skill copies each referenced image into
+  `prompts/staged-imports/refs/<run>/` as it stages a run, and the sheet asks
+  for it from there; a run staged before it did that, or one whose copies have
+  since been deleted, still names its source and simply shows no preview.
 - **Tables** — shows every bullet in every roll table of
   `npc-generator-tables.md`. Headings are grouped as Identity, Body,
   Appearance, Kit and Scene (a table the generator adds later that fits none

@@ -80,6 +80,12 @@ const DEFAULT_CONFIG = {
     // either for a nonstandard layout.
     npcTablesPath: '',
     stagedImportsDir: '',
+    // The reference images npc-trait-import copies beside each staged run, so
+    // the Trait Imports detail sheet can show a candidate's source rather than
+    // only naming it. Defaults to refs/ inside stagedImportsDir; worth
+    // overriding only to put them on a different disk, since they are the one
+    // thing here measured in tens of megabytes per run.
+    stagedRefsDir: '',
     presetsDir: '',
     // Rolls behind each percentage on the Tables page. The trade is precision
     // against how long the number takes to settle after an edit: 20,000 rolls
@@ -125,6 +131,7 @@ const {
     generateNpcScript: GENERATE_NPC_SCRIPT,
     npcTablesPath: NPC_TABLES_PATH,
     stagedImportsDir: STAGED_IMPORTS_DIR,
+    stagedRefsDir: STAGED_REFS_DIR,
     presetsDir: PRESETS_DIR,
 } = derivePaths(config);
 
@@ -604,6 +611,39 @@ function saveStagedFile(file, data) {
     fs.writeFileSync(path.join(STAGED_IMPORTS_DIR, file), JSON.stringify(data, null, 2));
 }
 
+/* What the detail sheet can show. An extension off this list is not served at
+ * all rather than guessed at: refs/ holds whatever the skill found in the
+ * reference directory, and handing a browser some other file's bytes under an
+ * image Content-Type helps nobody. */
+const REF_IMAGE_TYPES = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.avif': 'image/avif',
+};
+
+/**
+ * The copied reference image for one staged run and source filename, or null.
+ *
+ * Both halves are single filenames by contract - the run is a *.json sitting
+ * directly in the staging directory, and source_image is a bare filename the
+ * skill verified against a real directory listing - so anything carrying a
+ * separator, a '..' or a drive letter is refused outright rather than
+ * normalised and hoped about. This server binds to 127.0.0.1, but it is the
+ * one place that returns raw file bytes, which is worth being literal-minded
+ * about.
+ */
+function refImagePath(file, sourceImage) {
+    if (!file || !sourceImage) return null;
+    if (path.basename(file) !== file || !file.endsWith('.json')) return null;
+    if (path.basename(sourceImage) !== sourceImage) return null;
+    if (!REF_IMAGE_TYPES[path.extname(sourceImage).toLowerCase()]) return null;
+    const full = path.join(STAGED_REFS_DIR, path.basename(file, '.json'), sourceImage);
+    return fs.existsSync(full) ? full : null;
+}
+
 /** Every candidate across every staged-imports file, flattened for the GUI. */
 function allTraitCandidates() {
     const out = [];
@@ -622,6 +662,11 @@ function allTraitCandidates() {
                 table: entry.table,
                 bullet: entry.bullet,
                 sourceImage: entry.source_image,
+                // Whether refs/ holds a copy of that image, so the detail
+                // sheet knows to ask for one. Runs staged before the skill
+                // started copying - and any run whose copy has since been
+                // deleted - report false and fall back to naming the file.
+                hasSourceImage: !!refImagePath(file, entry.source_image),
                 placementHint: entry.placement_hint,
                 bookkeepingNote: entry.bookkeeping_note,
                 notes: entry.notes,
@@ -1270,6 +1315,26 @@ async function handleApi(req, res, url) {
 
     if (url.pathname === '/api/trait-candidates' && req.method === 'GET') {
         return sendJson(res, 200, { candidates: allTraitCandidates() });
+    }
+
+    if (url.pathname === '/api/trait-image' && req.method === 'GET') {
+        const file = url.searchParams.get('file');
+        const id = url.searchParams.get('id');
+        // Resolved through the candidate listing rather than from the query
+        // directly, so the filename served is one the staging directory
+        // actually offered - a `file` that climbs out of it matches nothing
+        // and never reaches the filesystem at all.
+        const candidate = file && id
+            && allTraitCandidates().find((c) => c.file === file && c.id === id);
+        if (!candidate) return sendJson(res, 404, { error: 'unknown candidate' });
+        const full = refImagePath(candidate.file, candidate.sourceImage);
+        if (!full) return sendJson(res, 404, { error: 'no reference image staged for this candidate' });
+        res.writeHead(200, {
+            'Content-Type': REF_IMAGE_TYPES[path.extname(full).toLowerCase()],
+            'Cache-Control': 'no-store',
+        });
+        fs.createReadStream(full).pipe(res);
+        return;
     }
 
     if (url.pathname === '/api/trait-candidates/import' && req.method === 'POST') {
