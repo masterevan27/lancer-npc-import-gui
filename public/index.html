@@ -236,10 +236,22 @@
       <table id="detail-traits"></table>
 
       <div id="detail-prompts">
-        <h3>Portrait prompt</h3>
+        <div class="prompt-head">
+          <h3>Portrait prompt</h3>
+          <button type="button" class="copy-btn" data-copy-target="detail-portrait-prompt"
+                  title="Copy the portrait prompt to the clipboard">Copy</button>
+        </div>
         <pre id="detail-portrait-prompt"></pre>
-        <h3>Token prompt</h3>
+        <div class="prompt-head">
+          <h3>Token prompt</h3>
+          <button type="button" class="copy-btn" data-copy-target="detail-token-prompt"
+                  title="Copy the token prompt to the clipboard">Copy</button>
+        </div>
         <pre id="detail-token-prompt"></pre>
+        <div class="prompt-head prompt-head-both">
+          <button type="button" class="copy-btn" data-copy-both
+                  title="Copy both prompts, each under its own heading">Copy both</button>
+        </div>
       </div>
     </div>
   </div>

@@ -672,6 +672,90 @@ el.regenBtn.addEventListener('click', async () => {
   }
 });
 
+/* ---- copying the prompts ---- */
+
+const NL = '\n';
+
+/** Writes `text` to the clipboard, reporting whether it landed.
+ *
+ * navigator.clipboard exists only in a secure context. Served on localhost the
+ * GUI counts as one, but the same server reached over a LAN address does not,
+ * and there the API is simply undefined - so the textarea fallback is the path
+ * that actually runs for anyone using this from another machine, not a legacy
+ * branch. execCommand is deprecated and still the only thing available there.
+ */
+async function copyToClipboard(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Permission denied or a non-secure context that defines the API anyway.
+  }
+  const scratch = document.createElement('textarea');
+  scratch.value = text;
+  scratch.setAttribute('readonly', '');
+  // Off-screen but still focusable: display:none or visibility:hidden would
+  // make select() a no-op and the copy silently empty.
+  scratch.style.position = 'fixed';
+  scratch.style.top = '-1000px';
+  document.body.appendChild(scratch);
+  scratch.select();
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch {
+    ok = false;
+  }
+  scratch.remove();
+  return ok;
+}
+
+/** Flashes the outcome on the button itself - there is no toast in this UI. */
+function flashCopyResult(button, ok) {
+  const original = button.dataset.label || button.textContent;
+  button.dataset.label = original;
+  button.classList.toggle('copied', ok);
+  button.classList.toggle('copy-failed', !ok);
+  button.textContent = ok ? 'Copied' : 'Copy failed';
+  clearTimeout(button._copyTimer);
+  button._copyTimer = setTimeout(() => {
+    button.textContent = button.dataset.label;
+    button.classList.remove('copied', 'copy-failed');
+  }, 1200);
+}
+
+// Delegated, because the detail panel is re-rendered per NPC and re-binding
+// per render would stack duplicate listeners on the same buttons.
+el.detailPrompts.addEventListener('click', async (e) => {
+  const button = e.target.closest('.copy-btn');
+  if (!button) return;
+
+  let text;
+  if (button.hasAttribute('data-copy-both')) {
+    // Labelled, because two unlabelled prompts pasted together are not
+    // distinguishable once they are in the buffer.
+    const parts = [];
+    if (el.detailPortraitPrompt.textContent) {
+      parts.push('Portrait prompt' + NL + el.detailPortraitPrompt.textContent);
+    }
+    if (el.detailTokenPrompt.textContent) {
+      parts.push('Token prompt' + NL + el.detailTokenPrompt.textContent);
+    }
+    text = parts.join(NL + NL);
+  } else {
+    const target = document.getElementById(button.dataset.copyTarget);
+    text = target ? target.textContent : '';
+  }
+
+  if (!text) {
+    flashCopyResult(button, false);
+    return;
+  }
+  flashCopyResult(button, await copyToClipboard(text));
+});
+
 el.detailClose.addEventListener('click', () => {
   el.overlay.hidden = true;
   el.imageZoom.hidden = true;

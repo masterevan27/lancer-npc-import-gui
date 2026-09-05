@@ -204,29 +204,29 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test "test/*.test.js"
 ```
 
-Expect `pass 192`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 195`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other
 file uses.
 
-Ports are written two ways, which is worth knowing before you pick one: twelve
-of the twenty-four test files bind a port at all, and of those, seven pass
-`port: 5199` inline at each `startTestServer` call while the other five
-(`importerContract`, `api.rerollTrait`, `api.traitOdds`, `api.traitImage` and
-`api.model3d`) declare `const PORT = 5196` at the top and pass that. So grep
-for both before claiming a number — a collision does not fail loudly, it
-hangs the run until the whole suite times out:
+Ports are written two ways, which is worth knowing before you pick one:
+thirteen of the twenty-five test files bind a port at all, and of those, seven
+pass `port: 5199` inline at each `startTestServer` call while the other six
+(`importerContract`, `api.rerollTrait`, `api.traitOdds`, `api.traitImage`,
+`api.model3d` and `ui.copyPrompts`) declare `const PORT = 5196` at the top and
+pass that. So grep for both before claiming a number — a collision does not
+fail loudly, it hangs the run until the whole suite times out:
 
 ```bash
 grep -rhoE "(port: |PORT = )5[0-9]+" test/*.test.js | sort -u
 ```
 
-Ports 5193–5199 and 5201–5205 are taken.
+Ports 5193–5199 and 5201–5206 are taken.
 
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs bare
 `node --test` instead, which also picks up `test/helpers/testServer.js` as a
-file with no tests in it — so expect one more there, `pass 193`, for a helper
+file with no tests in it — so expect one more there, `pass 196`, for a helper
 that declares no tests and therefore cannot fail. Both numbers move whenever a
 test is added; they are worth updating together.
 
