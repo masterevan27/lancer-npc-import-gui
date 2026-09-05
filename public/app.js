@@ -51,6 +51,14 @@ const el = {
   regenCurrentSeed: document.getElementById('regen-current-seed'),
   regenBtn: document.getElementById('regen-btn'),
   regenStatus: document.getElementById('regen-status'),
+  model3dPanel: document.getElementById('model3d-panel'),
+  model3dRig: document.getElementById('model3d-rig'),
+  model3dOverwrite: document.getElementById('model3d-overwrite'),
+  model3dBuilt: document.getElementById('model3d-built'),
+  model3dBtn: document.getElementById('model3d-btn'),
+  model3dStatus: document.getElementById('model3d-status'),
+  model3dTurnarounds: document.getElementById('model3d-turnarounds'),
+  model3dFiles: document.getElementById('model3d-files'),
   detailDeleteBtn: document.getElementById('detail-delete-btn'),
 };
 
@@ -328,6 +336,17 @@ function render() {
       badge.textContent = 'Regen failed';
       badge.title = item.regenError || '';
       card.appendChild(badge);
+    } else if (item.model3dStatus === 'running') {
+      const badge = document.createElement('span');
+      badge.className = 'badge pending';
+      badge.textContent = 'Building 3D…';
+      card.appendChild(badge);
+    } else if (item.model3dStatus === 'error') {
+      const badge = document.createElement('span');
+      badge.className = 'badge error';
+      badge.textContent = '3D failed';
+      badge.title = item.model3dError || '';
+      card.appendChild(badge);
     }
 
     const body = document.createElement('div');
@@ -436,6 +455,15 @@ function openDetail(item) {
   el.regenSeedInput.value = '';
   renderRegenPanel(item);
 
+  // The file list is a separate request (see /api/model-3d in server.js): it
+  // costs a directory read, so it is made once per overlay open rather than
+  // for every NPC on every poll. Until it lands the panel shows what the item
+  // already knows, which is only whether a 3d/ folder exists at all.
+  el.model3dRig.checked = false;
+  el.model3dOverwrite.checked = false;
+  renderModel3dPanel(item, null);
+  refreshModel3d(item.id);
+
   el.overlay.hidden = false;
 }
 
@@ -479,6 +507,122 @@ function renderRegenPanel(item) {
   }
   state.regenLastStatus = item.regenStatus ?? null;
 }
+
+/**
+ * The detail overlay's "3D model" panel.
+ *
+ * `view` is /api/model-3d's answer, or null before the first one arrives - in
+ * which case only the item's own `has3d` flag is known and the panel renders
+ * the frame without the file list.
+ */
+function renderModel3dPanel(item, view) {
+  // generate-3d.py reconstructs from a rendered A-pose of the NPC's token,
+  // which only exists for an NPC. Anything else gets no panel rather than a
+  // button that always fails.
+  el.model3dPanel.hidden = item.kind !== 'npc';
+  if (el.model3dPanel.hidden) return;
+
+  const status = view ? view.status : item.model3dStatus;
+  const running = status === 'running';
+  const built = view ? Boolean(view.shell || view.turnarounds.length) : Boolean(item.has3d);
+
+  el.model3dBtn.disabled = running;
+  el.model3dBtn.textContent = running ? 'Building…'
+    : built ? 'Rebuild 3D model' : 'Create 3D model';
+
+  // Forced on and locked once a model exists, because generate-3d.py *skips*
+  // an NPC whose 3d/ folder is non-empty unless --overwrite. Without this the
+  // obvious way to rebuild is a run that does nothing and reports success.
+  if (built) el.model3dOverwrite.checked = true;
+  el.model3dOverwrite.disabled = running || built;
+  el.model3dRig.disabled = running;
+
+  el.model3dBuilt.textContent = view?.builtAt
+    ? `Built ${new Date(view.builtAt).toLocaleString(undefined, {
+      dateStyle: 'medium', timeStyle: 'short',
+    })}`
+    : built ? '' : 'No model yet.';
+
+  if (running) {
+    // A reconstruction runs for minutes. generate-3d.py flushes a line as it
+    // enters each stage, and showing it is the difference between "working"
+    // and "possibly hung" - see model3dJobsByItemId in server.js.
+    el.model3dStatus.textContent = view?.stage
+      ? `Building… ${view.stage}`
+      : 'Building… this takes several minutes (ComfyUI and Blender must both be available).';
+  } else if (status === 'error') {
+    el.model3dStatus.textContent = `Failed: ${(view ? view.error : item.model3dError) || 'unknown error'}`;
+  } else {
+    el.model3dStatus.textContent = '';
+  }
+
+  el.model3dTurnarounds.innerHTML = (view?.turnaroundUrls || [])
+    .map((url, i) => `<img src="${escapeHtml(url)}" alt="Turnaround ${i * 90}°"
+        title="Turnaround ${i * 90}°">`)
+    .join('');
+  // The turnarounds reuse the overlay's existing hover viewer rather than
+  // growing one of their own - 78px is enough to see that a build happened
+  // and nowhere near enough to judge it.
+  for (const img of el.model3dTurnarounds.querySelectorAll('img')) attachImageZoom(img);
+
+  // Named rather than linked: the browser sandbox will not open a 14 MB GLB
+  // usefully, and the point of the line is to say what is on disk to go and
+  // find. The turnarounds above are the part that can actually be looked at.
+  el.model3dFiles.textContent = view
+    ? [view.shell, view.print, view.rigged].filter(Boolean).join('  ·  ')
+    : '';
+}
+
+/**
+ * Fetches /api/model-3d for one NPC and re-renders the panel.
+ *
+ * Silent on failure: this runs on a 2s poll while a build is going, and a
+ * blipped request is not worth replacing a live status line with an error.
+ */
+async function refreshModel3d(id) {
+  if (!id) return;
+  try {
+    const res = await fetch(`/api/model-3d?id=${encodeURIComponent(id)}`);
+    if (!res.ok) return;
+    const view = await res.json();
+    // The overlay may have moved to another NPC while this was in flight.
+    if (state.detailItemId !== id) return;
+    const item = state.items.find((i) => i.id === id);
+    if (item) renderModel3dPanel(item, view);
+  } catch { /* leave the panel showing whatever it last knew */ }
+}
+
+el.model3dBtn.addEventListener('click', async () => {
+  const id = state.detailItemId;
+  if (!id) return;
+
+  el.model3dBtn.disabled = true;
+  el.model3dBtn.textContent = 'Building…';
+  el.model3dStatus.textContent = 'Starting…';
+  try {
+    const res = await fetch('/api/model-3d', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id,
+        rig: el.model3dRig.checked,
+        overwrite: el.model3dOverwrite.checked,
+      }),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      el.model3dStatus.textContent = `Couldn't start: ${result.error || res.status}`;
+      await refreshModel3d(id);
+      return;
+    }
+    await refreshItems();
+    await refreshModel3d(id);
+    startPolling();
+  } catch (err) {
+    el.model3dStatus.textContent = `Couldn't start: ${err.message}`;
+    await refreshModel3d(id);
+  }
+});
 
 for (const input of document.querySelectorAll('input[name="regen-seed-mode"]')) {
   input.addEventListener('change', () => {
@@ -741,14 +885,23 @@ function startPolling() {
     await refreshItems();
     if (state.detailItemId) {
       const openItem = state.items.find((i) => i.id === state.detailItemId);
-      if (openItem) renderRegenPanel(openItem);
+      if (openItem) {
+        renderRegenPanel(openItem);
+        await refreshModel3d(state.detailItemId);
+      }
     }
 
-    const stillPending = state.items.some((i) =>
+    const building3d = state.items.some((i) => i.model3dStatus === 'running');
+    const stillPending = building3d || state.items.some((i) =>
       i.jobStatus === 'queued' || i.jobStatus === 'sent' || i.regenStatus === 'running');
     // 600 ticks (20 min) is just a safety net against a stuck/unreachable
     // ComfyUI - generate-npc.py's own per-image timeout defaults to 30 min.
-    if (!stillPending || ticks > 600) {
+    //
+    // A 3D build gets three times that. It is not one render but a render, two
+    // reconstructions and a headless Blender assembly, and cutting the poll
+    // off mid-build would leave the panel stuck on "Building…" for a run that
+    // finished fine.
+    if (!stillPending || ticks > (building3d ? 1800 : 600)) {
       clearInterval(state.pollTimer);
       state.pollTimer = null;
       if (!stillPending && sawImportPending) el.status.textContent = 'Import complete.';

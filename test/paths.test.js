@@ -52,3 +52,25 @@ test('an explicit generateNpcScript relocates the whole chain', () => {
     assert.strictEqual(p.npcTablesPath,
         path.join('D:', 'tools', 'prompts', 'npc-generator-tables.md'));
 });
+
+test('derives generate-3d.py beside generate-npc.py', () => {
+    const p = derivePaths({ npcManifestPath: path.join(REPO, '.generated-npcs.json') });
+    assert.strictEqual(p.generate3dScript, path.join(REPO, 'generate-3d.py'));
+});
+
+test('generate3dScript follows a relocated generateNpcScript, and its own key wins', () => {
+    // The two scripts live side by side in the generator repo, so moving the
+    // generator moves this one too - the same rule npcTablesPath follows.
+    const moved = derivePaths({
+        npcManifestPath: path.join(REPO, '.generated-npcs.json'),
+        generateNpcScript: path.join('D:', 'tools', 'generate-npc.py'),
+    });
+    assert.strictEqual(moved.generate3dScript, path.join('D:', 'tools', 'generate-3d.py'));
+
+    const split = derivePaths({
+        npcManifestPath: path.join(REPO, '.generated-npcs.json'),
+        generate3dScript: path.join('E:', 'rebuild', 'generate-3d.py'),
+    });
+    assert.strictEqual(split.generate3dScript, path.join('E:', 'rebuild', 'generate-3d.py'));
+    assert.strictEqual(split.generateNpcScript, path.join(REPO, 'generate-npc.py'));
+});
