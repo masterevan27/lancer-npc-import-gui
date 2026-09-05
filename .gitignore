@@ -34,3 +34,6 @@ tmp/
 ._*
 Thumbs.db
 desktop.ini
+
+# Claude stuff:
+.claude/
