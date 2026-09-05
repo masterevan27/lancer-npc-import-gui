@@ -48,6 +48,9 @@ Everything else in `config.example.json` is optional and derived by default:
 - `pythonExecutable` / `generateNpcScript` — how to invoke the generator for
   **Create NPC** and **Regenerate**. Default `python`, and the script bundled
   alongside `npcManifestPath`.
+- `generate3dScript` — `generate-3d.py`, behind the detail sheet's **3D model**
+  panel. Defaults to the script beside `generateNpcScript`, which is where it
+  lives in the generator repo; set it only if you have moved that one file.
 - `foundryNpcSubdir` — the folder imports are nested under inside
   `foundryDataRoot`. Default `LancerNPCs`.
 - `npcTablesPath` / `stagedImportsDir` — where the generator's own
@@ -85,6 +88,18 @@ and open <http://127.0.0.1:5089>.
   not wrapping), and **Esc** closes whatever overlay is topmost — a zoomed
   image, a delete confirmation, the trait list, a preset preview — before
   closing the sheet itself.
+  The detail sheet also carries a **3D model** panel, beneath Regenerate art,
+  over `generate-3d.py` in the same generator repo. **Create 3D model** rebuilds
+  the NPC from a fresh A-pose render into a `3d/` folder beside its portrait —
+  a shell GLB, a print STL and four turnaround PNGs, which the panel shows as
+  thumbnails once the build lands. It is far slower than a regen (a render, two
+  reconstructions and a headless Blender assembly, minutes rather than seconds),
+  so the status line shows the stage the generator is currently in rather than a
+  bare spinner, and the grid tile carries a **Building 3D…** badge meanwhile.
+  Two checkboxes: **Rig** is off by default and should stay off unless you have
+  read that repo's own warning about it, and **Overwrite existing** is forced on
+  once a model exists, because `generate-3d.py` silently skips an NPC that
+  already has a non-empty `3d/` folder.
 - **Create NPC** — a form over `generate-npc.py`'s roll options (count, seed,
   name, pronouns, per-table trait overrides, portrait/token toggles,
   dry-run-vs-generate) that rolls new NPCs into the same review flow as the CLI.

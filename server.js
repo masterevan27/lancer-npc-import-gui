@@ -71,6 +71,10 @@ const DEFAULT_CONFIG = {
     // been moved elsewhere.
     pythonExecutable: 'python',
     generateNpcScript: '',
+    // The 3D panel shells out to generate-3d.py, which sits beside
+    // generate-npc.py in the same repo - only override this if it has been
+    // moved on its own.
+    generate3dScript: '',
     // Where an imported item's files get copied to under foundryDataRoot -
     // see copyIntoFoundry(). Mirrors generate-npc.py's own COMFY_PREFIX so
     // the two output trees read as the same convention.
@@ -129,6 +133,7 @@ if (!config.npcManifestPath || !config.foundryDataRoot) {
 // comment there for how each value is derived and overridden.
 const {
     generateNpcScript: GENERATE_NPC_SCRIPT,
+    generate3dScript: GENERATE_3D_SCRIPT,
     npcTablesPath: NPC_TABLES_PATH,
     stagedImportsDir: STAGED_IMPORTS_DIR,
     stagedRefsDir: STAGED_REFS_DIR,
@@ -475,6 +480,176 @@ function startRegenJob(item, { which, seedMode, seed, rerollTrait }) {
     });
 
     return { ok: true, seed: newSeed };
+}
+
+/* ------------------------------------------------------------------ */
+/* 3D models                                                           */
+/* ------------------------------------------------------------------ */
+
+const { model3dArgs, classify3dFiles } = require('./lib/model3d');
+
+/**
+ * 3D build jobs, keyed by item id - the same shape regenJobsByItemId has, and
+ * for the same reason: this server runs generate-3d.py itself, so there is no
+ * Foundry-side queue to ask. One entry lingers per item after it finishes so a
+ * client mid-poll still sees the final status.
+ *
+ * A reconstruction takes minutes rather than seconds, which is why `stage`
+ * exists alongside `status`. generate-3d.py flushes a line as it enters each
+ * stage ("A-pose render ...", "assembling ..."), and a spinner held for six
+ * minutes with nothing behind it is indistinguishable from a hang.
+ */
+const model3dJobsByItemId = new Map();
+
+const MODEL_3D_LOG_LIMIT = 8000; // chars of stdout+stderr kept for an error message
+
+/** <NPC folder>/3d/ - where generate-3d.py writes, beside the portrait and token. */
+function model3dDir(item) {
+    return path.join(item.folderPath, '3d');
+}
+
+/**
+ * The deliverables in one NPC's 3d/ folder, or empty if it has none.
+ *
+ * Deliberately NOT called from itemView: that runs for every NPC on every
+ * /api/items poll, and a readdir each would be one directory read per NPC per
+ * poll across a catalogue in the hundreds. itemView answers the one cheap
+ * question the grid needs (does the folder exist) and this answers the
+ * expensive one, only for the NPC whose overlay is open.
+ */
+function read3dFolder(item) {
+    let names = [];
+    try {
+        names = fs.readdirSync(model3dDir(item));
+    } catch { /* no 3d/ folder - no model, which is not an error */ }
+    return classify3dFiles(names, item.name);
+}
+
+function startModel3dJob(item, { rig, overwrite }) {
+    const existing = model3dJobsByItemId.get(item.id);
+    if (existing?.status === 'running') {
+        return { ok: false, status: 409, error: 'a 3D build is already running for this NPC' };
+    }
+    if (item.kind !== 'npc') {
+        return {
+            ok: false, status: 400,
+            error: `building a 3D model isn't supported for kind "${item.kind}" yet`,
+        };
+    }
+    if (!fs.existsSync(GENERATE_3D_SCRIPT)) {
+        return { ok: false, status: 400, error: `generate-3d.py not found at ${GENERATE_3D_SCRIPT}` };
+    }
+
+    let args;
+    try {
+        args = model3dArgs(GENERATE_3D_SCRIPT, { id: item.id, rig, overwrite });
+    } catch (err) {
+        return { ok: false, status: 400, error: err.message };
+    }
+
+    const job = {
+        status: 'running', rig: !!rig, overwrite: !!overwrite,
+        startedAt: Date.now(), log: '', stage: null,
+    };
+    model3dJobsByItemId.set(item.id, job);
+
+    let child;
+    try {
+        child = spawn(config.pythonExecutable, args, { cwd: path.dirname(GENERATE_3D_SCRIPT) });
+    } catch (err) {
+        job.status = 'error';
+        job.error = err.message;
+        return { ok: true }; // job was recorded; the poll will surface the failure
+    }
+
+    const remember = (chunk) => {
+        job.log = (job.log + chunk.toString()).slice(-MODEL_3D_LOG_LIMIT);
+    };
+    child.stdout.on('data', (chunk) => {
+        remember(chunk);
+        // Only stdout drives the stage line. stderr carries warnings the
+        // generator prints mid-run ("! rigging failed"), which are worth
+        // keeping in the log and wrong as a progress label.
+        const lines = chunk.toString().split('\n').map((line) => line.trim()).filter(Boolean);
+        if (lines.length) job.stage = lines[lines.length - 1];
+    });
+    child.stderr.on('data', remember);
+    child.on('error', (err) => {
+        job.status = 'error';
+        job.error = err.message;
+    });
+    child.on('close', (code) => {
+        if (job.status === 'error') return; // already failed via the 'error' event above
+        job.doneAt = Date.now();
+        job.stage = null;
+        if (code === 0) {
+            job.status = 'done';
+        } else {
+            job.status = 'error';
+            job.error = job.log.trim() || `generate-3d.py exited with code ${code}`;
+        }
+    });
+
+    return { ok: true };
+}
+
+/**
+ * What the detail overlay's 3D panel shows: the files on disk, plus whatever
+ * this server's own job for that NPC is doing.
+ *
+ * Turnarounds come back as URLs carrying the file's mtime, the same
+ * cache-busting stamp itemView puts on portraitUrl - a rebuild overwrites the
+ * PNGs in place, and without a moving URL the panel would keep showing the
+ * previous model's renders for as long as the browser felt like it.
+ */
+function model3dView(item) {
+    const found = read3dFolder(item);
+    const job = model3dJobsByItemId.get(item.id);
+    const dir = model3dDir(item);
+    const versions = [found.shell, found.print, found.rigged, ...found.turnarounds]
+        .filter(Boolean)
+        .map((file) => fileVersion(path.join(dir, file)))
+        .filter((version) => typeof version === 'number');
+
+    return {
+        ...found,
+        turnaroundUrls: found.turnarounds.map((file) => '/api/model-3d-image'
+            + `?id=${encodeURIComponent(item.id)}&file=${encodeURIComponent(file)}`
+            + `&v=${fileVersion(path.join(dir, file))}`),
+        // The newest deliverable, so the panel can say when this model was
+        // built without generate-3d.py having to record it anywhere.
+        builtAt: versions.length ? Math.max(...versions) : null,
+        status: job ? job.status : null,
+        stage: job?.status === 'running' ? job.stage : null,
+        error: job?.status === 'error' ? job.error : null,
+    };
+}
+
+/**
+ * Whether `file` is a name this NPC's own 3d/ folder can serve, or null.
+ *
+ * Two refusals, and they are different answers on purpose. A name with a path
+ * separator in it - or `..`, or an absolute path - is not a filename at all,
+ * and is a 400. A well-formed name that simply is not one of this NPC's
+ * deliverables is a 404: that covers the intermediates the generator leaves in
+ * the same folder (`_shell.glb` is a 17 MB raw reconstruction that looks like
+ * a finished model and is not one) and another NPC's files if a folder was
+ * ever reused.
+ *
+ * This is the first route here that takes a caller-supplied filename at all -
+ * /api/image picks the name off the manifest entry - so the check is new
+ * rather than a restatement of one made elsewhere.
+ */
+function model3dFileError(item, file) {
+    if (!file) return { status: 400, error: 'file is required' };
+    if (file !== path.basename(file) || file.includes('/') || file.includes('\\')
+        || file === '.' || file === '..' || path.isAbsolute(file)) {
+        return { status: 400, error: 'file must be a plain filename in this NPC\'s 3d/ folder' };
+    }
+    const found = read3dFolder(item);
+    const servable = [found.shell, found.print, found.rigged, ...found.turnarounds].filter(Boolean);
+    if (!servable.includes(file)) return { status: 404, error: 'no such 3D deliverable' };
+    return null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -860,6 +1035,7 @@ function authorised(req, url) {
 function itemView(item) {
     const job = jobsByItemId.get(item.id);
     const regenJob = regenJobsByItemId.get(item.id);
+    const model3dJob = model3dJobsByItemId.get(item.id);
     const imported = importedIndex.get(item.id) || null;
     const portraitFile = itemFile(item, 'portrait');
     const tokenFile = itemFile(item, 'token');
@@ -887,6 +1063,12 @@ function itemView(item) {
         jobError: job?.error ?? null,
         regenStatus: regenJob ? regenJob.status : null,
         regenError: regenJob?.status === 'error' ? regenJob.error : null,
+        // One existsSync, not a readdir - see read3dFolder for why the file
+        // list lives on /api/model-3d instead. This drives the grid badge and
+        // whether the panel's button reads "Create" or "Rebuild".
+        has3d: fs.existsSync(model3dDir(item)),
+        model3dStatus: model3dJob ? model3dJob.status : null,
+        model3dError: model3dJob?.status === 'error' ? model3dJob.error : null,
         portraitUrl: item.portrait
             ? `/api/image?id=${encodeURIComponent(item.id)}&which=portrait&v=${fileVersion(portraitFile)}`
             : null,
@@ -1032,6 +1214,38 @@ async function handleApi(req, res, url) {
 
         const result = startRegenJob(item, { which, seedMode, seed });
         return sendJson(res, result.ok ? 202 : 409, result);
+    }
+
+    if (url.pathname === '/api/model-3d' && req.method === 'GET') {
+        const item = url.searchParams.get('id') && findItem(url.searchParams.get('id'));
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        return sendJson(res, 200, model3dView(item));
+    }
+
+    if (url.pathname === '/api/model-3d' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const item = body.id && findItem(body.id);
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+
+        const result = startModel3dJob(item, { rig: !!body.rig, overwrite: !!body.overwrite });
+        return sendJson(res, result.ok ? 202 : result.status, result);
+    }
+
+    if (url.pathname === '/api/model-3d-image' && req.method === 'GET') {
+        const item = url.searchParams.get('id') && findItem(url.searchParams.get('id'));
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        const file = url.searchParams.get('file');
+        const refusal = model3dFileError(item, file);
+        if (refusal) return sendJson(res, refusal.status, { error: refusal.error });
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
+        fs.createReadStream(path.join(model3dDir(item), file)).pipe(res);
+        return;
     }
 
     if (url.pathname === '/api/npc-tables' && req.method === 'GET') {

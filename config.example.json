@@ -6,6 +6,7 @@
   "foundryDataRoot": "G:\\Programs\\FoundryVTT_v13\\FoundryVTT-Node-13.351\\data\\Data",
   "pythonExecutable": "python",
   "generateNpcScript": "",
+  "generate3dScript": "",
   "foundryNpcSubdir": "LancerNPCs",
   "npcTablesPath": "",
   "stagedImportsDir": "",

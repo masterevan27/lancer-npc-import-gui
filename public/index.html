@@ -214,6 +214,25 @@
         <p class="regen-status" id="regen-status"></p>
       </div>
 
+      <div class="regen-panel model3d-panel" id="model3d-panel" hidden>
+        <h3>3D model</h3>
+        <div class="regen-row">
+          <label title="Binds the shell to SAM3DBody's armature. Off by default: the generator's own docs measured it on one NPC and neither bind method survived.">
+            <input type="checkbox" id="model3d-rig"> Rig
+          </label>
+          <label title="generate-3d.py skips an NPC that already has a 3d/ folder unless this is set.">
+            <input type="checkbox" id="model3d-overwrite"> Overwrite existing
+          </label>
+        </div>
+        <div class="regen-row">
+          <span id="model3d-built" class="regen-current-seed"></span>
+          <button id="model3d-btn" type="button">Create 3D model</button>
+        </div>
+        <p class="regen-status" id="model3d-status"></p>
+        <div class="model3d-turnarounds" id="model3d-turnarounds"></div>
+        <p class="model3d-files" id="model3d-files"></p>
+      </div>
+
       <table id="detail-traits"></table>
 
       <div id="detail-prompts">

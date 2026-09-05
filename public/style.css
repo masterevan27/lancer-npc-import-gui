@@ -374,7 +374,8 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 }
 #regen-seed-input:disabled { opacity: 0.5; }
 .regen-current-seed { color: #9aa1ad; flex: 1; }
-#regen-btn {
+#regen-btn,
+#model3d-btn {
   background: #3d6ef0;
   border: none;
   color: white;
@@ -384,7 +385,8 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   cursor: pointer;
   font-size: 0.82rem;
 }
-#regen-btn:disabled { background: #2c2f38; color: #6b7280; cursor: default; }
+#regen-btn:disabled,
+#model3d-btn:disabled { background: #2c2f38; color: #6b7280; cursor: default; }
 .regen-status { margin: 0.5rem 0 0; font-size: 0.8rem; color: #b3bac6; }
 #detail-traits { border-collapse: collapse; font-size: 0.85rem; }
 #detail-traits td { padding: 0.15rem 0.6rem 0.15rem 0; vertical-align: top; }
@@ -684,3 +686,31 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .preset-preview { margin-top: 0.8rem; background: #1c1f26; border-radius: 6px; padding: 0.7rem; }
 .preset-preview-not-found { color: #e0a458; }
 .preset-preview-actions { display: flex; gap: 0.6rem; margin-top: 0.6rem; }
+
+/* The 3D panel reuses .regen-panel's frame and rows, and its button joins
+   #regen-btn's rule above - it is the same kind of control block sitting
+   directly beneath it, and two near-identical rule sets would only drift.
+   Only what is genuinely new gets rules of its own. */
+.model3d-turnarounds {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+.model3d-turnarounds:empty { margin-top: 0; }
+.model3d-turnarounds img {
+  width: 78px;
+  height: 78px;
+  object-fit: contain;
+  /* The renders are transparent PNGs, and a dark mesh on the panel's own dark
+     background is unreadable - the checker is what makes the silhouette show. */
+  background:
+    repeating-conic-gradient(#20242c 0% 25%, #191c22 0% 50%) 50% / 12px 12px;
+  border: 1px solid #2c2f38;
+  border-radius: 4px;
+  cursor: zoom-in;
+}
+.model3d-files {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: #7f8794;
+}
