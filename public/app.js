@@ -352,6 +352,16 @@ async function refreshItems() {
   for (const id of [...state.selected]) {
     if (!items.some((i) => i.id === id)) state.selected.delete(id);
   }
+  // Every list load, not every poll tick. The poller is what makes a regen
+  // finish observable at all, but it stops itself the moment nothing in the
+  // *selected category* is still pending - so a regen left running while the
+  // user wanders over to Mechs takes the poller down with it, and a scan hung
+  // off the tick would lose that finish for good. Here, coming back to NPCs
+  // reloads the list and the transition is picked up then. See regenSeen.
+  //
+  // Ahead of render() so the banner and the grid describe the same list: the
+  // announcement and the card whose art it just replaced appear in one frame.
+  detectRegenFinished(state.items);
   renderFilterRows();
   render();
 }
@@ -1457,6 +1467,144 @@ elBanner.show.addEventListener('click', async () => {
     await selectCategory('npc');
   } catch (err) {
     el.status.textContent = `Couldn't load the new NPCs: ${err.message}`;
+  }
+});
+
+/* ==================================================================== */
+/* Regenerate-complete banner                                            */
+/* ==================================================================== */
+
+const elRegenBanner = {
+  root: document.getElementById('regen-banner'),
+  text: document.getElementById('regen-banner-text'),
+  show: document.getElementById('regen-banner-show'),
+  dismiss: document.getElementById('regen-banner-dismiss'),
+};
+
+/**
+ * The regenStatus each item carried the last time a list load looked at it,
+ * keyed by id.
+ *
+ * This exists because `done` on its own means nothing. regenStatus is read off
+ * regenJobsByItemId in server.js, an in-memory map that keeps a finished job
+ * for the life of the process - so an item regenerated this morning still
+ * reports `done` to a page opened this evening, and to every page opened until
+ * the server restarts. Announcing on the status alone would raise a banner for
+ * a job the user watched finish hours ago, on every single load, forever. What
+ * is worth announcing is the transition, and a transition needs a before.
+ *
+ * Never pruned, deliberately. An entry outlives the category it was seen in, so
+ * a regen started on the NPC list and left to run while the user looks at Mechs
+ * still has its `running` recorded when they come back - which is the only
+ * reason that case announces at all (see the note in refreshItems). The cost is
+ * one short string per item seen this page load, and it is emptied by the
+ * reload that empties everything else.
+ */
+const regenSeen = new Map();
+
+/**
+ * The items the banner on screen is announcing, so its Show button knows where
+ * to go after the list underneath it has moved on. Only what the button needs -
+ * an item object here would be a snapshot that the next poll makes stale.
+ */
+const regenBannerState = { announced: [] };
+
+/**
+ * Raise the banner for any regen that finished or failed since the last look.
+ *
+ * A re-roll is a regen job on the server side - same map, same status - so a
+ * re-rolled trait announces through here too. That is the intent rather than a
+ * side effect: both are "the art you asked for is finished", and both take long
+ * enough that the user has almost certainly gone to look at something else.
+ */
+function detectRegenFinished(items) {
+  const finished = [];
+  const failed = [];
+  for (const item of items) {
+    const previous = regenSeen.get(item.id);
+    const current = item.regenStatus ?? null;
+    regenSeen.set(item.id, current);
+    // The gate. `previous` is undefined for every item on the first list load
+    // of a page, which is exactly right: nothing that was already over when
+    // this page opened has any business interrupting anyone.
+    if (previous !== 'running') continue;
+    if (current === 'done') finished.push(item);
+    else if (current === 'error') failed.push(item);
+  }
+  if (finished.length || failed.length) announceRegenComplete(finished, failed);
+}
+
+/**
+ * How the banner names what it is announcing.
+ *
+ * Kind-aware for the plural because Regenerate is offered on anything the
+ * manifest recorded a seed for, which is not only NPCs - calling two mechs
+ * "2 NPCs" would be a small lie told confidently. A mixed batch falls back to
+ * "items", which is vague but true.
+ */
+function regenSubject(items) {
+  if (items.length === 1) return `${items[0].name}'s art`;
+  const kinds = new Set(items.map((i) => i.kind));
+  const label = kinds.size === 1 ? (CATEGORY_LABELS[[...kinds][0]] || 'items') : 'items';
+  return `${items.length} ${label}`;
+}
+
+function announceRegenComplete(finished, failed) {
+  // Failures lead, and colour the whole banner, because they are the half that
+  // needs the user to do something. A tick that carries both is rare - it takes
+  // two regens running at once - but saying only one of them would drop a fact
+  // the page has no other way of raising once the poller stops.
+  const parts = [];
+  if (finished.length) parts.push(`${regenSubject(finished)} finished regenerating`);
+  if (failed.length) parts.push(`${regenSubject(failed)} failed to regenerate`);
+  elRegenBanner.text.textContent = `${parts.join('; ')}.`;
+  elRegenBanner.root.classList.toggle('error', failed.length > 0);
+
+  // Failures first in the list too, so the Show button lands on the one with
+  // an error message to read rather than on the one that went fine.
+  const announced = [...failed, ...finished];
+  regenBannerState.announced = announced.map((i) => ({ id: i.id, kind: i.kind, name: i.name }));
+  elRegenBanner.show.textContent = announced.length === 1 ? 'Show NPC' : 'Show the first';
+  elRegenBanner.root.hidden = false;
+}
+
+function dismissRegenBanner() {
+  elRegenBanner.root.hidden = true;
+}
+
+elRegenBanner.dismiss.addEventListener('click', () => {
+  // Hides it, and does nothing else. Emphatically not the batch banner's ×,
+  // which doubles as a bulk "mark this run seen": a regenerated NPC is one the
+  // user already knew about and carries no New tag of its own, so clearing tags
+  // from here would clear ones this banner never announced - and nothing in
+  // this UI can put a New tag back.
+  regenBannerState.announced = [];
+  dismissRegenBanner();
+});
+
+elRegenBanner.show.addEventListener('click', async () => {
+  const target = regenBannerState.announced[0];
+  dismissRegenBanner();
+  regenBannerState.announced = [];
+  if (!target) return;
+  switchTab('import');
+  // By the item's own kind, not a hardcoded 'npc' - Regenerate is offered on
+  // anything with a seed, and sending someone to the NPC list to find a mech
+  // would be worse than not offering the button. loadCategories() first for the
+  // reason the batch banner's Show gives: it ends by selecting categories[0],
+  // so an explicit selection has to come after it.
+  try {
+    await loadCategories();
+    await selectCategory(target.kind);
+    // The sheet, not just the list. The regenerated art is the thing being
+    // announced and the sheet is where it is shown at full size, alongside the
+    // new seed and - for a failure - the reason. With several announced this
+    // opens the first; the sheet's arrow keys walk to the rest.
+    const item = state.items.find((i) => i.id === target.id);
+    if (item) openDetail(item);
+    else el.status.textContent = `"${target.name}" is no longer in the library.`;
+  } catch (err) {
+    el.status.textContent = `Couldn't open "${target.name}": ${err.message}`;
   }
 });
 
