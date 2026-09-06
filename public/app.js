@@ -794,8 +794,21 @@ function factionDisplayName(faction) {
 }
 
 /**
- * The gutter cell's contents for one trait row: a live Re-roll button, a
- * disabled one that says what would turn it on, or nothing at all.
+ * The two gutter cells for one trait row: a live Re-roll button, a disabled one
+ * that says what would turn it on, or nothing at all - and beside it, in a cell
+ * of its own, Set... where Re-roll is live.
+ *
+ * A cell each rather than both in one, and both cells always emitted even when
+ * empty. A table column is one width for every row of it, so a gutter holding
+ * two buttons could be squeezed to the width of one by whatever else on the
+ * page wanted the room - and something always did: Backdrop and Stance run to a
+ * couple of hundred characters, auto table layout narrowed the shared gutter to
+ * its smallest line-broken width to fit them, and Re-roll ended up stacked over
+ * Set... on every row in the table rather than only on the long ones. Two
+ * cells that refuse to wrap (see td.reroll-cell/td.set-cell in style.css) have
+ * a whole button as their narrowest possible width, so there is nothing left
+ * for the layout to take. The empty cells are what keep the four columns
+ * straight down rows that offer one control or none.
  *
  * `rerollable` is the list that applies to this NPC (see rerollableForItem),
  * and anything on it gets the button.
@@ -888,25 +901,31 @@ function releaseLabel(choice) {
   return `also re-roll ${named} (and ${extra} trait${extra === 1 ? '' : 's'} that depend on ${them})`;
 }
 
-function rerollControlHtml(trait, rerollable) {
+function traitControlCells(trait, rerollable) {
   const name = escapeHtml(trait);
+  // Both cells go out of every branch, so the row always has four columns.
+  const cells = (reroll, set) =>
+    `<td class="reroll-cell">${reroll}</td><td class="set-cell">${set}</td>`;
   if (rerollable.includes(trait)) {
-    return `<button type="button" class="reroll-btn" data-trait="${name}"
-             title="Re-roll ${name} and re-render this NPC">Re-roll</button>`
+    return cells(
+      `<button type="button" class="reroll-btn" data-trait="${name}"
+             title="Re-roll ${name} and re-render this NPC">Re-roll</button>`,
       // Only in this branch. Where Re-roll is the explained-but-disabled
       // variant below, that explanation already covers both controls and names
       // the same cure, so a second disabled button would say it twice.
-      + `<button type="button" class="set-trait-btn" data-trait="${name}"
-             title="Choose a value for ${name} and re-render this NPC">Set&hellip;</button>`;
+      `<button type="button" class="set-trait-btn" data-trait="${name}"
+             title="Choose a value for ${name} and re-render this NPC">Set&hellip;</button>`);
   }
   if (createState.rawRerollableTraits.includes(trait)) {
     const why = `This NPC was generated before its raw trait bullets were recorded, so ${name} `
       + 'cannot be re-rolled on its own. Re-roll the whole NPC once to record them and this '
       + 'button turns on.';
-    return `<span class="reroll-unavailable" title="${why}">`
-      + '<button type="button" class="reroll-btn" disabled>Re-roll</button></span>';
+    return cells(
+      `<span class="reroll-unavailable" title="${why}">`
+        + '<button type="button" class="reroll-btn" disabled>Re-roll</button></span>',
+      '');
   }
-  return '';
+  return cells('', '');
 }
 
 /**
@@ -955,22 +974,22 @@ function openDetail(item) {
   // be re-rolled correctly from it and keeps no button. Picking the list the
   // same way the generator does is what stops a button from answering 400.
   //
-  // Which of the three things the gutter cell can hold is rerollControlHtml's
-  // question, above; the only rule of it that matters here is that the cell is
-  // always emitted, empty or not.
+  // Which of the three things each gutter cell can hold is traitControlCells'
+  // question, above; the only rule of it that matters here is that it returns
+  // whole <td>s - one per control, always both, empty or not - so they drop in
+  // unwrapped. Wrapping them back into a single cell here is the arrangement
+  // that stacked Re-roll over Set..., and ui.traitColumns.test.js guards it.
   //
-  // The button leads the row rather than trailing it. Trailing, it sat past a
+  // The buttons lead the row rather than trailing it. Trailing, they sat past a
   // trait value that runs to a couple of hundred characters on Backdrop and
-  // Stance, so its left edge moved with every row and the eye had to hunt for
-  // it. Leading, the buttons stack in one fixed gutter. A trait that cannot be
-  // re-rolled still emits the cell, empty, so the names stay in a straight
-  // column either way.
+  // Stance, so their left edge moved with every row and the eye had to hunt for
+  // them. Leading, they stack in two fixed gutters.
   const rerollable = rerollableForItem(item);
   el.detailTraits.innerHTML = Object.entries(item.traits || {})
     .filter(([k]) => !['name', 'Given names', 'Family names'].includes(k))
     .map(([k, v]) => {
-      const button = rerollControlHtml(k, rerollable);
-      return `<tr><td class="reroll-cell">${button}</td><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`;
+      const cells = traitControlCells(k, rerollable);
+      return `<tr>${cells}<td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`;
     })
     .join('');
 
@@ -1032,7 +1051,7 @@ function renderRegenPanel(item) {
   // one NPC would have the second overwrite the first's output.
   //
   // Only the live buttons, which are the ones carrying a data-trait. The
-  // explanatory button rerollControlHtml() emits for a trait this entry cannot
+  // explanatory button traitControlCells() emits for a trait this entry cannot
   // re-roll is disabled for a reason that has nothing to do with a running job,
   // and an unqualified selector here would enable it the moment one finished -
   // handing back a clickable control with no trait on it to post.

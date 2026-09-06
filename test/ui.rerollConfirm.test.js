@@ -160,10 +160,10 @@ test('a Theme row on an NPC without raw bullets says what would turn it on', asy
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());
 
-    const rerollControlHtml = liftFunction(
-        await fetchText(server, '/app.js'), 'rerollControlHtml', STATE, { escapeHtml });
+    const traitControlCells = liftFunction(
+        await fetchText(server, '/app.js'), 'traitControlCells', STATE, { escapeHtml });
 
-    const cell = rerollControlHtml('Theme', STATE.rerollableTraits);
+    const cell = traitControlCells('Theme', STATE.rerollableTraits);
     assert.match(cell, /<button[^>]*\bdisabled\b/, 'the Theme row has no affordance at all');
     assert.match(cell, /Re-roll the whole NPC once to record them/,
         'the disabled button does not say how to earn the live one');
@@ -182,11 +182,15 @@ test('a trait no entry can re-roll keeps its empty cell', async (t) => {
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());
 
-    const rerollControlHtml = liftFunction(
-        await fetchText(server, '/app.js'), 'rerollControlHtml', STATE, { escapeHtml });
+    const traitControlCells = liftFunction(
+        await fetchText(server, '/app.js'), 'traitControlCells', STATE, { escapeHtml });
 
+    // The cells themselves are still emitted, empty, to hold the gutter columns
+    // open - ui.traitColumns.test.js pins that half. What matters here is that
+    // nothing clickable, or explanatory, lands in them.
     for (const trait of ['Pronouns', 'Given names', 'Family names']) {
-        assert.equal(rerollControlHtml(trait, STATE.rerollableTraits), '',
+        const cells = traitControlCells(trait, STATE.rerollableTraits);
+        assert.doesNotMatch(cells, /<button|reroll-unavailable/,
             `${trait} cannot be re-rolled by anybody and must not show a control`);
     }
 });
@@ -195,16 +199,16 @@ test('a re-rollable trait still gets the live button', async (t) => {
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());
 
-    const rerollControlHtml = liftFunction(
-        await fetchText(server, '/app.js'), 'rerollControlHtml', STATE, { escapeHtml });
+    const traitControlCells = liftFunction(
+        await fetchText(server, '/app.js'), 'traitControlCells', STATE, { escapeHtml });
 
     // Both ways in: on the legacy list for a lossy entry, and on the wide list
     // an entry with raw bullets is handed - Theme's live button being the one
     // the disabled twin above is a stand-in for.
-    const legacy = rerollControlHtml('Hair', STATE.rerollableTraits);
+    const legacy = traitControlCells('Hair', STATE.rerollableTraits);
     assert.match(legacy, /data-trait="Hair"/);
     assert.ok(!/\bdisabled\b/.test(legacy));
-    assert.match(rerollControlHtml('Theme', STATE.rawRerollableTraits), /data-trait="Theme"/);
+    assert.match(traitControlCells('Theme', STATE.rawRerollableTraits), /data-trait="Theme"/);
 });
 
 test('the traits that change nothing else still fire on one click', async (t) => {

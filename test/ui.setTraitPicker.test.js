@@ -162,12 +162,12 @@ test('many conflicts are counted rather than listed', async (t) => {
 });
 
 test('Set... is drawn exactly where Re-roll is offered', async (t) => {
-    const { fn: rerollControlHtml } = await lift(t, 'rerollControlHtml', {
+    const { fn: traitControlCells } = await lift(t, 'traitControlCells', {
         createState: { rawRerollableTraits: ['Hair', 'Theme'] },
         escapeHtml,
     });
 
-    const offered = rerollControlHtml('Hair', ['Hair']);
+    const offered = traitControlCells('Hair', ['Hair']);
     assert.match(offered, /class="reroll-btn"/);
     assert.match(offered, /class="set-trait-btn"/);
     assert.doesNotMatch(offered, /disabled/,
@@ -180,20 +180,22 @@ test('Set... is absent, not disabled, where Re-roll is only explained', async (t
     // already covers both controls, so a second disabled button beside it
     // would say the same thing twice and invite a click at a cure the user has
     // just been told about.
-    const { fn: rerollControlHtml } = await lift(t, 'rerollControlHtml', {
+    const { fn: traitControlCells } = await lift(t, 'traitControlCells', {
         createState: { rawRerollableTraits: ['Hair', 'Theme'] },
         escapeHtml,
     });
 
-    const explained = rerollControlHtml('Theme', []);
+    const explained = traitControlCells('Theme', []);
     assert.match(explained, /reroll-unavailable/, 'the explanatory variant');
     assert.doesNotMatch(explained, /set-trait-btn/);
 });
 
 test('a trait neither list offers gets no controls at all', async (t) => {
-    const { fn: rerollControlHtml } = await lift(t, 'rerollControlHtml', {
+    const { fn: traitControlCells } = await lift(t, 'traitControlCells', {
         createState: { rawRerollableTraits: ['Hair', 'Theme'] },
         escapeHtml,
     });
-    assert.equal(rerollControlHtml('Pronouns', []), '');
+    // Empty cells rather than no cells, because the columns have to stay open
+    // for the rows that do carry controls - see ui.traitColumns.test.js.
+    assert.doesNotMatch(traitControlCells('Pronouns', []), /<button|reroll-unavailable/);
 });

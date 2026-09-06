@@ -515,13 +515,29 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .regen-status { margin: 0.5rem 0 0; font-size: 0.8rem; color: #b3bac6; }
 #detail-traits { border-collapse: collapse; font-size: 0.85rem; }
 #detail-traits td { padding: 0.15rem 0.6rem 0.15rem 0; vertical-align: top; }
-/* The button leads each row, so the trait name is the second cell now. The
-   gutter needs no explicit width: a table column is as wide as its widest
-   cell, so an unrerollable trait's empty cell already holds the space and
-   every name starts on the same left edge. */
-#detail-traits td.reroll-cell { padding-right: 0.5rem; text-align: right; }
-#detail-traits td:nth-child(2) { color: #9aa1ad; white-space: nowrap; }
-#detail-traits td:last-child { padding-right: 0; }
+/* The buttons lead each row, one column each, so the trait name is the third
+   cell now and the value the fourth. Neither gutter needs an explicit width: a
+   table column is as wide as its widest cell, so an unrerollable trait's empty
+   cell already holds the space and every name starts on the same left edge.
+
+   The nowrap is what actually fixes the bug this pair of columns was split for.
+   A column has one width for the whole table, and auto table layout is free to
+   shrink any column to its narrowest line-broken width when another wants the
+   room - which Backdrop, at a couple of hundred characters, always did. With
+   both buttons in one cell that width was a single button, so the pair broke
+   onto two lines on every row in the table. A cell that cannot wrap has a whole
+   button as its narrowest width, so there is nothing left to take.
+
+   Which leaves the question of who absorbs the slack, and `width: 100%` on the
+   value column answers it: it claims everything the fixed columns do not need,
+   and wraps its own text to fit. overflow-wrap goes with it because a value can
+   be one unbroken run - a file path, a long hyphenless clause - and without it
+   a column that cannot break its content pushes the table past the panel. */
+#detail-traits td.reroll-cell,
+#detail-traits td.set-cell { white-space: nowrap; }
+#detail-traits td.reroll-cell { padding-right: 0.3rem; }
+#detail-traits td:nth-child(3) { color: #9aa1ad; white-space: nowrap; }
+#detail-traits td:last-child { padding-right: 0; width: 100%; overflow-wrap: anywhere; }
 /* Always visible, because a control you have to find by hovering is not one
    you reach quickly - and filled, because a control you have to hover to
    discover IS a button is not one either. This column was borderless at rest
@@ -567,11 +583,12 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .copy-btn:focus,
 .set-trait-btn:hover,
 .set-trait-btn:focus { background: #3d6ef0; border-color: #3d6ef0; color: #ffffff; }
-/* Set... sits beside Re-roll in the same gutter cell, so it needs the gap the
-   two buttons would otherwise not have, and a quieter fill: Re-roll is the
-   one-click action and this one opens a dialog, so leading with equal weight
-   would make the gutter read as two primary buttons. */
-.set-trait-btn { margin-left: 0.3rem; background: #33406b; border-color: #33406b; }
+/* A quieter fill than Re-roll's: that one is the one-click action and this one
+   opens a dialog, so equal weight would make the gutter read as two primary
+   buttons. The gap between the two is the reroll-cell's padding rather than a
+   margin here - they are in separate columns now, and a margin inside the
+   second column would sit inside the width that column reserves for itself. */
+.set-trait-btn { background: #33406b; border-color: #33406b; }
 /* Flat grey rather than a dimmed blue: at 0.4 opacity the fill was still
    plainly blue, so a re-roll already running read as one still on offer. */
 .reroll-btn:disabled,
@@ -582,7 +599,7 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   cursor: default;
 }
 /* The wrapper around a button disabled because this NPC predates raw bullets
-   (see rerollControlHtml in app.js). It exists to carry the title, since a
+   (see traitControlCells in app.js). It exists to carry the title, since a
    disabled control takes no pointer events and so shows no tooltip; the help
    cursor is what tells the user the greyed-out button has an explanation
    waiting rather than being dead. It has to override the button's own `default`
