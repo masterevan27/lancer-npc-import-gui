@@ -90,6 +90,22 @@ code rather than as a bug to chase:
    (`WEIGHT_DEBOUNCE_MS`, 400ms), and only the last value in a burst is sent -
    the intermediate ones are values the user scrolled past.
 
+7. **A preset can collide on two bullets whose prose is identical and whose
+   flags differ.** Open, and thought to be unreachable today. Now that the
+   Tables tab can edit flags, presets match a bullet on its text *without* the
+   `|| flags` segment - an exact match would break the moment a flag was
+   edited, because a preset stores the full text and apply is a whitelist, so
+   flagging a bullet would have renamed it out from under every saved preset
+   and then switched it off.
+
+   The cost is that two bullets in one table reading the same prose but
+   carrying different flags are one key to a preset, and the first one wins.
+   The same first-wins rule the writers in `lib/tableBullets.js` already apply
+   to a table carrying identical text twice, so this widens an existing
+   limitation rather than introducing a new kind of one - but it widens it,
+   which is worth writing down. No live table has such a pair. Fixing it
+   properly means giving a bullet an id that is not its text.
+
 - ~~The design spec documented the superseded `disabled`-only preset format with
   nothing marking it superseded.~~ Fixed: the spec now carries a "Superseded in
   part" banner describing the full selected-set format that replaced it.

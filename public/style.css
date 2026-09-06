@@ -870,6 +870,47 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 }
 .table-bullet-text { flex: 1; }
 
+/* The flag strip under a bullet. Its own row rather than more cells in the
+   bullet's: that row is a <label> wrapping the enable checkbox, so a checkbox
+   nested inside it would toggle the enable box instead of itself.
+   Indented past the enable box, weight input and chance cell so it reads as
+   belonging to the bullet above rather than as a sibling of it. */
+.table-bullet-flags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.7rem;
+  margin: -0.1rem 0 0.5rem 10rem;
+  font-size: 0.72rem;
+  color: #8b93a1;
+}
+.table-bullet-flags .flag-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: help;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.table-bullet-flags .flag-toggle input { margin: 0; cursor: pointer; }
+/* A set flag earns full contrast; the rest stay dim so a row of eight
+   unchecked boxes does not compete with the bullet text above it. */
+.table-bullet-flags .flag-toggle:has(input:checked) { color: #d7dae0; }
+.table-bullet-flags .flag-toggle input:disabled { opacity: 0.5; }
+/* A theme tag is shown, not offered: '@' tags are an open set the tables file
+   grows freely, so there is nothing to enumerate as checkboxes. Edits here
+   preserve them untouched. */
+.table-bullet-flags .flag-theme {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #7c8ba1;
+  background: #262a33;
+  border-radius: 3px;
+  padding: 0 0.3rem;
+}
+
+@media (max-width: 700px) {
+  .table-bullet-flags { margin-left: 0.6rem; }
+}
+
 .presets-panel { margin-top: 1.5rem; border-top: 1px solid #363b47; padding-top: 1rem; }
 .preset-row {
   display: flex;

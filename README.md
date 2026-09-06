@@ -246,6 +246,30 @@ and open <http://127.0.0.1:5089>.
   preset, hand it to another GM, and they can import it, preview exactly what
   it would change, and apply it.
 
+  Under each bullet is a row of **flag checkboxes** — the `|| updo`, `||
+  helmet`, `|| notac` segment, editable without opening the tables file. Only
+  the flags a given table actually reads are offered, so `updo` appears under
+  Hair and `crown` under Headgear and neither appears under Eyes, which reads
+  no flags at all and would ship the literal text `|| updo` to the image model.
+  That restriction is the point: `generate-npc.py` matches flags literally and
+  ignores an unrecognized one rather than reporting it, so a typo fails quietly
+  in the render rather than loudly at the console, and a checkbox cannot be
+  misspelled. Hover a flag for what it does.
+
+  Two things the strip deliberately does not do. It leaves `@theme` tags alone
+  — they are an open set the tables file grows freely, so there is nothing to
+  enumerate; they are shown beside the checkboxes and preserved untouched
+  through every edit. And on `Backdrop`, `Hair colour` and `Faction`, whose
+  bullets carry *two* prose segments and keep flags in a third, it writes to
+  the third — a flag editor that assumed one prose segment would overwrite a
+  Backdrop's scene sentence.
+
+  A flag edit changes a bullet's text, which is the id presets match on. They
+  match on the flag-stripped prose for that reason, so flagging a bullet does
+  not orphan it in presets saved earlier — see
+  [known-issues.md](docs/known-issues.md) for the one case that can still
+  collide.
+
   Beside each weight is **how often that bullet actually gets rolled**, which
   is not what the weight says: a weight compares a bullet to its neighbour,
   and the generator filters most tables before drawing from them — a Stance
@@ -290,7 +314,7 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test "test/*.test.js"
 ```
 
-Expect `pass 315`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 377`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other
@@ -309,7 +333,7 @@ hangs the run until the whole suite times out:
 grep -rhoE "(port: |PORT = )5[0-9]+" test/*.test.js | sort -u
 ```
 
-Ports 5193–5199 and 5201–5217 are taken.
+Ports 5193–5199 and 5201–5220 are taken.
 
 The same collision bites from outside the runner, which is worth knowing
 because the symptom points at the wrong thing: run a single test file while a
@@ -319,7 +343,7 @@ to lose. Let one run finish before starting another.
 
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs bare
 `node --test` instead, which also picks up `test/helpers/testServer.js` as a
-file with no tests in it — so expect one more there, `pass 316`, for a helper
+file with no tests in it — so expect one more there, `pass 378`, for a helper
 that declares no tests and therefore cannot fail. Both numbers move whenever a
 test is added; they are worth updating together.
 
