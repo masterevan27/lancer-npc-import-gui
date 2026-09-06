@@ -38,7 +38,7 @@ test('the banner ships hidden and the stylesheet honours it', async (t) => {
 
     const html = await fetchText(server, '/');
     assert.match(
-        html, /<div class="batch-banner" id="batch-banner" hidden>/,
+        html, /<div class="banner batch-banner" id="batch-banner" hidden>/,
         'the banner no longer ships with the hidden attribute, so it paints on first load');
 
     const css = await fetchText(server, '/style.css');
@@ -47,12 +47,17 @@ test('the banner ships hidden and the stylesheet honours it', async (t) => {
     // layout at all, and the row - centred, with the dismiss button pushed over
     // by `margin-left: auto` - falls apart. Assert on both so the test cannot
     // be passed by deleting the display instead of guarding it.
+    //
+    // These declarations moved from `.batch-banner` to a shared `.banner` when
+    // the regen banner arrived and the two were stacked on one sticky shelf -
+    // see test/ui.regenBanner.test.js. Same rules, same cascade bug guarded
+    // against, one class carrying it for both banners instead of two copies.
     assert.match(
-        css, /\.batch-banner\s*\{[^}]*display:\s*flex/,
-        '.batch-banner no longer lays out as a flex row');
+        css, /\.banner\s*\{[^}]*display:\s*flex/,
+        '.banner no longer lays out as a flex row');
     assert.match(
-        css, /\.batch-banner\[hidden\]\s*\{[^}]*display:\s*none/,
-        'nothing hides .batch-banner when it carries the hidden attribute, so `hidden` does nothing');
+        css, /\.banner\[hidden\]\s*\{[^}]*display:\s*none/,
+        'nothing hides .banner when it carries the hidden attribute, so `hidden` does nothing');
 });
 
 test('the dismiss control exists and app.js binds it', async (t) => {

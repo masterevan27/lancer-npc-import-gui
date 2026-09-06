@@ -265,14 +265,14 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test "test/*.test.js"
 ```
 
-Expect `pass 256`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 262`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other
 file uses.
 
 Ports are written two ways, which is worth knowing before you pick one:
-eighteen of the thirty test files bind a port at all, and of those, eleven
+nineteen of the thirty-one test files bind a port at all, and of those, twelve
 declare `const PORT = 5196` at the top and pass that, while the other seven
 (`api.createArgs`, `api.nonTableSections`, `api.presets`, `api.pronouns`,
 `api.tableBullets`, `api.traitOptions` and `helpers.testServer`) pass
@@ -285,11 +285,11 @@ hangs the run until the whole suite times out:
 grep -rhoE "(port: |PORT = )5[0-9]+" test/*.test.js | sort -u
 ```
 
-Ports 5193–5199 and 5201–5211 are taken.
+Ports 5193–5199 and 5201–5212 are taken.
 
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs bare
 `node --test` instead, which also picks up `test/helpers/testServer.js` as a
-file with no tests in it — so expect one more there, `pass 257`, for a helper
+file with no tests in it — so expect one more there, `pass 263`, for a helper
 that declares no tests and therefore cannot fail. Both numbers move whenever a
 test is added; they are worth updating together.
 

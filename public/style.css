@@ -31,11 +31,24 @@ body {
 }
 .tabs button.active { background: #262a33; border-color: #3d6ef0; color: #e6e6e6; }
 
-/* Sits between .topbar and <main>, outside every .tab-panel, so a finished
-   generate run is announced on whichever tab the user is standing on. Sticky
-   under the topbar (z-index one below it) rather than fixed, so it never
-   covers content it would otherwise sit on top of. */
-.batch-banner {
+/* Sits between .topbar and <main>, outside every .tab-panel, so a finished run
+   is announced on whichever tab the user is standing on. Sticky under the
+   topbar (z-index one below it) rather than fixed, so it never covers content
+   it would otherwise sit on top of.
+
+   The stickiness is on the shelf and not on the banners inside it. Two sticky
+   siblings do not stack: each sticks to its own `top`, so the second would
+   slide under the first and both would end up at 3.1rem. Giving the second one
+   a larger offset is not a fix either, since either banner can be up without
+   the other and there is no fixed height to offset by. One sticky parent
+   carrying two ordinary rows stacks correctly for all four combinations. */
+.banner-stack {
+  position: sticky;
+  top: 3.1rem;
+  z-index: 4;
+}
+
+.banner {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -44,9 +57,6 @@ body {
   border-bottom: 1px solid #2f6b45;
   color: #d6f2e0;
   font-size: 0.9rem;
-  position: sticky;
-  top: 3.1rem;
-  z-index: 4;
 }
 /* The `display: flex` above is an author declaration, so it beats the browser's
    own `[hidden] { display: none }` before specificity is ever consulted - origin
@@ -58,9 +68,9 @@ body {
    .tab-panel[hidden], .detail-overlay[hidden], .image-zoom[hidden] - and this
    one was simply missed. Guard the rule rather than dropping `display: flex`:
    the row layout, and the dismiss button's `margin-left: auto`, depend on it. */
-.batch-banner[hidden] { display: none; }
+.banner[hidden] { display: none; }
 
-.batch-banner button {
+.banner button {
   background: #2f6b45;
   border: 1px solid #3f8a5b;
   color: #eafff2;
@@ -69,8 +79,8 @@ body {
   cursor: pointer;
   font-size: 0.85rem;
 }
-.batch-banner button:hover { background: #3f8a5b; }
-.batch-banner .batch-banner-dismiss {
+.banner button:hover { background: #3f8a5b; }
+.banner .banner-dismiss {
   margin-left: auto;
   background: none;
   border: none;
@@ -79,7 +89,23 @@ body {
   line-height: 1;
   padding: 0 0.3rem;
 }
-.batch-banner .batch-banner-dismiss:hover { background: none; color: #eafff2; }
+.banner .banner-dismiss:hover { background: none; color: #eafff2; }
+
+/* The failure colours, worn by the regen banner when the job it is announcing
+   died rather than finished. The green above reads as "your art is ready" at a
+   glance and from the corner of an eye, which is exactly the wrong thing to say
+   about a render that fell over - and the banner exists precisely for the user
+   who is not looking straight at it. Same layout, different palette, so a
+   failure is distinguishable without reading it. */
+.banner.error {
+  background: #33201d;
+  border-bottom-color: #6b3a2f;
+  color: #f2ded6;
+}
+.banner.error button { background: #6b3a2f; border-color: #8a4f3f; color: #fff0ea; }
+.banner.error button:hover { background: #8a4f3f; }
+.banner.error .banner-dismiss { background: none; color: #c5a89e; }
+.banner.error .banner-dismiss:hover { background: none; color: #fff0ea; }
 
 /* A bullet switched off on the Tables tab, still offered here because
    --set-trait bypasses the roll pool and forcing one is legitimate. Native

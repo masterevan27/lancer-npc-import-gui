@@ -17,11 +17,25 @@
   </nav>
 </header>
 
-<div class="batch-banner" id="batch-banner" hidden>
-  <span id="batch-banner-text"></span>
-  <button type="button" id="batch-banner-show">Show new NPCs</button>
-  <button type="button" class="batch-banner-dismiss" id="batch-banner-dismiss"
-          aria-label="Dismiss">&times;</button>
+<!-- One shelf, two announcements, stacked rather than sharing a slot. A regen
+     finishing during a generate run would otherwise replace the batch banner,
+     and take with it the only bulk "yes, I know about these" control there is
+     for that run's New tags - a click nothing in this UI can give back. An
+     empty shelf has no height and no background of its own, so nothing paints
+     while both banners are hidden. -->
+<div class="banner-stack">
+  <div class="banner batch-banner" id="batch-banner" hidden>
+    <span id="batch-banner-text"></span>
+    <button type="button" id="batch-banner-show">Show new NPCs</button>
+    <button type="button" class="banner-dismiss" id="batch-banner-dismiss"
+            aria-label="Dismiss">&times;</button>
+  </div>
+  <div class="banner regen-banner" id="regen-banner" hidden>
+    <span id="regen-banner-text"></span>
+    <button type="button" id="regen-banner-show">Show NPC</button>
+    <button type="button" class="banner-dismiss" id="regen-banner-dismiss"
+            aria-label="Dismiss">&times;</button>
+  </div>
 </div>
 
 <main>
