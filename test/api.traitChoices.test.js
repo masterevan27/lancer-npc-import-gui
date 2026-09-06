@@ -16,7 +16,7 @@ const { startTestServer } = require('./helpers/testServer');
 //
 // The generator is stubbed as a plain Node script (startTestServer's
 // generatorSource, run via process.execPath), so none of this needs Python.
-const PORT = 5213;
+const PORT = 5216;
 
 const TABLES_FIXTURE = [
     '## Pronouns',

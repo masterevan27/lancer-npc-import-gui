@@ -19,7 +19,7 @@ const { startTestServer } = require('./helpers/testServer');
 // job's log is never exposed (its status rides on the item view as
 // `regenStatus`), so the stub records its own argv beside itself in the
 // fixture directory and the test reads that.
-const PORT = 5214;
+const PORT = 5217;
 
 const TABLES_FIXTURE = [
     '## Pronouns',

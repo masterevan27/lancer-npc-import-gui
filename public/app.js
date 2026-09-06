@@ -45,6 +45,9 @@ const el = {
   detailName: document.getElementById('detail-name'),
   detailSub: document.getElementById('detail-sub'),
   detailGenerated: document.getElementById('detail-generated'),
+  detailFiles: document.getElementById('detail-files'),
+  detailFolderPath: document.getElementById('detail-folder-path'),
+  detailFileNames: document.getElementById('detail-file-names'),
   detailTraits: document.getElementById('detail-traits'),
   detailPrompts: document.getElementById('detail-prompts'),
   detailPortraitPrompt: document.getElementById('detail-portrait-prompt'),
@@ -906,6 +909,30 @@ function rerollControlHtml(trait, rerollable) {
   return '';
 }
 
+/**
+ * The sheet's "Files" block: where this NPC's art actually sits on disk.
+ *
+ * The folder is shown exactly as the server reports it, with no trailing
+ * separator added - it is what the Copy button lifts, and what gets pasted
+ * into a file manager's address bar, so it should be the path the server
+ * actually holds rather than a prettied version of it. The filenames beneath
+ * are what say the line above is a directory.
+ *
+ * An entry with no folder recorded hides the block rather than showing an
+ * empty one: manifests written by older generator runs exist, and a Files
+ * heading over a blank line reads as a bug.
+ */
+function renderDetailFiles(item) {
+  el.detailFiles.hidden = !item.folderPath;
+  if (!item.folderPath) return;
+  el.detailFolderPath.textContent = item.folderPath;
+  // Both names on one line, since they are short and the folder above them is
+  // not. A token is optional - a portrait-only NPC names just the portrait.
+  el.detailFileNames.textContent = [item.portraitFile, item.tokenFile]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 function openDetail(item) {
   // portraitUrl/tokenUrl carry the source file's mtime as a version query
   // param (see itemView in server.js), so a Regenerate since this item was
@@ -918,6 +945,7 @@ function openDetail(item) {
     .filter(Boolean)
     .join(' — ');
   el.detailGenerated.textContent = formatGeneratedWhen(item.when);
+  renderDetailFiles(item);
   // A reroll button per trait the generator will re-roll on this NPC, which is
   // a per-NPC question rather than a global one. The server sends both of
   // generate-npc.py's lists and each item says which applies: an entry that
@@ -1256,9 +1284,12 @@ function flashCopyResult(button, ok) {
   }, 1200);
 }
 
-// Delegated, because the detail panel is re-rendered per NPC and re-binding
-// per render would stack duplicate listeners on the same buttons.
-el.detailPrompts.addEventListener('click', async (e) => {
+// Delegated on the sheet rather than on #detail-prompts, because the Files
+// block's Copy button sits above the trait table and a delegation bound to the
+// prompts pane alone would ship it inert. Delegated at all because the sheet is
+// re-rendered per NPC, and re-binding per render would stack duplicate
+// listeners on the same buttons.
+el.overlay.addEventListener('click', async (e) => {
   const button = e.target.closest('.copy-btn');
   if (!button) return;
 

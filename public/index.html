@@ -207,6 +207,21 @@
       <p id="detail-sub"></p>
       <p class="detail-generated" id="detail-generated"></p>
 
+      <!-- Where the art is on disk. Text rather than a link: a browser cannot
+           navigate to file:// from an http page, so copying the path into a
+           file manager is the only route that works. The folder is its own
+           <pre> because that is what the Copy button lifts - the filenames
+           beside it are there to name the two files, not to be pasted. -->
+      <div class="detail-files" id="detail-files" hidden>
+        <div class="prompt-head">
+          <h3>Files</h3>
+          <button type="button" class="copy-btn" data-copy-target="detail-folder-path"
+                  title="Copy this NPC's folder path to the clipboard">Copy</button>
+        </div>
+        <pre id="detail-folder-path"></pre>
+        <p class="detail-file-names" id="detail-file-names"></p>
+      </div>
+
       <div class="regen-panel" id="regen-panel" hidden>
         <h3>Regenerate art</h3>
         <div class="regen-row">
