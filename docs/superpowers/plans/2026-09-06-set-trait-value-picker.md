@@ -555,11 +555,11 @@ const PAYLOAD = {
 // Two jobs in one stub: answer the validation query, and echo argv for the
 // regen so the test can assert on the command line the server built.
 const STUB = `
+const fs = require('fs'), path = require('path');
 const argv = process.argv.slice(2);
+fs.appendFileSync(path.join(__dirname, 'argv.log'), argv.join(' ') + '\\n');
 if (argv.includes('--trait-choices')) {
   process.stdout.write(${JSON.stringify(JSON.stringify(PAYLOAD))});
-} else {
-  console.log(argv.join(' '));
 }
 `;
 
@@ -587,15 +587,26 @@ function post(s, body) {
     });
 }
 
-/** The regen job's captured stdout - the stub's echoed argv. */
-async function regenLog(s, id) {
+/**
+ * The argv the server handed the generator.
+ *
+ * There is no /api/regen-status: a regen job's status rides on the item view
+ * as `regenStatus`, and its LOG is never exposed at all (unlike a create job,
+ * which api.createArgs.test.js reads through /api/create-status). So the stub
+ * writes its own argv beside itself in the fixture directory, which
+ * startTestServer hands back as `dir`, and the test reads that.
+ */
+async function regenArgv(s) {
+    const logPath = require('node:path').join(s.dir, 'argv.log');
     for (let i = 0; i < 50; i++) {
-        const res = await fetch(`${s.baseUrl}/api/regen-status?id=${encodeURIComponent(id)}`);
-        const job = await res.json();
-        if (job.status && job.status !== 'running') return job.log || '';
+        if (fs.existsSync(logPath)) {
+            const lines = fs.readFileSync(logPath, 'utf8').trim().split('\n');
+            const regen = lines.filter((l) => !l.includes('--trait-choices'));
+            if (regen.length) return regen[regen.length - 1];
+        }
         await new Promise((r) => setTimeout(r, 40));
     }
-    throw new Error('regen job never finished');
+    throw new Error('the generator was never spawned for a regen');
 }
 
 test('an unknown id is refused', async (t) => {
@@ -636,9 +647,9 @@ test('a good request passes the bullet through with its flags intact', async (t)
         id: 'npc-test-1', table: 'Outfit', value: 'a kimono || civ notac',
     });
     assert.equal(res.status, 202);
-    const log = await regenLog(s, 'npc-test-1');
-    assert.match(log, /--set-trait Outfit=a kimono \|\| civ notac/);
-    assert.doesNotMatch(log, /--reroll-trait/);
+    const argv = await regenArgv(s);
+    assert.match(argv, /--set-trait Outfit=a kimono \|\| civ notac/);
+    assert.doesNotMatch(argv, /--reroll-trait/);
 });
 
 test('ticking the box sends --release', async (t) => {
@@ -647,7 +658,7 @@ test('ticking the box sends --release', async (t) => {
         id: 'npc-test-1', table: 'Outfit', value: 'a kimono || civ notac',
         release: ['Headgear'],
     });
-    assert.match(await regenLog(s, 'npc-test-1'), /--release Headgear/);
+    assert.match(await regenArgv(s), /--release Headgear/);
 });
 
 test('leaving the box unticked sends no --release', async (t) => {
@@ -655,13 +666,14 @@ test('leaving the box unticked sends no --release', async (t) => {
     await post(s, {
         id: 'npc-test-1', table: 'Outfit', value: 'a kimono || civ notac',
     });
-    assert.doesNotMatch(await regenLog(s, 'npc-test-1'), /--release/);
+    assert.doesNotMatch(await regenArgv(s), /--release/);
 });
 ```
 
-**Check the regen status route's real name and response shape before writing
-`regenLog`** — `/api/regen-status?id=` is the expected spelling, but read the
-handler in `server.js` and match it exactly rather than trusting this sketch.
+**Verified while planning:** there is no `/api/regen-status`. A regen job's
+status rides on the item view as `regenStatus`, and its log is never exposed
+(unlike a create job's), so the stub records its own argv to a file in the
+fixture directory and the test reads that.
 
 - [ ] **Step 2: Run and watch it fail**
 
