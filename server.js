@@ -687,7 +687,7 @@ const regenJobsByItemId = new Map();
 
 const REGEN_LOG_LIMIT = 4000; // chars of stdout+stderr kept for an error message
 
-function startRegenJob(item, { which, seedMode, seed, rerollTrait }) {
+function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, release }) {
     const existing = regenJobsByItemId.get(item.id);
     if (existing?.status === 'running') return { ok: false, reason: 'already regenerating' };
     if (item.kind !== 'npc') {
@@ -715,10 +715,20 @@ function startRegenJob(item, { which, seedMode, seed, rerollTrait }) {
     // since clicking "reroll" twice on the same NPC should not hand back the
     // same haircut both times.
     if (rerollTrait) args.push('--reroll-trait', rerollTrait);
+    // The pinned counterpart of --reroll-trait: that flag draws a new value,
+    // this one names it. The generator refuses both together, so no caller may
+    // send both.
+    if (setTrait) args.push('--set-trait', `${setTrait.table}=${setTrait.value}`);
+    // Only the traits the user ticked. The generator expands each to its whole
+    // cascade, so what actually moves is wider than this list - which is why
+    // it prints every trait that travelled rather than counting them.
+    if (release && release.length) args.push('--release', release.join(','));
 
     const job = {
         status: 'running', which, seedMode, seed: newSeed,
-        rerollTrait: rerollTrait || null, startedAt: Date.now(), log: '',
+        rerollTrait: rerollTrait || null,
+        setTrait: setTrait || null, release: release || [],
+        startedAt: Date.now(), log: '',
     };
     regenJobsByItemId.set(item.id, job);
 
@@ -1859,6 +1869,75 @@ async function handleApi(req, res, url) {
         // generator draws the new value from this same seed.
         const result = startRegenJob(item, {
             which: 'both', seedMode: 'random', rerollTrait: table,
+        });
+        return sendJson(res, result.ok ? 202 : 409, result);
+    }
+
+    if (url.pathname === '/api/set-trait' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const item = body.id && findItem(body.id);
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        if (item.kind !== 'npc') {
+            return sendJson(res, 400, {
+                error: `setting a trait isn't supported for kind "${item.kind}" yet`,
+            });
+        }
+        if (!hasRawTraits(item)) {
+            return sendJson(res, 400, {
+                error: 'this NPC recorded no raw bullets, so there is nothing to '
+                    + 'pin the rest of it to. Re-roll the NPC to record them.',
+            });
+        }
+
+        const table = typeof body.table === 'string' ? body.table : '';
+        const value = typeof body.value === 'string' ? body.value : '';
+        if (!table || !value) return sendJson(res, 400, { error: 'table and value are required' });
+
+        const allowed = rerollableFor(item);
+        if (allowed.length && !allowed.includes(table)) {
+            return sendJson(res, 400, {
+                error: `"${table}" cannot be set on its own. Settable: ${allowed.join(', ')}`,
+            });
+        }
+
+        // Re-checked against the generator rather than trusted, because
+        // --set-trait takes its bullet VERBATIM and pastes it into an image
+        // prompt: an arbitrary string arriving here would be rendered. The
+        // client's list can also simply be stale, which a long-open detail
+        // sheet makes easy. Goes through the cache the GET route filled, so
+        // the ordinary open-choose-submit path spawns the generator once.
+        const query = await readTraitChoices(item, table);
+        if (!query.ok) return sendJson(res, 502, { error: query.reason });
+        const choice = query.data.choices.find((c) => c.value === value);
+        if (!choice) {
+            return sendJson(res, 400, {
+                error: `"${value}" is not a value the ${table} table offers; the `
+                    + 'tables file may have changed since this list was loaded.',
+            });
+        }
+
+        // The checkbox offers exactly this value's conflicts, so anything else
+        // is a client that has drifted - and releasing a trait the set one
+        // does not gate is a re-roll in disguise, which the generator refuses
+        // too.
+        const release = Array.isArray(body.release) ? body.release : [];
+        const stray = release.filter((r) => !choice.conflicts.includes(r));
+        if (stray.length) {
+            return sendJson(res, 400, {
+                error: `cannot release ${stray.join(', ')}: not in conflict with this value`,
+            });
+        }
+
+        // Always a fresh seed, same as the re-roll route: pinning a value and
+        // getting a byte-identical image back is not what the button promises.
+        const result = startRegenJob(item, {
+            which: 'both', seedMode: 'random', setTrait: { table, value }, release,
         });
         return sendJson(res, result.ok ? 202 : 409, result);
     }
