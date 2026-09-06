@@ -341,6 +341,32 @@
   </div>
 </div>
 
+<!-- Choosing a trait's value rather than re-rolling for one. The list comes
+     from generate-npc.py --trait-choices, which runs the roller's own filters:
+     nothing on this page works out what is legal. Values the roller would not
+     have offered, and values that would leave a kept trait contradicting, are
+     both shown and both stay selectable - see groupChoices() in app.js for why
+     those are two separate groups rather than one grey list. -->
+<div class="detail-overlay" id="set-trait-overlay" hidden>
+  <div class="detail set-trait-dialog">
+    <h2 id="set-trait-title">Set trait</h2>
+    <input type="search" id="set-trait-filter" placeholder="Filter values…"
+           autocomplete="off" aria-label="Filter values">
+    <div id="set-trait-list" class="set-trait-list"></div>
+    <label id="set-trait-release-row" hidden>
+      <input type="checkbox" id="set-trait-release">
+      <span id="set-trait-release-label"></span>
+    </label>
+    <p class="confirm-warning">The chosen bullet replaces the current one and
+      there is no undo, and the re-render takes a few minutes with ComfyUI
+      running.</p>
+    <div class="confirm-actions">
+      <button id="set-trait-cancel" type="button">Cancel</button>
+      <button id="set-trait-ok" type="button">Set and regen</button>
+    </div>
+  </div>
+</div>
+
 <script src="/app.js"></script>
 </body>
 </html>

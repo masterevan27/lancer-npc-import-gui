@@ -113,6 +113,18 @@ const elRerollConfirm = {
   ok: document.getElementById('reroll-confirm-ok'),
 };
 
+const elSetTrait = {
+  overlay: document.getElementById('set-trait-overlay'),
+  title: document.getElementById('set-trait-title'),
+  filter: document.getElementById('set-trait-filter'),
+  list: document.getElementById('set-trait-list'),
+  releaseRow: document.getElementById('set-trait-release-row'),
+  release: document.getElementById('set-trait-release'),
+  releaseLabel: document.getElementById('set-trait-release-label'),
+  cancel: document.getElementById('set-trait-cancel'),
+  ok: document.getElementById('set-trait-ok'),
+};
+
 /**
  * The re-rollable list that applies to one NPC.
  *
@@ -253,9 +265,147 @@ function confirmReroll(trait) {
   });
 }
 
+/**
+ * The Set… dialog: pick a value for one trait, then regenerate from it.
+ *
+ * Resolves to { value, release } once "Set and regen" is pressed, or null if
+ * the user backs out. The caller does the POST, so this function stays about
+ * the choice and nothing else.
+ *
+ * Opens immediately and fills in when the answer arrives, rather than blocking
+ * the click: the query spawns a Python interpreter, which is fast but not
+ * instant, and a button that does nothing for a moment reads as broken.
+ *
+ * A failed query shows what the generator said and leaves the dialog unusable
+ * on purpose. There is deliberately no fallback to "show every bullet": a
+ * picker that quietly stopped filtering would look exactly like a working one,
+ * which is the failure this whole feature is built to avoid.
+ */
+function openSetTrait(item, trait) {
+  return new Promise((resolve) => {
+    let choices = [];
+    let selected = null;
+
+    elSetTrait.title.textContent = `Set ${trait}`;
+    elSetTrait.filter.value = '';
+    elSetTrait.filter.hidden = true;
+    elSetTrait.list.textContent = 'Working out which values this NPC can take…';
+    elSetTrait.releaseRow.hidden = true;
+    elSetTrait.release.checked = false;
+    elSetTrait.ok.disabled = true;
+    elSetTrait.overlay.hidden = false;
+    elSetTrait.cancel.focus();
+
+    const cleanup = (result) => {
+      elSetTrait.overlay.hidden = true;
+      elSetTrait.ok.removeEventListener('click', onOk);
+      elSetTrait.cancel.removeEventListener('click', onCancel);
+      elSetTrait.overlay.removeEventListener('click', onBackdrop);
+      elSetTrait.filter.removeEventListener('input', render);
+      elSetTrait.list.removeEventListener('change', onPick);
+      resolve(result);
+    };
+    const onOk = () => {
+      if (!selected) return;
+      // Only what the user ticked. The server re-derives the rest, and the
+      // generator expands each name to its cascade.
+      const release = elSetTrait.release.checked ? selected.conflicts.slice() : [];
+      cleanup({ value: selected.value, release });
+    };
+    const onCancel = () => cleanup(null);
+    const onBackdrop = (e) => { if (e.target === elSetTrait.overlay) cleanup(null); };
+
+    function onPick(e) {
+      const picked = choices.find((c) => c.value === e.target.value);
+      if (!picked) return;
+      selected = picked;
+      const label = releaseLabel(picked);
+      // Absent rather than disabled for a value it cannot help: a ruled-out
+      // value is ruled out by a gate above it, and no release fixes that.
+      elSetTrait.releaseRow.hidden = !label;
+      elSetTrait.releaseLabel.textContent = label || '';
+      if (!label) elSetTrait.release.checked = false;
+      elSetTrait.ok.disabled = false;
+    }
+
+    function render() {
+      const needle = elSetTrait.filter.value.trim().toLowerCase();
+      const visible = needle
+        ? choices.filter((c) => c.label.toLowerCase().includes(needle))
+        : choices;
+      if (!visible.length) {
+        elSetTrait.list.textContent = 'Nothing matches that.';
+        return;
+      }
+      // Groups whose rows all filtered away drop out with them, so a heading
+      // never sits over an empty space.
+      elSetTrait.list.innerHTML = groupChoices(visible).map((group) => {
+        const rows = group.rows.map((choice) => {
+          const checked = selected
+            ? choice.value === selected.value
+            : choice.current;
+          // Each note names the trait AND its current value: "conflicts with
+          // Headgear" is not actionable without knowing what the Headgear is.
+          const notes = choice.conflicts.map((name) => {
+            const now = (item.traits || {})[name];
+            return now
+              ? `${escapeHtml(name)} would clash — currently “${escapeHtml(now)}”`
+              : `${escapeHtml(name)} would clash`;
+          }).join('<br>');
+          // The ruled-out note claims no cause. The generator reports whether
+          // a bullet was in the pool, not which filter emptied it, and naming
+          // a culprit here would be inventing one.
+          const note = group.key === 'ruledOut'
+            ? "the roller would not have offered this one"
+            : notes;
+          return `<label class="set-trait-row${group.key === 'clean' ? '' : ' set-trait-row-greyed'}">`
+            + `<input type="radio" name="set-trait-value" value="${escapeHtml(choice.value)}"`
+            + `${checked ? ' checked' : ''}>`
+            + `<span class="set-trait-label">${escapeHtml(choice.label)}`
+            + `${choice.current ? ' <em>(current)</em>' : ''}</span>`
+            + (note ? `<span class="set-trait-note">${note}</span>` : '')
+            + '</label>';
+        }).join('');
+        const heading = group.heading
+          ? `<h3 class="set-trait-heading">${escapeHtml(group.heading)}</h3>`
+          : '';
+        return heading + rows;
+      }).join('');
+    }
+
+    elSetTrait.ok.addEventListener('click', onOk);
+    elSetTrait.cancel.addEventListener('click', onCancel);
+    elSetTrait.overlay.addEventListener('click', onBackdrop);
+    elSetTrait.filter.addEventListener('input', render);
+    elSetTrait.list.addEventListener('change', onPick);
+
+    api(`/api/trait-choices?id=${encodeURIComponent(item.id)}&trait=${encodeURIComponent(trait)}`)
+      .then((data) => {
+        choices = data.choices || [];
+        selected = choices.find((c) => c.current) || null;
+        elSetTrait.filter.hidden = choices.length < 12;
+        render();
+        // The current value is always allowed and conflict-free - the
+        // generator makes that a tested invariant - so the button starts live
+        // and pressing it immediately is a no-op re-render rather than an
+        // error.
+        elSetTrait.ok.disabled = !selected;
+      })
+      .catch((err) => {
+        elSetTrait.list.textContent = `Could not list the values: ${err.message}`;
+        elSetTrait.ok.disabled = true;
+      });
+  });
+}
+
 async function api(path, options) {
   const res = await fetch(path, options);
-  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  if (!res.ok) {
+    // The server's own sentence where there is one - these refusals name a
+    // cure ("Re-roll the NPC to record them") that "HTTP 400" does not.
+    const said = await res.json().catch(() => null);
+    throw new Error(said && said.error ? said.error : `${path}: HTTP ${res.status}`);
+  }
   return res.json();
 }
 
@@ -673,11 +823,81 @@ function factionDisplayName(faction) {
  * control. A title on the button alone would be an explanation nobody could
  * read, which is the state this whole function exists to get out of.
  */
+/**
+ * The picker's choices sorted into the groups it draws, empty ones dropped.
+ *
+ * The generator reports two independent kinds of "not legal" and they are not
+ * interchangeable, because only one of them has a remedy in this dialog.
+ * `allowed: false` means the roller's own pool for this table excludes the
+ * value given the traits ABOVE it - nothing the user ticks changes that, so
+ * picking it is an override and nothing else. `conflicts` means the value is
+ * legal in itself but would leave traits BELOW it holding bullets the roller
+ * would no longer offer, which the checkbox can fix by re-rolling them.
+ *
+ * A value can carry both, and it goes in ruledOut alone. Putting it in
+ * conflicting would draw a checkbox that cannot rescue it: releasing the
+ * dependents does nothing about a gate upstream.
+ *
+ * Pure, so it can be tested. There is no DOM harness in this repo -
+ * ui.setTraitPicker.test.js lifts and runs this exact source - so grouping
+ * logic living inside the render callback would ship untested.
+ */
+function groupChoices(choices) {
+  const clean = [];
+  const conflicting = [];
+  const ruledOut = [];
+  for (const choice of choices || []) {
+    if (!choice.allowed) ruledOut.push(choice);
+    else if (choice.conflicts && choice.conflicts.length) conflicting.push(choice);
+    else clean.push(choice);
+  }
+  return [
+    // No heading on the first group: it is the default answer, and labelling
+    // it would imply the other two are errors rather than choices the user is
+    // allowed to make.
+    { key: 'clean', heading: null, rows: clean },
+    { key: 'conflicting', heading: 'Would leave other traits contradicting', rows: conflicting },
+    { key: 'ruledOut', heading: "Ruled out by this NPC's other traits", rows: ruledOut },
+  ].filter((group) => group.rows.length);
+}
+
+/**
+ * The release checkbox's label for one choice, or null when there should be no
+ * checkbox at all.
+ *
+ * Null for a clean value (nothing to release) and for a ruled-out one (there
+ * is nothing a release could fix - see groupChoices above).
+ *
+ * The count matters more than it looks. Releasing a trait re-rolls its whole
+ * cascade, because freeing Outfit while Headgear, Weapon and Gear stayed
+ * pinned to bullets chosen for the outfit that is now gone would recreate the
+ * contradiction one level down. So `releases` is routinely longer than
+ * `conflicts`, and a label naming only the conflicts would promise that one
+ * trait moves while four do. The generator computes `releases` precisely so
+ * this can be said here without a copy of its cascade map.
+ */
+function releaseLabel(choice) {
+  const conflicts = (choice && choice.conflicts) || [];
+  if (!choice || !choice.allowed || !conflicts.length) return null;
+  const named = conflicts.length <= 3
+    ? conflicts.join(', ')
+    : `${conflicts.length} conflicting traits`;
+  const extra = ((choice.releases || []).length) - conflicts.length;
+  if (extra <= 0) return `also re-roll ${named}`;
+  const them = conflicts.length === 1 ? 'it' : 'them';
+  return `also re-roll ${named} (and ${extra} trait${extra === 1 ? '' : 's'} that depend on ${them})`;
+}
+
 function rerollControlHtml(trait, rerollable) {
   const name = escapeHtml(trait);
   if (rerollable.includes(trait)) {
     return `<button type="button" class="reroll-btn" data-trait="${name}"
-             title="Re-roll ${name} and re-render this NPC">Re-roll</button>`;
+             title="Re-roll ${name} and re-render this NPC">Re-roll</button>`
+      // Only in this branch. Where Re-roll is the explained-but-disabled
+      // variant below, that explanation already covers both controls and names
+      // the same cure, so a second disabled button would say it twice.
+      + `<button type="button" class="set-trait-btn" data-trait="${name}"
+             title="Choose a value for ${name} and re-render this NPC">Set&hellip;</button>`;
   }
   if (createState.rawRerollableTraits.includes(trait)) {
     const why = `This NPC was generated before its raw trait bullets were recorded, so ${name} `
@@ -816,7 +1036,12 @@ function renderRegenPanel(item) {
   // re-roll is disabled for a reason that has nothing to do with a running job,
   // and an unqualified selector here would enable it the moment one finished -
   // handing back a clickable control with no trait on it to post.
-  for (const button of el.detailTraits.querySelectorAll('.reroll-btn[data-trait]')) {
+  //
+  // Set... rides along: it starts the same kind of job, so it has to be shut
+  // for the same reason. It only ever exists with a data-trait, but the
+  // selector keeps the qualifier so the two lines read as one rule.
+  for (const button of el.detailTraits.querySelectorAll(
+    '.reroll-btn[data-trait], .set-trait-btn[data-trait]')) {
     button.disabled = running;
   }
 
@@ -2234,6 +2459,49 @@ el.detailTraits.addEventListener('click', async (event) => {
     await refreshItems();
   } catch (err) {
     el.regenStatus.textContent = `Couldn't re-roll ${trait}: ${err.message}`;
+    button.disabled = false;
+  }
+});
+
+el.detailTraits.addEventListener('click', async (event) => {
+  const button = event.target.closest('.set-trait-btn');
+  if (!button) return;
+  const id = state.detailItemId;
+  if (!id) return;
+  const trait = button.dataset.trait;
+  const item = state.items.find((i) => i.id === id);
+  if (!item) return;
+
+  // No separate cascade confirmation, unlike Re-roll's. The dialog already
+  // shows what each value would cost before anything is chosen, and the
+  // release checkbox is the consent - a second modal would ask about a
+  // decision the user has just finished making.
+  const picked = await openSetTrait(item, trait);
+  if (!picked) return;
+
+  button.disabled = true;
+  try {
+    const res = await fetch('/api/set-trait', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, table: trait, value: picked.value, release: picked.release }),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      el.regenStatus.textContent =
+        `Couldn't set ${trait}: ${result.reason || result.error || res.status}`;
+      button.disabled = false;
+      return;
+    }
+    el.regenStatus.textContent =
+      `Setting ${trait} and re-rendering… this can take a few minutes `
+      + '(ComfyUI must be running).';
+    // Same hand-off as a re-roll: a pin IS a regen job, so the existing poller
+    // swaps the art in and reports a failure without a second copy here.
+    state.regenLastStatus = 'running';
+    await refreshItems();
+  } catch (err) {
+    el.regenStatus.textContent = `Couldn't set ${trait}: ${err.message}`;
     button.disabled = false;
   }
 });

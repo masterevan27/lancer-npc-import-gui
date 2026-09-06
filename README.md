@@ -94,19 +94,6 @@ and open <http://127.0.0.1:5089>.
   away, since both are ordinary things to click on an NPC's sheet. Copying works
   over a LAN address as well as on localhost, where the browser's clipboard API
   is unavailable and an older fallback runs in its place.
-  A **Files** block under the generated date names the folder the NPC's
-  portrait and token actually sit in, the two filenames beneath it, and a
-  **Copy** button for the path. Finding the source files previously meant
-  guessing the generator's `<category>/<name>` nesting from the NPC's name and
-  role. It is text rather than a link because a browser will not follow a
-  `file://` from an http page, so pasting the folder into a file manager is the
-  only route that actually works — and it is the folder rather than two full
-  file paths because the two share an eighty-character prefix there is no
-  reason to read twice. The path comes off the manifest on every poll instead
-  of being remembered, which is what keeps it honest across an import:
-  importing copies the files under `foundryDataRoot` and repoints the manifest
-  entry at the copy, so the line names where the art is now rather than where
-  it was generated.
   A blue **New** tag in a card's top-left corner marks an NPC generated since
   you last opened it — including ones rolled at the shell rather than through
   the Create tab, since the server keeps the record rather than your browser.
@@ -209,6 +196,31 @@ and open <http://127.0.0.1:5089>.
   the cascade map is read out of `generate-npc.py`'s `TRAIT_DEPENDENTS` the same
   way the two lists are, so a trait that frees nothing — Faction, Weather and
   Stance among them — fires on one click and raises no dialog at all.
+
+  Beside every live **Re-roll** sits **Set…**, for when you know what you want
+  rather than wanting another draw. It opens a list of the values that trait
+  could take *on this NPC*, which is not the whole table: the roller gates most
+  tables on what the NPC already is, so a civilian's Outfit list comes back as
+  105 bullets of which 56 are on offer and 49 — every military uniform and
+  plate carrier — are ruled out by the Role's `civ` flag. That answer is
+  computed by `generate-npc.py --trait-choices`, which runs the roller's own
+  filters; nothing in this app works out what is legal, because a second copy
+  of that filter chain would drift from the real one silently and the list
+  would simply stop being true.
+  The dialog separates two things that are easy to confuse. A value can be
+  *ruled out* — the traits above it mean the roller would never have drawn it —
+  or it can be legal in itself but *leave something below it contradicting*,
+  like a `notac` kimono under a hard-tech visor. Both are greyed, both stay
+  pickable (you are allowed to overrule the tables; `--set-trait` always has),
+  and each says which trait it clashes with and what that trait currently is.
+  Only the second kind offers a fix: a checkbox that re-rolls the conflicting
+  traits along with your choice. It names them, and says when more will move
+  than it named — releasing a trait re-rolls its whole cascade, since freeing
+  Outfit while Headgear, Weapon and Gear stayed pinned to bullets chosen for
+  the outfit that just went would recreate the contradiction one level down.
+  Leave it unticked and nothing but the trait you set changes. Set… appears
+  wherever Re-roll is live and nowhere else — an NPC without raw bullets has
+  nothing to pin the rest of itself to, and the greyed Re-roll already says so.
 - **Trait Imports** — lists reference-image trait candidates staged by the
   `npc-trait-import` skill, sortable and dated, and appends the ones you approve
   as new bullets in `npc-generator-tables.md`. Clicking a candidate opens its
@@ -278,33 +290,45 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test "test/*.test.js"
 ```
 
-Expect `pass 269`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 315`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other
 file uses.
 
-Ports are written two ways, which is worth knowing before you pick one:
-twenty-one of the thirty-three test files bind a port at all, and of those, fourteen
-declare `const PORT = 5196` at the top and pass that, while the other seven
-(`api.createArgs`, `api.nonTableSections`, `api.presets`, `api.pronouns`,
-`api.tableBullets`, `api.traitOptions` and `helpers.testServer`) pass
-`port: 5199` inline at each `startTestServer` call. The enumerated half is the
-smaller one, and it used to be the other half — which is the point: grep for
-both before claiming a number, because a collision does not fail loudly, it
+Ports are written two ways, which is worth knowing before you pick one: of the
+37 test files, 17 declare `const PORT = 5196` at the top and pass that, while
+the rest (`api.createArgs`, `api.nonTableSections`, `api.presets`,
+`api.pronouns`, `api.tableBullets`, `api.traitOptions` and `helpers.testServer`)
+pass `port: 5199` inline at each `startTestServer` call. The enumerated half is
+the smaller one, and it used to be the other half — which is the point: grep
+for both before claiming a number, because a collision does not fail loudly, it
 hangs the run until the whole suite times out:
 
 ```bash
 grep -rhoE "(port: |PORT = )5[0-9]+" test/*.test.js | sort -u
 ```
 
-Ports 5193–5199 and 5201–5214 are taken.
+Ports 5193–5199 and 5201–5217 are taken.
+
+The same collision bites from outside the runner, which is worth knowing
+because the symptom points at the wrong thing: run a single test file while a
+full `node --test "test/*.test.js"` is still going and two servers reach for
+one port, surfacing as a 20-second readiness timeout in whichever test happened
+to lose. Let one run finish before starting another.
 
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs bare
 `node --test` instead, which also picks up `test/helpers/testServer.js` as a
-file with no tests in it — so expect one more there, `pass 270`, for a helper
+file with no tests in it — so expect one more there, `pass 316`, for a helper
 that declares no tests and therefore cannot fail. Both numbers move whenever a
 test is added; they are worth updating together.
+
+Bare `node --test` is a CI-only command in practice: it discovers by walking
+the tree, so run it in a working copy that has scratch directories under it —
+a git worktree, say — and it goes looking through all of them. `node --test
+"test/*.test.js"` is the local form for that reason, and the extra file's
+contribution is measured on its own (`node --test "test/helpers/testServer.js"`)
+rather than by sitting through a bare run.
 
 Parked technical debt is in [docs/known-issues.md](docs/known-issues.md). The
 design behind the Tables and Presets features is in

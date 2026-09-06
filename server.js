@@ -56,6 +56,7 @@ const { derivePaths } = require('./lib/paths');
 const pronouns = require('./lib/pronouns');
 const traitOptions = require('./lib/traitOptions');
 const traitOdds = require('./lib/traitOdds');
+const traitChoices = require('./lib/traitChoices');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -686,7 +687,7 @@ const regenJobsByItemId = new Map();
 
 const REGEN_LOG_LIMIT = 4000; // chars of stdout+stderr kept for an error message
 
-function startRegenJob(item, { which, seedMode, seed, rerollTrait }) {
+function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, release }) {
     const existing = regenJobsByItemId.get(item.id);
     if (existing?.status === 'running') return { ok: false, reason: 'already regenerating' };
     if (item.kind !== 'npc') {
@@ -714,10 +715,20 @@ function startRegenJob(item, { which, seedMode, seed, rerollTrait }) {
     // since clicking "reroll" twice on the same NPC should not hand back the
     // same haircut both times.
     if (rerollTrait) args.push('--reroll-trait', rerollTrait);
+    // The pinned counterpart of --reroll-trait: that flag draws a new value,
+    // this one names it. The generator refuses both together, so no caller may
+    // send both.
+    if (setTrait) args.push('--set-trait', `${setTrait.table}=${setTrait.value}`);
+    // Only the traits the user ticked. The generator expands each to its whole
+    // cascade, so what actually moves is wider than this list - which is why
+    // it prints every trait that travelled rather than counting them.
+    if (release && release.length) args.push('--release', release.join(','));
 
     const job = {
         status: 'running', which, seedMode, seed: newSeed,
-        rerollTrait: rerollTrait || null, startedAt: Date.now(), log: '',
+        rerollTrait: rerollTrait || null,
+        setTrait: setTrait || null, release: release || [],
+        startedAt: Date.now(), log: '',
     };
     regenJobsByItemId.set(item.id, job);
 
@@ -1360,6 +1371,95 @@ function runTraitOdds() {
 }
 
 /**
+ * "Which values could this trait take on this NPC", cached per (tables file,
+ * NPC, trait).
+ *
+ * One map for every NPC and trait rather than the single slot the odds cache
+ * uses, because the odds have exactly one answer at a time and this has one
+ * per trait per NPC - a user clicking down a detail sheet asks a dozen
+ * different questions in a minute. Bounded because of that, and none of the
+ * answers is large.
+ */
+const CHOICES_CACHE_LIMIT = 64;
+const choicesCache = new Map();
+
+function readTraitChoices(item, trait) {
+    let key;
+    try {
+        key = traitChoices.cacheKeyFor(fs.statSync(NPC_TABLES_PATH), item, trait);
+    } catch (err) {
+        return Promise.resolve({ ok: false, reason: `cannot read ${NPC_TABLES_PATH}: ${err.message}` });
+    }
+    if (choicesCache.has(key)) return choicesCache.get(key);
+
+    const promise = runTraitChoices(item, trait).then((result) => {
+        // Same reasoning as the odds cache: a failure is usually something the
+        // user can fix without touching the tables file (install Python,
+        // correct a path), and a cached failure would outlive the fix.
+        if (!result.ok) choicesCache.delete(key);
+        return result;
+    });
+    choicesCache.set(key, promise);
+    // Insertion-ordered, so the first key is the oldest.
+    while (choicesCache.size > CHOICES_CACHE_LIMIT) {
+        choicesCache.delete(choicesCache.keys().next().value);
+    }
+    return promise;
+}
+
+/**
+ * Spawns `generate-npc.py --trait-choices` and hands back what it printed.
+ *
+ * Structured like runTraitOdds() rather than sharing an abstraction with it:
+ * the argv, the parser and the error wording all differ, and what is left over
+ * is a spawn guard and two stream handlers. Resolves
+ * `{ ok: true, data: <parsed> }` - nested rather than spread, because the
+ * payload's keys come from the generator and a spread would let a future key
+ * named `ok` or `reason` collide with the envelope.
+ */
+function runTraitChoices(item, trait) {
+    if (!fs.existsSync(GENERATE_NPC_SCRIPT)) {
+        return Promise.resolve({ ok: false, reason: `generate-npc.py not found at ${GENERATE_NPC_SCRIPT}` });
+    }
+
+    let args;
+    try {
+        args = traitChoices.choicesArgs(
+            GENERATE_NPC_SCRIPT, config.npcManifestPath, item.id, trait);
+    } catch (err) {
+        return Promise.resolve({ ok: false, reason: err.message });
+    }
+
+    return new Promise((resolve) => {
+        let child;
+        try {
+            child = spawn(config.pythonExecutable, args, { cwd: path.dirname(GENERATE_NPC_SCRIPT) });
+        } catch (err) {
+            return resolve({ ok: false, reason: `could not run ${config.pythonExecutable}: ${err.message}` });
+        }
+
+        let out = '';
+        let errText = '';
+        child.stdout.on('data', (chunk) => { out += chunk.toString(); });
+        child.stderr.on('data', (chunk) => { errText = (errText + chunk.toString()).slice(-ODDS_LOG_LIMIT); });
+        child.on('error', (err) => resolve({ ok: false, reason: `could not run ${config.pythonExecutable}: ${err.message}` }));
+        child.on('close', (code) => {
+            if (code !== 0) {
+                return resolve({
+                    ok: false,
+                    reason: errText.trim() || `generate-npc.py --trait-choices exited with code ${code}`,
+                });
+            }
+            try {
+                return resolve({ ok: true, data: traitChoices.parseChoicesOutput(out) });
+            } catch (err) {
+                return resolve({ ok: false, reason: err.message });
+            }
+        });
+    });
+}
+
+/**
  * Appends one bullet to npc-generator-tables.md under its exact '## <table>'
  * heading, right before the next heading (or EOF) - i.e. as the new last
  * bullet in that section. A heading that doesn't exist yet is refused rather
@@ -1786,6 +1886,123 @@ async function handleApi(req, res, url) {
             which: 'both', seedMode: 'random', rerollTrait: table,
         });
         return sendJson(res, result.ok ? 202 : 409, result);
+    }
+
+    if (url.pathname === '/api/set-trait' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const item = body.id && findItem(body.id);
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        if (item.kind !== 'npc') {
+            return sendJson(res, 400, {
+                error: `setting a trait isn't supported for kind "${item.kind}" yet`,
+            });
+        }
+        if (!hasRawTraits(item)) {
+            return sendJson(res, 400, {
+                error: 'this NPC recorded no raw bullets, so there is nothing to '
+                    + 'pin the rest of it to. Re-roll the NPC to record them.',
+            });
+        }
+
+        const table = typeof body.table === 'string' ? body.table : '';
+        const value = typeof body.value === 'string' ? body.value : '';
+        if (!table || !value) return sendJson(res, 400, { error: 'table and value are required' });
+
+        const allowed = rerollableFor(item);
+        if (allowed.length && !allowed.includes(table)) {
+            return sendJson(res, 400, {
+                error: `"${table}" cannot be set on its own. Settable: ${allowed.join(', ')}`,
+            });
+        }
+
+        // Re-checked against the generator rather than trusted, because
+        // --set-trait takes its bullet VERBATIM and pastes it into an image
+        // prompt: an arbitrary string arriving here would be rendered. The
+        // client's list can also simply be stale, which a long-open detail
+        // sheet makes easy. Goes through the cache the GET route filled, so
+        // the ordinary open-choose-submit path spawns the generator once.
+        const query = await readTraitChoices(item, table);
+        if (!query.ok) return sendJson(res, 502, { error: query.reason });
+        const choice = query.data.choices.find((c) => c.value === value);
+        if (!choice) {
+            return sendJson(res, 400, {
+                error: `"${value}" is not a value the ${table} table offers; the `
+                    + 'tables file may have changed since this list was loaded.',
+            });
+        }
+
+        // The checkbox offers exactly this value's conflicts, so anything else
+        // is a client that has drifted - and releasing a trait the set one
+        // does not gate is a re-roll in disguise, which the generator refuses
+        // too.
+        const release = Array.isArray(body.release) ? body.release : [];
+        const stray = release.filter((r) => !choice.conflicts.includes(r));
+        if (stray.length) {
+            return sendJson(res, 400, {
+                error: `cannot release ${stray.join(', ')}: not in conflict with this value`,
+            });
+        }
+
+        // Always a fresh seed, same as the re-roll route: pinning a value and
+        // getting a byte-identical image back is not what the button promises.
+        const result = startRegenJob(item, {
+            which: 'both', seedMode: 'random', setTrait: { table, value }, release,
+        });
+        return sendJson(res, result.ok ? 202 : 409, result);
+    }
+
+    if (url.pathname === '/api/trait-choices' && req.method === 'GET') {
+        // Which values one trait could take on one NPC, and what each would
+        // cost - computed by generate-npc.py's own roller, never here. See
+        // lib/traitChoices.js for why that division is not negotiable.
+        const id = url.searchParams.get('id');
+        const item = id && findItem(id);
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        if (item.kind !== 'npc') {
+            return sendJson(res, 400, {
+                error: `choosing a trait value isn't supported for kind "${item.kind}" yet`,
+            });
+        }
+        const trait = url.searchParams.get('trait') || '';
+        if (!trait) return sendJson(res, 400, { error: 'trait is required' });
+
+        // The same two gates the Set... button is drawn behind, so a button
+        // that exists is a button that works. Same reasoning as the matching
+        // refusal on /api/reroll-trait: the offer and the refusal have to
+        // agree, because a control that answers 400 is worse than no control.
+        if (!hasRawTraits(item)) {
+            return sendJson(res, 400, {
+                error: 'this NPC recorded no raw bullets, so there is nothing to '
+                    + 'pin the rest of it to. Re-roll the NPC to record them.',
+            });
+        }
+        const allowed = rerollableFor(item);
+        if (allowed.length && !allowed.includes(trait)) {
+            return sendJson(res, 400, {
+                error: `"${trait}" cannot be chosen on its own. Choosable: ${allowed.join(', ')}`,
+            });
+        }
+
+        const result = await readTraitChoices(item, trait);
+        if (!result.ok) return sendJson(res, 502, { error: result.reason });
+        // `label` is added here rather than by the generator or the client.
+        // The '||' -> '·' convention belongs to lib/traitOptions.js, which the
+        // Create form's dropdown already renders through; computing it a
+        // second time in the browser would give the same bullet two spellings
+        // depending on which control you met it in. `value` is untouched - it
+        // is what gets posted back and pasted into a prompt verbatim.
+        return sendJson(res, 200, {
+            ...result.data,
+            choices: result.data.choices.map((choice) => ({
+                ...choice, label: traitOptions.readableLabel(choice.value),
+            })),
+        });
     }
 
     if (url.pathname === '/api/trait-options' && req.method === 'GET') {
