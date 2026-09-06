@@ -290,14 +290,14 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test "test/*.test.js"
 ```
 
-Expect `pass 308`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 315`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other
 file uses.
 
 Ports are written two ways, which is worth knowing before you pick one: of the
-35 test files, 15 declare `const PORT = 5196` at the top and pass that, while
+37 test files, 17 declare `const PORT = 5196` at the top and pass that, while
 the rest (`api.createArgs`, `api.nonTableSections`, `api.presets`,
 `api.pronouns`, `api.tableBullets`, `api.traitOptions` and `helpers.testServer`)
 pass `port: 5199` inline at each `startTestServer` call. The enumerated half is
@@ -309,7 +309,7 @@ hangs the run until the whole suite times out:
 grep -rhoE "(port: |PORT = )5[0-9]+" test/*.test.js | sort -u
 ```
 
-Ports 5193–5199 and 5201–5215 are taken.
+Ports 5193–5199 and 5201–5217 are taken.
 
 The same collision bites from outside the runner, which is worth knowing
 because the symptom points at the wrong thing: run a single test file while a
@@ -319,7 +319,7 @@ to lose. Let one run finish before starting another.
 
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs bare
 `node --test` instead, which also picks up `test/helpers/testServer.js` as a
-file with no tests in it — so expect one more there, `pass 309`, for a helper
+file with no tests in it — so expect one more there, `pass 316`, for a helper
 that declares no tests and therefore cannot fail. Both numbers move whenever a
 test is added; they are worth updating together.
 
