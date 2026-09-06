@@ -84,8 +84,39 @@ and open <http://127.0.0.1:5089>.
   hand. Sort and filter the grid, see when each NPC was generated and the prompt
   that produced its art, regenerate art on any of them, and **Delete Selected**
   to remove an NPC's generated files entirely (blocked while an import or regen
-  is in flight; never touches an Actor already created in Foundry). The detail
-  sheet a card opens supports the keyboard: **←/→** step to the previous/next
+  is in flight; never touches an Actor already created in Foundry).
+  Each prompt on the detail sheet carries a **Copy** button, with a **Copy
+  both** beneath the pair that puts them in the clipboard together, each under
+  its own heading, since two unlabelled prompts are indistinguishable once they
+  are in the buffer. The prompts exist to be pasted into ComfyUI or Krea by
+  hand, and a 2000-character paragraph is not something to click-drag across.
+  The three buttons carry the same filled blue as **Re-roll** a few centimetres
+  away, since both are ordinary things to click on an NPC's sheet. Copying works
+  over a LAN address as well as on localhost, where the browser's clipboard API
+  is unavailable and an older fallback runs in its place.
+  A blue **New** tag in a card's top-left corner marks an NPC generated since
+  you last opened it — including ones rolled at the shell rather than through
+  the Create tab, since the server keeps the record rather than your browser.
+  It clears when you open that NPC, when you import it, or — for the NPCs a
+  single generate run produced, and only those — when you dismiss the banner
+  announcing that run, and it sits in its own corner precisely because it
+  is independent of the status badge opposite: a brand-new NPC can equally be
+  mid-regen. The card takes a blue border to match, so a new NPC is findable
+  under a name-ascending sort, where the default newest-first clustering does
+  not help and the alternative is hunting the grid for pills. The very first
+  time the GUI runs against an existing library it flags nothing at all —
+  everything already there counts as already seen — while on a fresh install,
+  where there is no manifest yet and so nothing that could have been seen, the
+  first NPCs you ever generate do arrive flagged. The record
+  lives in `.npc-seen.json` beside your manifest; if it cannot be written there
+  the tags still work, they just forget themselves when the server restarts.
+  Two routes over that record exist for callers outside this page and are
+  deliberately unused by it: `GET /api/unseen` answers with the count and ids
+  of everything unlooked-at across every kind at once rather than the one
+  category the grid happens to be showing, and `POST /api/seen` with
+  `{"all": true}` marks the whole library seen in one go — the page itself only
+  ever posts the specific ids it means.
+  The detail sheet a card opens supports the keyboard: **←/→** step to the previous/next
   NPC in the grid's current filtered and sorted order (clamped at either end,
   not wrapping), and **Esc** closes whatever overlay is topmost — a zoomed
   image, a delete confirmation, the trait list, a preset preview — before
@@ -107,10 +138,21 @@ and open <http://127.0.0.1:5089>.
   dry-run-vs-generate) that rolls new NPCs into the same review flow as the CLI.
   An **Unarmed run** checkbox maps to the generator's `--unarmed`; it does not
   disarm everyone — military and criminal roles keep their weapons.
-  When a generate run finishes, a banner appears above the tabs — on whichever
-  tab you are standing on — with a **Show new NPCs** button that jumps to the
-  Import tab and reloads the list. The list also refreshes in place if you were
-  already looking at it, so the new NPCs never need a manual page reload.
+  When a generate run finishes having written at least one new NPC, a banner
+  appears above the tabs — on whichever tab you are standing on — with a **Show
+  new NPCs** button that jumps to the Import tab and reloads the list. The list
+  also refreshes in place if you were already looking at it, so the new NPCs
+  never need a manual page reload. The count is the one the server measured
+  against the manifest either side of the run, not the one the form asked for:
+  `generate-npc.py` can exit clean having written fewer NPCs than requested, or
+  none, and a run that added nothing raises no banner at all — the Create tab's
+  status line says so instead, and the log is right below it. Dismissing the
+  banner also clears the **New** tag on the NPCs that run wrote: the banner and
+  those tags are two halves of one announcement, and without that the only way
+  to clear a ten-NPC batch would be to open all ten. Only that run's, though —
+  an NPC rolled at the shell and never looked at keeps its tag, since the banner
+  never claimed to be about it. **Show new NPCs** leaves everything alone, since
+  it is taking you to them rather than acknowledging them.
   Each trait override offers a **dropdown of that table's own bullets**
   alongside the free-text box, grouped by the heading each came from so a
   per-pronoun variant is visibly one. The option's value is the raw bullet
@@ -127,14 +169,33 @@ and open <http://127.0.0.1:5089>.
   the one you want is a glance rather than a scan. They are always present and
   filled in a muted blue, brightening to the primary blue on hover or focus —
   loud enough to read as buttons at a glance, quiet enough that twenty of them
-  stay behind the trait values beside them. Clicking
-  one re-rolls just that trait and re-renders the NPC in place — same folder,
-  same manifest id, fresh seed. Not every trait is offered: the manifest stores
-  bullets with their flags stripped, so a trait gated by *another* trait's
-  flags (Outfit by Role's `mil`, Stance by the Weapon's `hands`) cannot be
-  re-rolled correctly from a stored entry and is left without a button. The
-  list is derived from `generate-npc.py`'s own `REROLLABLE_TRAITS` rather than
-  restated here.
+  stay behind the trait values beside them. Clicking one re-rolls that trait and
+  re-renders the NPC in place — same folder, same manifest id, fresh seed.
+  Which traits are offered depends on the NPC.
+  An entry the generator recorded raw bullets for can re-roll everything except
+  the two halves of its name and its pronouns, since those decide the folder and
+  the manifest id; an entry written before it kept those bullets stores them with
+  their flags stripped, so a trait gated by *another* trait's flags (Outfit by
+  Role's `mil`, Stance by the Weapon's `hands`) cannot be re-rolled correctly
+  from it and is left without a button — only eleven of the twenty-two stay
+  re-rollable. The other eleven get a greyed-out **Re-roll** instead of an empty
+  gutter, and hovering it says why and what to do: the NPC predates its raw
+  bullets, and one full re-roll of it records them and turns every one of those
+  buttons on. That is the only
+  case where an inert control appears — the two halves of the name and pronouns
+  are refused however the entry was written, so they stay blank rather than
+  advertise a cure that does not exist. Both lists are derived from
+  `generate-npc.py`'s own `REROLLABLE_TRAITS` and `RAW_REROLLABLE_TRAITS` rather
+  than restated here, and the server picks between them per NPC exactly as the
+  generator does. A re-roll can reach past the trait named on the button — the
+  generator frees every trait a filter would otherwise have had to re-check, so
+  Theme takes the outfit, weapon, hair and scene with it, a dozen traits in all,
+  and Role, Outfit, Weapon, Gear, Backdrop, Hair colour and Age each pull one to
+  six along. Those are the ones that ask for confirmation first, and the dialog
+  names the traits it is about to free, in the order the generator draws them:
+  the cascade map is read out of `generate-npc.py`'s `TRAIT_DEPENDENTS` the same
+  way the two lists are, so a trait that frees nothing — Faction, Weather and
+  Stance among them — fires on one click and raises no dialog at all.
 - **Trait Imports** — lists reference-image trait candidates staged by the
   `npc-trait-import` skill, sortable and dated, and appends the ones you approve
   as new bullets in `npc-generator-tables.md`. Clicking a candidate opens its
@@ -204,29 +265,31 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test "test/*.test.js"
 ```
 
-Expect `pass 195`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 256`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other
 file uses.
 
 Ports are written two ways, which is worth knowing before you pick one:
-thirteen of the twenty-five test files bind a port at all, and of those, seven
-pass `port: 5199` inline at each `startTestServer` call while the other six
-(`importerContract`, `api.rerollTrait`, `api.traitOdds`, `api.traitImage`,
-`api.model3d` and `ui.copyPrompts`) declare `const PORT = 5196` at the top and
-pass that. So grep for both before claiming a number — a collision does not
-fail loudly, it hangs the run until the whole suite times out:
+eighteen of the thirty test files bind a port at all, and of those, eleven
+declare `const PORT = 5196` at the top and pass that, while the other seven
+(`api.createArgs`, `api.nonTableSections`, `api.presets`, `api.pronouns`,
+`api.tableBullets`, `api.traitOptions` and `helpers.testServer`) pass
+`port: 5199` inline at each `startTestServer` call. The enumerated half is the
+smaller one, and it used to be the other half — which is the point: grep for
+both before claiming a number, because a collision does not fail loudly, it
+hangs the run until the whole suite times out:
 
 ```bash
 grep -rhoE "(port: |PORT = )5[0-9]+" test/*.test.js | sort -u
 ```
 
-Ports 5193–5199 and 5201–5206 are taken.
+Ports 5193–5199 and 5201–5211 are taken.
 
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs bare
 `node --test` instead, which also picks up `test/helpers/testServer.js` as a
-file with no tests in it — so expect one more there, `pass 196`, for a helper
+file with no tests in it — so expect one more there, `pass 257`, for a helper
 that declares no tests and therefore cannot fail. Both numbers move whenever a
 test is added; they are worth updating together.
 

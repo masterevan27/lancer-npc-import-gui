@@ -13,7 +13,7 @@ const SERVER_JS = path.join(__dirname, '..', '..', 'server.js');
  * concurrently, and every server in this suite binds a fixed port rather
  * than an OS-assigned one, so two files sharing a port would collide.
  */
-async function startTestServer({ tablesText, port, generatorSource, extraConfig }) {
+async function startTestServer({ tablesText, port, generatorSource, extraConfig, manifest }) {
     if (!port) throw new Error('startTestServer requires an explicit port');
     const host = '127.0.0.1';
     const baseUrl = `http://${host}:${port}`;
@@ -23,7 +23,22 @@ async function startTestServer({ tablesText, port, generatorSource, extraConfig 
     fs.writeFileSync(tablesPath, tablesText);
     const presetsDir = path.join(dir, 'presets');
     const manifestPath = path.join(dir, '.generated-npcs.json');
-    fs.writeFileSync(manifestPath, '{}');
+    // Empty unless the caller says otherwise. Most tests write the manifest
+    // themselves after the server is up, which is fine because the server
+    // re-reads it fresh on every request - but the "new NPC" seen store is
+    // seeded once at startup from whatever the manifest held *then*, so a test
+    // for "an existing library arrives with nothing flagged new" has to hand
+    // that library over before the child spawns. Raw JSON string or object,
+    // whichever reads better at the call site.
+    //
+    // An explicit `null` writes no manifest at all, which is a third state
+    // rather than a tidier spelling of empty: on a fresh install the file is
+    // gitignored and absent until the first generate run, and a seen store that
+    // deferred its seed on that would run it later against the manifest the
+    // user's first NPCs had just created, marking every one already seen.
+    if (manifest !== null) {
+        fs.writeFileSync(manifestPath, typeof manifest === 'string' ? manifest : JSON.stringify(manifest || {}));
+    }
     const foundryRoot = path.join(dir, 'FoundryData');
     fs.mkdirSync(foundryRoot, { recursive: true });
 
@@ -125,6 +140,7 @@ async function startTestServer({ tablesText, port, generatorSource, extraConfig 
         baseUrl,
         dir,
         tablesPath,
+        manifestPath,
         presetsDir,
         stop() {
             return new Promise((resolve) => {

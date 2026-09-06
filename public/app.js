@@ -19,6 +19,11 @@ const state = {
   filters: [], // { key, value }
   detailItemId: null,     // item currently shown in the detail overlay, if any
   regenLastStatus: null,  // that item's regenStatus as of the last render, to catch done/error transitions
+  // Ids marked seen during this page load. /api/seen is fire-and-forget and
+  // the two-second poller replaces state.items wholesale, so without this a
+  // poll landing between the click and the POST brings the New badge back for
+  // one tick - see refreshItems.
+  locallySeen: new Set(),
 };
 
 const el = {
@@ -98,10 +103,207 @@ function confirmDelete(names) {
   });
 }
 
+const elRerollConfirm = {
+  overlay: document.getElementById('reroll-confirm-overlay'),
+  message: document.getElementById('reroll-confirm-message'),
+  cancel: document.getElementById('reroll-confirm-cancel'),
+  ok: document.getElementById('reroll-confirm-ok'),
+};
+
+/**
+ * The re-rollable list that applies to one NPC.
+ *
+ * Two lists, chosen per item rather than per server, because generate-npc.py
+ * chooses that way: an entry that recorded its raw bullets re-rolls nearly
+ * everything, one written before it did re-rolls the eleven traits nothing
+ * else gates. Kept as a function of its own so the choice is testable without
+ * a DOM, and so openDetail() and anything that follows it cannot drift apart
+ * on which list they meant.
+ */
+function rerollableForItem(item) {
+  return item.hasRawTraits ? createState.rawRerollableTraits : createState.rerollableTraits;
+}
+
+/**
+ * `trait` plus every trait a re-roll of it also frees, transitively, in the
+ * order the generator draws them.
+ *
+ * The mirror of generate-npc.py's trait_cascade(), walked over the edge map the
+ * server parses out of that same file (see createState.traitDependents).
+ * Transitive because the invalidation is: a new Role redraws the Outfit, the
+ * new Outfit redraws Headgear, Weapon and Gear, and the new Weapon and Gear
+ * redraw the Stance. A trait nothing depends on closes to itself alone, which
+ * is the answer for all eleven of the one-click traits and for Faction, Weather
+ * and Stance besides.
+ *
+ * A worklist rather than a recursion, for the reason the generator's own
+ * docstring gives: that map is not promised to be acyclic. It held an Age/Build
+ * cycle until recently and Build's half was dropped for a reason about button
+ * behaviour rather than about graph shape, so the next filter audited in both
+ * directions will put one back. Nothing is enqueued twice, so a cycle ends the
+ * walk instead of the tab.
+ *
+ * Ordered by the override table list - REQUIRED_TABLES minus Pronouns - so a
+ * cascade reads the same way here as in the CLI's report. The fallback to
+ * discovery order is load-bearing rather than tidy: that list is empty until
+ * /api/npc-tables lands, and filtering by an empty list would drop the very
+ * trait the user clicked and make a cascade look like a lone re-roll.
+ */
+function traitCascade(trait) {
+  const dependents = createState.traitDependents || {};
+  const freed = [trait];
+  for (let i = 0; i < freed.length; i += 1) {
+    for (const next of dependents[freed[i]] || []) {
+      if (!freed.includes(next)) freed.push(next);
+    }
+  }
+  const ordered = (createState.overrideTables || []).filter((name) => freed.includes(name));
+  return ordered.includes(trait) ? ordered : freed;
+}
+
+/**
+ * Whether re-rolling `trait` can change more of the NPC than `trait` itself.
+ *
+ * The generator does not free the named trait alone. Its TRAIT_DEPENDENTS map
+ * frees every trait a filter would have had to re-check - a new Role redraws
+ * the Faction, Outfit and Weapon, the new Outfit redraws the Headgear and
+ * Gear, and a new Theme takes eleven others with it, the whole visible
+ * character - because a trait pinned across a change it contradicts is never
+ * re-checked and lands wrong. That is right, and it is also a much larger
+ * change than "Re-roll" on one row of a table looks like it is buying.
+ *
+ * The question goes to that map (traitDependentsFrom in lib/overrideTables.js)
+ * rather than to either re-rollable list, because the lists answer a different
+ * one. They say which traits this entry can re-roll at all; the map says which
+ * traits a re-roll drags along with it, and that is a property of the
+ * generator's filters rather than of the entry in front of the user. Asked of
+ * the lists, Faction, Weather and Stance are outside the legacy eleven and are
+ * not keys in the map, so a click on Weather would open a dialog announcing a
+ * cascade that does not exist and then be unable to name a single trait it
+ * carries. Asked of the map, a trait that closes to itself fires on one click
+ * whichever list its button came from, and one that does not gets a dialog
+ * naming what goes with it.
+ *
+ * The fallback for an unreadable map is the global legacy list, and it is
+ * deliberately NOT the per-item list rerollableForItem() hands the buttons:
+ * this is the one question in the re-roll code that is not per NPC. Blind, the
+ * eleven are the largest set of traits still known to free nothing - the
+ * cascade spec's §5 promises they keep firing on one click, and generate-npc.py
+ * holds itself to that with a test derived from REROLLABLE_TRAITS, written
+ * because this page draws its one-click buttons from that constant. The wide
+ * list an entry with raw bullets is offered promises nothing of the kind, being
+ * every trait but the two halves of the name and Pronouns, so falling back on
+ * it would answer false for every button on the sheet and take the dialog off
+ * Theme, Role, Outfit and Age along with Faction and Weather. Over-warning on
+ * Weather costs a click; firing Theme unannounced costs a dozen traits and a
+ * re-render nobody asked for. The coarse list is the right way to be wrong
+ * here, and it is only reached once the parse has already failed.
+ */
+function rerollNeedsConfirm(trait) {
+  if (!Object.keys(createState.traitDependents || {}).length) {
+    return !createState.rerollableTraits.includes(trait);
+  }
+  return traitCascade(trait).length > 1;
+}
+
+/** Shows the cascade warning before a re-roll of `trait`; resolves true/false. */
+function confirmReroll(trait) {
+  return new Promise((resolve) => {
+    // Named, not gestured at. "More than one trait" is not something a user can
+    // weigh, and one stock sentence about the outfit, weapon, hair and the whole
+    // scene would be Theme's cascade printed over every other trait's - wrong
+    // for most of them, and for the one it fits, not something the user can
+    // check against the sheet in front of them. The list is in the generator's
+    // draw order, so it reads down the detail sheet's rows.
+    //
+    // The empty branch is the unreadable-map case rerollNeedsConfirm() falls
+    // back on. It has to say that it cannot name them rather than name none:
+    // this dialog exists to let the user decline, and a warning that quietly
+    // knows nothing is worse than one that says so.
+    const alsoFreed = traitCascade(trait).filter((name) => name !== trait);
+    elRerollConfirm.message.textContent = alsoFreed.length
+      ? `Re-rolling ${trait} frees the traits it gates as well, so `
+        + `${alsoFreed.length} other ${alsoFreed.length === 1 ? 'trait' : 'traits'} `
+        + `can change with it: ${alsoFreed.join(', ')}.`
+      : `Re-rolling ${trait} can change more than ${trait}, but this page could not read `
+        + "the generator's dependency map and cannot say which traits go with it.";
+    elRerollConfirm.ok.textContent = `Re-roll ${trait}`;
+    elRerollConfirm.overlay.hidden = false;
+    // Cancel is the default: focus starts there so a stray Enter or Space
+    // backs out rather than committing to minutes of rendering.
+    elRerollConfirm.cancel.focus();
+
+    const cleanup = (result) => {
+      elRerollConfirm.overlay.hidden = true;
+      elRerollConfirm.ok.removeEventListener('click', onOk);
+      elRerollConfirm.cancel.removeEventListener('click', onCancel);
+      elRerollConfirm.overlay.removeEventListener('click', onBackdrop);
+      resolve(result);
+    };
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    const onBackdrop = (e) => { if (e.target === elRerollConfirm.overlay) cleanup(false); };
+
+    elRerollConfirm.ok.addEventListener('click', onOk);
+    elRerollConfirm.cancel.addEventListener('click', onCancel);
+    elRerollConfirm.overlay.addEventListener('click', onBackdrop);
+  });
+}
+
 async function api(path, options) {
   const res = await fetch(path, options);
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
   return res.json();
+}
+
+/**
+ * Tell the server these items have been looked at, so their New tag stops
+ * coming back, and remember it here as well so the next poll doesn't undo it
+ * before the POST lands (see state.locallySeen).
+ *
+ * Fire-and-forget on purpose. The caller is openDetail, where awaiting a
+ * round-trip would make the overlay open slower than it does today for the
+ * sake of a cosmetic flag, and where a rejected promise would abort building
+ * the detail sheet halfway. A New tag that outlives a failed POST is a much
+ * smaller problem than either.
+ */
+function markSeen(ids) {
+  for (const id of ids) state.locallySeen.add(id);
+  api('/api/seen', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  }).catch(() => { /* the tag just survives until the item is opened again */ });
+}
+
+/**
+ * The bulk version, for dismissing the batch banner - see dismissBatchBanner.
+ *
+ * It takes the ids of the run the banner is announcing, and this is the whole
+ * point of it. The obvious alternative, posting `{ all: true }`, is one the
+ * server reads as every id in the manifest across every kind. The seen store
+ * is seeded once ever and never again, so that NPCs rolled at the command line
+ * while this server was down are still flagged New on the next boot - which
+ * means a library can perfectly well be holding six unlooked-at tags at the
+ * moment a single GUI run finishes. The banner says "1 new NPC finished
+ * generating" and offers its × as the only way to be rid of itself; clearing
+ * seven tags on the strength of that would have no undo, and nothing anywhere
+ * in this UI can put a tag back.
+ *
+ * So the banner clears its own run and nothing else. The reload afterwards is
+ * there because when the grid is what's on screen, those tags should go now
+ * rather than whenever the next poll or category switch comes along.
+ */
+function markBatchSeen(ids) {
+  if (!ids.length) return;
+  for (const id of ids) state.locallySeen.add(id);
+  api('/api/seen', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
+    .then(() => (tabState.current === 'import' ? refreshItems() : null))
+    .catch(() => { /* same as markSeen: a lingering tag is not worth an error */ });
 }
 
 async function loadCategories() {
@@ -137,6 +339,14 @@ async function refreshItems() {
   if (!state.category) return;
   const { items } = await api(`/api/items?category=${encodeURIComponent(state.category)}`);
   state.items = items;
+  // Re-apply what this page already knows about newness. The server is still
+  // reporting isNew for anything whose /api/seen POST hasn't committed yet,
+  // and during a generate or regen run the poller re-reads this list every two
+  // seconds, so without this the New badge blinks back on the card the user
+  // just opened - which reads as a rendering bug rather than the race it is.
+  for (const item of items) {
+    if (state.locallySeen.has(item.id)) item.isNew = false;
+  }
   // Only drop selections for items that vanished entirely (e.g. deleted) -
   // an imported item stays selectable since selection also drives Delete Selected.
   for (const id of [...state.selected]) {
@@ -286,7 +496,9 @@ function render() {
 
   for (const item of state.visibleItems) {
     const card = document.createElement('div');
-    card.className = 'card' + (item.imported ? ' imported' : '');
+    card.className = 'card'
+      + (item.imported ? ' imported' : '')
+      + (item.isNew && !item.imported ? ' is-new' : '');
 
     const img = document.createElement('img');
     img.src = item.portraitUrl || item.tokenUrl || '';
@@ -349,6 +561,21 @@ function render() {
       card.appendChild(badge);
     }
 
+    // A second badge, deliberately outside the chain above rather than another
+    // arm of it. "New" and "Regenerating…" are independent facts and a
+    // freshly-rolled NPC being re-rendered is both at once, so folding this
+    // into the chain would show one and silently drop the other. Suppressed on
+    // an imported card: that card is already dimmed to 55% and a bright pill on
+    // it reads as a glitch, and importing marks the NPC seen server-side
+    // anyway, so the flag is on its way out regardless.
+    if (item.isNew && !item.imported) {
+      const tag = document.createElement('span');
+      tag.className = 'badge new';
+      tag.textContent = 'New';
+      tag.title = 'Generated since you last looked — opening it clears this';
+      card.appendChild(tag);
+    }
+
     const body = document.createElement('div');
     body.className = 'body';
     body.innerHTML = `<div class="name">${escapeHtml(item.name)}</div>
@@ -403,6 +630,52 @@ function factionDisplayName(faction) {
   return faction.split('||')[0].trim();
 }
 
+/**
+ * The gutter cell's contents for one trait row: a live Re-roll button, a
+ * disabled one that says what would turn it on, or nothing at all.
+ *
+ * `rerollable` is the list that applies to this NPC (see rerollableForItem),
+ * and anything on it gets the button.
+ *
+ * The middle case is the one this function is really for. An entry written
+ * before the generator recorded rawTraits stores its bullets with the flags
+ * stripped, so eleven traits cannot be re-rolled from it - Theme among them,
+ * and Theme is the re-roll the whole visual world of an NPC hangs off. Emitting
+ * nothing there would be defensible if that were permanent, and it is not: one
+ * full re-roll of the NPC records the bullets and turns every one of those
+ * buttons on. Nine of this author's 165 NPCs have raw bullets, so an empty
+ * gutter beside Theme is what essentially every detail sheet would show, with
+ * nothing anywhere on the page to say the option exists or how to earn it - the
+ * requirement reads as never shipped. The generator already says the cure out
+ * loud in its own refusal ("Re-roll the NPC to record them"); this is that
+ * sentence moved to where the user is actually looking.
+ *
+ * Everything else still gets an empty cell rather than an inert control, and
+ * that rule is deliberately untouched: the two halves of the name and Pronouns
+ * are refused however the entry was written, so a disabled button on those
+ * would invite a click at a cure that does not exist.
+ *
+ * The explanation hangs on a wrapping span rather than on the button, because
+ * browsers suppress pointer events - and with them the tooltip - on a disabled
+ * control. A title on the button alone would be an explanation nobody could
+ * read, which is the state this whole function exists to get out of.
+ */
+function rerollControlHtml(trait, rerollable) {
+  const name = escapeHtml(trait);
+  if (rerollable.includes(trait)) {
+    return `<button type="button" class="reroll-btn" data-trait="${name}"
+             title="Re-roll ${name} and re-render this NPC">Re-roll</button>`;
+  }
+  if (createState.rawRerollableTraits.includes(trait)) {
+    const why = `This NPC was generated before its raw trait bullets were recorded, so ${name} `
+      + 'cannot be re-rolled on its own. Re-roll the whole NPC once to record them and this '
+      + 'button turns on.';
+    return `<span class="reroll-unavailable" title="${why}">`
+      + '<button type="button" class="reroll-btn" disabled>Re-roll</button></span>';
+  }
+  return '';
+}
+
 function openDetail(item) {
   // portraitUrl/tokenUrl carry the source file's mtime as a version query
   // param (see itemView in server.js), so a Regenerate since this item was
@@ -415,13 +688,18 @@ function openDetail(item) {
     .filter(Boolean)
     .join(' — ');
   el.detailGenerated.textContent = formatGeneratedWhen(item.when);
-  // A reroll button per trait the generator will re-roll on its own. The list
-  // comes from the server, which derives it from generate-npc.py's
-  // REROLLABLE_TRAITS - it is not every trait, because a manifest entry stores
-  // bullets with their flags stripped and a trait gated by another trait's
-  // flags cannot be re-rolled correctly from one. Traits not on the list
-  // simply get no button rather than a disabled one: there is nothing the user
-  // can do about it, so an inert control would only invite clicking.
+  // A reroll button per trait the generator will re-roll on this NPC, which is
+  // a per-NPC question rather than a global one. The server sends both of
+  // generate-npc.py's lists and each item says which applies: an entry that
+  // recorded its raw bullets re-rolls everything but the two halves of its name
+  // and Pronouns, while one written before rawTraits existed stores its bullets
+  // with the flags stripped, so a trait gated by another trait's flags cannot
+  // be re-rolled correctly from it and keeps no button. Picking the list the
+  // same way the generator does is what stops a button from answering 400.
+  //
+  // Which of the three things the gutter cell can hold is rerollControlHtml's
+  // question, above; the only rule of it that matters here is that the cell is
+  // always emitted, empty or not.
   //
   // The button leads the row rather than trailing it. Trailing, it sat past a
   // trait value that runs to a couple of hundred characters on Backdrop and
@@ -429,14 +707,11 @@ function openDetail(item) {
   // it. Leading, the buttons stack in one fixed gutter. A trait that cannot be
   // re-rolled still emits the cell, empty, so the names stay in a straight
   // column either way.
+  const rerollable = rerollableForItem(item);
   el.detailTraits.innerHTML = Object.entries(item.traits || {})
     .filter(([k]) => !['name', 'Given names', 'Family names'].includes(k))
     .map(([k, v]) => {
-      const canReroll = createState.rerollableTraits.includes(k);
-      const button = canReroll
-        ? `<button type="button" class="reroll-btn" data-trait="${escapeHtml(k)}"
-             title="Re-roll ${escapeHtml(k)} and re-render this NPC">Re-roll</button>`
-        : '';
+      const button = rerollControlHtml(k, rerollable);
       return `<tr><td class="reroll-cell">${button}</td><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`;
     })
     .join('');
@@ -464,6 +739,20 @@ function openDetail(item) {
   renderModel3dPanel(item, null);
   refreshModel3d(item.id);
 
+  // Opening the sheet is the one unambiguous "I have looked at this": it is
+  // where the portrait at full size, the traits and the prompts actually are.
+  // Not on grid presence, which a ten-NPC batch would clear before the user
+  // had scrolled to the bottom of it; not on a timer, which would quietly
+  // erase the signal in a tab left open; and not on any click, since the
+  // checkbox is a selection gesture and says so already by stopping
+  // propagation in render(). The re-render is for the card behind the overlay,
+  // so the tag is gone when the sheet closes rather than at the next poll.
+  if (item.isNew) {
+    item.isNew = false;
+    markSeen([item.id]);
+    render();
+  }
+
   el.overlay.hidden = false;
 }
 
@@ -483,7 +772,13 @@ function renderRegenPanel(item) {
   el.regenSeedInput.disabled = running || seedMode !== 'specific';
   // A reroll IS a regen job, so it shares the running flag - two at once on
   // one NPC would have the second overwrite the first's output.
-  for (const button of el.detailTraits.querySelectorAll('.reroll-btn')) {
+  //
+  // Only the live buttons, which are the ones carrying a data-trait. The
+  // explanatory button rerollControlHtml() emits for a trait this entry cannot
+  // re-roll is disabled for a reason that has nothing to do with a running job,
+  // and an unqualified selector here would enable it the moment one finished -
+  // handing back a clickable control with no trait on it to post.
+  for (const button of el.detailTraits.querySelectorAll('.reroll-btn[data-trait]')) {
     button.disabled = running;
   }
 
@@ -790,6 +1085,11 @@ function cancelDeleteConfirm() {
   elDeleteConfirm.cancel.click();
 }
 
+/** The same, for the re-roll cascade warning - confirmReroll() has the same shape. */
+function cancelRerollConfirm() {
+  elRerollConfirm.cancel.click();
+}
+
 /**
  * The overlays stacked above the NPC detail sheet, innermost first.
  *
@@ -808,6 +1108,7 @@ function cancelDeleteConfirm() {
 function topmostOverlay() {
   if (!el.imageZoom.hidden) return { close: () => { el.imageZoom.hidden = true; } };
   if (!elDeleteConfirm.overlay.hidden) return { close: () => cancelDeleteConfirm() };
+  if (!elRerollConfirm.overlay.hidden) return { close: () => cancelRerollConfirm() };
   if (!elTraits.overlay.hidden) return { close: () => { elTraits.overlay.hidden = true; } };
   if (!elTables.preview.hidden) return { close: () => cancelPresetPreview() };
   return null;
@@ -928,6 +1229,17 @@ el.deleteBtn.addEventListener('click', async () => {
   el.status.textContent = failed.length
     ? `Deleted ${results.length - failed.length}, failed ${failed.length} (${failed.map((f) => f.reason).join('; ')})`
     : `Deleted ${results.length} item(s).`;
+  // Forget that these were ever looked at, for the ones that really went. The
+  // server prunes its own seen store inside deleteItem for a reason: an id is
+  // `npc-<slug>-<seed>`, so deleting an NPC and rolling it again at the same
+  // name and seed brings back the same id, and it has to arrive flagged New.
+  // But refreshItems() overrides isNew from state.locallySeen on every load, so
+  // an entry left here silently defeats that prune - the re-rolled NPC gets no
+  // tag and no .card.is-new border until the page is reloaded by hand. Only the
+  // successes: an NPC that refused to delete is still there and still seen.
+  for (const result of results) {
+    if (result.deleted) state.locallySeen.delete(result.id);
+  }
   state.selected.clear();
   await refreshItems();
 });
@@ -950,6 +1262,11 @@ el.detailDeleteBtn.addEventListener('click', async () => {
     el.imageZoom.hidden = true;
     state.detailItemId = null;
     state.selected.delete(id);
+    // Alongside the selection, and for the reason spelled out in the Delete
+    // Selected handler above: this is the path a delete-then-reroll actually
+    // takes, since opening the sheet to check the NPC is what marked it seen in
+    // the first place and the sheet is where its Delete button lives.
+    state.locallySeen.delete(id);
     el.status.textContent = `Deleted "${name}".`;
     await refreshItems();
   } else {
@@ -1043,6 +1360,19 @@ const elBanner = {
 };
 
 /**
+ * The ids of the run the banner currently on screen is announcing, so its ×
+ * can clear those New tags and no others.
+ *
+ * Empty whenever the run could not name its own NPCs - an older server, or a
+ * manifest that could not be read either side of the child, both of which also
+ * make job.produced null and send the count back to what the form asked for.
+ * Dismissing then clears nothing at all. That leaves tags up that arguably
+ * should have gone, which is the cheap way to be wrong: an extra tag costs one
+ * click to clear, while a tag cleared by mistake is gone for good.
+ */
+const bannerState = { announcedIds: [] };
+
+/**
  * Announce a finished generate run wherever the user happens to be standing.
  *
  * pollCreateJob() used to call refreshItems() and nothing else, guarded on
@@ -1055,23 +1385,64 @@ const elBanner = {
  *
  * The banner lives outside every .tab-panel, so it is visible from all four
  * tabs rather than only the one that owns the list it refers to.
+ *
+ * `ids` is the server's list of the NPCs this run added (job.producedIds),
+ * which the banner holds on to for its dismiss button - see bannerState.
  */
-function announceBatchComplete(count) {
+function announceBatchComplete(count, ids) {
+  // Forget that this page marked these seen, before anything reloads. An id
+  // outlives the card it was clicked on whenever the same name and seed roll a
+  // second folder under it, which is why the server un-sees a run's own output
+  // (see forgetSeen there); left here, the record would overrule that for the
+  // rest of the page load and leave this run's NPCs the only ones with no tag.
+  for (const id of Array.isArray(ids) ? ids : []) state.locallySeen.delete(id);
+  // Reload the list on screen first, whatever the count says - ahead of the
+  // zero guard below, deliberately. Putting it after would read as sensible (a
+  // run that produced nothing has no new cards to show) and would be wrong: the
+  // count is a measurement this page's server takes of the manifest, not a fact
+  // the generator reports, and a measurement can miss. A zero we measured
+  // ourselves is precisely where a reload earns its one request, being also
+  // where a card may have landed that nothing else on this page will reveal
+  // until the user reloads by hand. Still gated on the Import tab showing NPCs,
+  // since refreshItems() reloads the selected category and from anywhere else
+  // would do nothing useful.
+  if (tabState.current === 'import' && state.category === 'npc') refreshItems();
+  // The banner is the part that has to stay quiet on a zero: an exit code of 0
+  // is not a promise that any NPC landed, and "0 new NPCs finished generating"
+  // is worse than silence. The guard lives in the function rather than at the
+  // call site so a future caller cannot bring the empty banner back.
+  if (!(count > 0)) return;
+  // Copied rather than aliased: the banner outlives this call by however long
+  // it takes the user to notice it, and the array must not be something a later
+  // poll can quietly extend or empty underneath the dismiss button.
+  bannerState.announcedIds = Array.isArray(ids) ? [...ids] : [];
   elBanner.text.textContent = count === 1
     ? '1 new NPC finished generating.'
     : `${count} new NPCs finished generating.`;
+  // Visible from all four tabs, since it lives outside every .tab-panel - and
+  // it stays up even after the refresh above, as the "that run is over" signal.
   elBanner.root.hidden = false;
-  // Refresh in place as well when the list on screen is the one that grew, so
-  // sitting on the Import tab still shows the new cards without a click. The
-  // banner stays up regardless - it is also the "that run is over" signal.
-  if (tabState.current === 'import' && state.category === 'npc') refreshItems();
 }
 
 function dismissBatchBanner() {
   elBanner.root.hidden = true;
 }
 
-elBanner.dismiss.addEventListener('click', dismissBatchBanner);
+elBanner.dismiss.addEventListener('click', () => {
+  // Read before the banner goes, and emptied as it goes, so that whatever the
+  // × clears is the run the text on screen was talking about and can never be
+  // re-cleared against a later one.
+  const announced = bannerState.announcedIds;
+  bannerState.announcedIds = [];
+  dismissBatchBanner();
+  // The banner and its run's New tags are two halves of one announcement, so
+  // waving the banner away is a bulk "yes, I know about these" for that run -
+  // otherwise the only way to clear a ten-NPC batch is to open all ten. Bound
+  // here rather than folded into dismissBatchBanner() itself, because the Show
+  // new NPCs button dismisses the banner too and must not erase the very tags
+  // it is about to navigate the user to.
+  markBatchSeen(announced);
+});
 
 elBanner.show.addEventListener('click', async () => {
   dismissBatchBanner();
@@ -1095,7 +1466,16 @@ elBanner.show.addEventListener('click', async () => {
 
 const createState = {
   overrideTables: [],
-  rerollableTraits: [],   // traits --reroll-trait accepts; see renderDetail()
+  // The two lists --reroll-trait accepts, one per kind of manifest entry - see
+  // openDetail(), which pairs them with the item's own hasRawTraits.
+  rerollableTraits: [],
+  rawRerollableTraits: [],
+  // generate-npc.py's TRAIT_DEPENDENTS, as { trait: [traits it frees] } - the
+  // direct edges, which traitCascade() closes over. Empty until /api/npc-tables
+  // lands, and empty for good if the server could not parse it, which
+  // rerollNeedsConfirm() treats as "assume the worst" rather than as "no
+  // cascades exist".
+  traitDependents: {},
   traitOptions: {},   // { [baseTableName]: Array<{ value, label, heading, isVariant, enabled }> }
   tablesLoaded: false,
   overrides: [], // { table, value, custom }
@@ -1122,9 +1502,11 @@ const elCreate = {
 
 async function loadOverrideTables() {
   try {
-    const { tables, rerollable } = await api('/api/npc-tables');
+    const { tables, rerollable, rawRerollable, dependents } = await api('/api/npc-tables');
     createState.overrideTables = tables;
     createState.rerollableTraits = rerollable || [];
+    createState.rawRerollableTraits = rawRerollable || [];
+    createState.traitDependents = dependents || {};
     createState.tablesLoaded = true;
     renderOverrideRows();
   } catch (err) {
@@ -1369,10 +1751,18 @@ function pollCreateJob(jobId, dryRun, jobCount) {
       elCreate.status.textContent = dryRun
         ? 'Rolling and building prompts…'
         : 'Generating… this can take a few minutes per image (ComfyUI must be running).';
-      // 600 ticks (20 min) safety net, same as the import/regen poller.
+      // 600 ticks (20 min) safety net, same as the import/regen poller. Giving
+      // up on watching is a terminal path like any other, so it has to hand the
+      // form back too: it used to only drop the timer, which left both buttons
+      // disabled and the status line still claiming the run was in progress,
+      // with no way out but a reload.
       if (ticks > 600) {
         clearInterval(createState.pollTimer);
         createState.pollTimer = null;
+        elCreate.dryRunBtn.disabled = false;
+        elCreate.generateBtn.disabled = false;
+        elCreate.status.textContent =
+          'Stopped watching this run after 20 minutes — it may still be going; reload to check.';
       }
       return;
     }
@@ -1383,10 +1773,28 @@ function pollCreateJob(jobId, dryRun, jobCount) {
     elCreate.generateBtn.disabled = false;
 
     if (job.status === 'done') {
+      // job.produced is what the server measured against the manifest; jobCount
+      // is only what was asked for, which is what this used to announce and is
+      // why a run that quietly wrote fewer NPCs - or none - still claimed the
+      // full batch. Keep the fallback: `produced` is null on an older server or
+      // an unreadable manifest, and the request is the best guess we have then.
+      const made = typeof job.produced === 'number' ? job.produced : jobCount;
+      // A measured zero is worth saying, but only as far as the measurement
+      // goes. It is the count of manifest entries that appeared while the child
+      // ran, so "no new NPCs were written" is more than it knows: a run can
+      // land an NPC the count misses, most sharply when it reuses a name and
+      // seed. Hence "no new NPCs were detected", and a pointer at both of the
+      // places that can settle it.
       elCreate.status.textContent = dryRun
         ? 'Preview complete — see the rolled NPC(s) and prompts below.'
-        : 'Done — see the "Import Generated Art" tab for the new NPC(s).';
-      if (!dryRun) announceBatchComplete(jobCount);
+        : made === 0
+          ? 'Finished, but no new NPCs were detected — check the log below and the '
+            + '"Import Generated Art" tab.'
+          : 'Done — see the "Import Generated Art" tab for the new NPC(s).';
+      // producedIds rides along with the count and comes from the same
+      // measurement: the banner's dismiss button clears the New tag, and the
+      // only tags it may clear are the ones this run put there.
+      if (!dryRun) announceBatchComplete(made, job.producedIds);
     } else {
       elCreate.status.textContent = `Failed: ${job.error || 'unknown error'}`;
     }
@@ -1618,6 +2026,11 @@ el.detailTraits.addEventListener('click', async (event) => {
   if (!id) return;
   const trait = button.dataset.trait;
 
+  // Ask first when the re-roll can reach past the trait named on the button -
+  // see rerollNeedsConfirm(). Awaited before anything is disabled or posted, so
+  // backing out leaves the sheet exactly as it was.
+  if (rerollNeedsConfirm(trait) && !(await confirmReroll(trait))) return;
+
   button.disabled = true;
   try {
     const res = await fetch('/api/reroll-trait', {
@@ -1655,9 +2068,11 @@ loadCategories().catch((err) => {
 // is silent by design: the buttons simply do not appear, which is the same
 // state as a generator too old to have REROLLABLE_TRAITS at all.
 api('/api/npc-tables')
-  .then(({ tables, rerollable }) => {
+  .then(({ tables, rerollable, rawRerollable, dependents }) => {
     createState.overrideTables = tables;
     createState.rerollableTraits = rerollable || [];
+    createState.rawRerollableTraits = rawRerollable || [];
+    createState.traitDependents = dependents || {};
   })
   .catch(() => { /* no reroll buttons; the Create tab reports its own failure */ });
 

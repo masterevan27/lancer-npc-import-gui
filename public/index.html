@@ -293,6 +293,25 @@
   </div>
 </div>
 
+<!-- Raised only for a re-roll that can reach past the trait named on the
+     button; the traits that change nothing else still fire on one click. See
+     rerollNeedsConfirm() in app.js for where that line is drawn and why it is
+     drawn there rather than around the exact cascade. -->
+<div class="detail-overlay" id="reroll-confirm-overlay" hidden>
+  <div class="detail confirm-dialog">
+    <h2>This re-roll changes more than one trait</h2>
+    <p id="reroll-confirm-message"></p>
+    <p>The NPC keeps its folder, its name and its manifest id — the art and the
+      affected traits are replaced in place.</p>
+    <p class="confirm-warning">The old bullets are overwritten and there is no
+      undo, and the re-render takes a few minutes with ComfyUI running.</p>
+    <div class="confirm-actions">
+      <button id="reroll-confirm-cancel" type="button">Cancel</button>
+      <button id="reroll-confirm-ok" type="button">Re-roll</button>
+    </div>
+  </div>
+</div>
+
 <script src="/app.js"></script>
 </body>
 </html>

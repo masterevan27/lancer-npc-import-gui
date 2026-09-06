@@ -48,6 +48,18 @@ body {
   top: 3.1rem;
   z-index: 4;
 }
+/* The `display: flex` above is an author declaration, so it beats the browser's
+   own `[hidden] { display: none }` before specificity is ever consulted - origin
+   wins the cascade outright. Without this guard the markup's `hidden` attribute
+   was inert: the banner painted on first load with an empty text span and no run
+   behind it, and the dismiss button looked broken because it set `hidden`
+   faithfully and nothing moved. Every other element in this file that is toggled
+   by `hidden` and sets its own `display` carries the same guard - see
+   .tab-panel[hidden], .detail-overlay[hidden], .image-zoom[hidden] - and this
+   one was simply missed. Guard the rule rather than dropping `display: flex`:
+   the row layout, and the dismiss button's `margin-left: auto`, depend on it. */
+.batch-banner[hidden] { display: none; }
+
 .batch-banner button {
   background: #2f6b45;
   border: 1px solid #3f8a5b;
@@ -244,6 +256,22 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 }
 .card .badge.error { background: #c0392b; }
 .card .badge.pending { background: #b7791f; }
+/* Generated since the user last opened it. Not another arm of the if/else
+   chain that picks the badge above: a brand-new NPC can equally be mid-regen
+   or have just failed a 3D build, and those are independent facts, so this
+   gets its own element rather than competing for the one slot. Its own corner
+   follows from that - top-left, offset past the select checkbox (0.4rem in,
+   1.15rem wide, plus a 0.3rem gap). Blue because the three meanings already
+   spoken for are green (Imported), amber (pending) and red (failed), and a
+   fourth meaning needs a fourth colour rather than a borrowed one. */
+.card .badge.new {
+  right: auto;
+  left: 1.85rem;
+  background: #2b6cb0;
+}
+/* So a new card is findable at a glance under a name-asc sort, where the
+   default newest-first clustering doesn't help, without hunting for pills. */
+.card.is-new { border-color: #3b7fc4; }
 
 .empty { color: #9aa1ad; margin-top: 2rem; }
 
@@ -344,6 +372,15 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   cursor: pointer;
   font-size: 0.88rem;
 }
+/* The cascade dialog's go button carries the Re-roll buttons' own blue, so it
+   reads as the continuation of the click that raised it rather than as a
+   second, unrelated choice. It is deliberately not the delete dialog's red:
+   this is a change in place, not a deletion, and spending the alarm colour on
+   both would flatten the difference. Cancel keeps the plain grey above, which
+   is what makes it the default of the pair. */
+#reroll-confirm-ok { background: #2b4a9e; border-color: #2b4a9e; color: #dbe4ff; }
+#reroll-confirm-ok:hover,
+#reroll-confirm-ok:focus { background: #3d6ef0; border-color: #3d6ef0; color: #ffffff; }
 
 .regen-panel {
   background: #14161b;
@@ -405,8 +442,19 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
    column actually is, and dimming it only hid the affordance. The blue is
    muted rather than the full #3d6ef0 of a primary action so the gutter still
    sits behind the trait values it belongs to, and brightens to that primary
-   blue on hover or focus. */
-.reroll-btn {
+   blue on hover or focus.
+
+   The prompt panel's Copy buttons join this rule rather than restating it.
+   They shipped as ghost controls - transparent, grey label, a border that
+   appeared only on hover - which is the arrangement the paragraph above has
+   already argued out of the gutter, and they sit a few centimetres from that
+   gutter in the same sheet, so leaving them ghosted made the two read as two
+   classes of control when they are one: ordinary things to click on an NPC's
+   sheet. Every other property already matched to the pixel, so the colour is
+   all that joined; keeping two near-identical rule sets would only let them
+   drift, which is why #regen-btn and #model3d-btn share one above too. */
+.reroll-btn,
+.copy-btn {
   background: #2b4a9e;
   border: 1px solid #2b4a9e;
   color: #dbe4ff;
@@ -419,7 +467,9 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   white-space: nowrap;
 }
 .reroll-btn:hover,
-.reroll-btn:focus { background: #3d6ef0; border-color: #3d6ef0; color: #ffffff; }
+.reroll-btn:focus,
+.copy-btn:hover,
+.copy-btn:focus { background: #3d6ef0; border-color: #3d6ef0; color: #ffffff; }
 /* Flat grey rather than a dimmed blue: at 0.4 opacity the fill was still
    plainly blue, so a re-roll already running read as one still on offer. */
 .reroll-btn:disabled {
@@ -428,6 +478,14 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   color: #6b7280;
   cursor: default;
 }
+/* The wrapper around a button disabled because this NPC predates raw bullets
+   (see rerollControlHtml in app.js). It exists to carry the title, since a
+   disabled control takes no pointer events and so shows no tooltip; the help
+   cursor is what tells the user the greyed-out button has an explanation
+   waiting rather than being dead. It has to override the button's own `default`
+   cursor, which wins over an inherited one on the element itself. */
+.reroll-unavailable { cursor: help; }
+.reroll-unavailable .reroll-btn:disabled { cursor: help; }
 #detail-prompts h3 { font-size: 0.82rem; color: #9aa1ad; margin: 0; }
 /* The heading and its Copy button share a row so the button sits against the
    prompt it copies rather than floating above both of them. */
@@ -439,20 +497,20 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   margin: 0.9rem 0 0.3rem;
 }
 .prompt-head-both { justify-content: flex-end; }
-.copy-btn {
-  background: none;
-  border: 1px solid transparent;
-  color: #6b7280;
-  border-radius: 5px;
-  padding: 0.05rem 0.4rem;
-  font-size: 0.75rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.copy-btn:hover,
-.copy-btn:focus { border-color: #3d6ef0; color: #e6e6e6; }
-.copy-btn.copied { border-color: #3f8f4f; color: #8fd39f; }
-.copy-btn.copy-failed { border-color: #a04040; color: #e08a8a; }
+/* The 1200ms flash after a click - see flashCopyResult in app.js, which adds
+   one of these classes and takes it off again with nothing else to undo, so
+   the base rule above is what the button returns to.
+
+   Both states carry a fill that fully covers the blue rather than tinting it.
+   A border and a text colour were enough on their own while the button beneath
+   was transparent, which is how these two rules were first written; over the
+   #2b4a9e the shared rule now gives them, a green outline reads as a blue
+   button someone drew on rather than as a button that changed state. These
+   greens and reds are dark enough to hold white text at better than 5:1 and
+   saturated enough that the hue, not the outline, is what carries "copied" or
+   "failed" in the second it is up. */
+.copy-btn.copied { background: #2f7d4a; border-color: #2f7d4a; color: #ffffff; }
+.copy-btn.copy-failed { background: #a53434; border-color: #a53434; color: #ffffff; }
 #detail-prompts pre {
   white-space: pre-wrap;
   word-break: break-word;

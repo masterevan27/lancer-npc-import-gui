@@ -164,8 +164,21 @@ function loadManifest() {
         console.warn(`[${PLUGIN_ID}] ${config.npcManifestPath} is not valid JSON:`, err.message);
         return [];
     }
+    return manifestItemsFrom(parsed);
+}
+
+/**
+ * The item list a parsed manifest describes, with the folder path each entry is
+ * keyed by folded into it. Split out of loadManifest() for seedSeen(), which
+ * has to know whether the file was there at all and so does its own read - and
+ * having parsed the bytes once must not go back to disk for a second opinion.
+ * The seed writes a library-wide "already seen" from what it reads, so a second
+ * read that disagreed with the first would decide the fate of every NPC written
+ * in between the two.
+ */
+function manifestItemsFrom(parsed) {
     const items = [];
-    for (const [folderPath, entry] of Object.entries(parsed)) {
+    for (const [folderPath, entry] of Object.entries(parsed || {})) {
         if (!entry || typeof entry !== 'object' || !entry.id) continue;
         items.push({ ...entry, folderPath });
     }
@@ -296,6 +309,15 @@ function deleteItem(item) {
     jobsByItemId.delete(item.id);
     regenJobsByItemId.delete(item.id);
     if (importedIndex.delete(item.id)) saveIndex();
+    // Forget that this NPC was ever looked at, too. Its id is
+    // `npc-<slug>-<seed>` and so deterministic from its name and seed, which
+    // means deleting one and rolling it again with the same two produces the
+    // *same* id - and without this the re-created NPC would arrive already
+    // marked seen and wear no New tag at all. This is the only place the seen
+    // store is pruned; see ensureSeenLoaded for why it is deliberately not
+    // reconciled against the manifest wholesale the way importedIndex is.
+    ensureSeenLoaded();
+    if (seenIndex.delete(item.id)) saveSeen();
 }
 
 /* ------------------------------------------------------------------ */
@@ -373,6 +395,12 @@ function completeJob({ jobId, itemId, ok, actorId, actorUuid, error }) {
         job.status = 'done';
         importedIndex.set(itemId, { actorId, actorUuid, importedAt: job.doneAt });
         saveIndex();
+        // Importing is a stronger "I have dealt with this" than merely looking,
+        // so it clears the New tag as well. Without it, an NPC swept up by
+        // Select All and never opened would keep a flag it had no way left to
+        // shed: the grid suppresses the tag on an imported card, so nothing on
+        // screen could ever clear it again.
+        markSeen([itemId]);
         jobsByItemId.delete(itemId);
     } else {
         job.status = 'error';
@@ -399,6 +427,249 @@ function reconcile(entries) {
     }
     saveIndex();
 }
+
+/* ------------------------------------------------------------------ */
+/* Seen index (what the New tag reads)                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Which items the user has already laid eyes on, so an NPC generated ten
+ * minutes ago can look different in the grid from one generated six months
+ * ago. Nothing else in this stack could answer that. `when` looks like the
+ * obvious candidate and is a trap: generate-npc.py rewrites it on every
+ * --regen-manifest pass, so a timestamp watermark would flag every
+ * *regenerated* NPC as new - precisely the state the "Regenerating…" badge
+ * already owns - and it is a zone-less local-time string besides.
+ *
+ * So newness is defined negatively: an id is new iff it is *absent* from this
+ * set. That framing is what makes the feature survive how NPCs are really
+ * made - generate-npc.py run straight from a shell, with no browser open and
+ * no create job for a client to poll - and it is why this is server state
+ * rather than localStorage. "New since you last looked" is a fact about the
+ * library, not about a browser profile, and this repo already keeps exactly
+ * this kind of small durable side-file (see .imported.json above).
+ *
+ * The file sits beside the *manifest* rather than beside server.js, which is
+ * the one place it departs from .imported.json's pattern. Two reasons:
+ * seen-ness belongs to one library, so two servers pointed at two different
+ * manifests have no business sharing it; and `node --test` runs test files as
+ * concurrent processes, each with its own fixture manifest, which a single
+ * repo-root store would have them fighting over.
+ */
+const SEEN_FILE = path.join(path.dirname(config.npcManifestPath), '.npc-seen.json');
+
+/**
+ * Bumped whenever the shape saveSeen() writes stops being one this file can
+ * read. ensureSeenLoaded() reseeds on any value but this one rather than
+ * migrating, which is only safe because the seed's answer - "everything in the
+ * library right now is already seen" - is the conservative one: the worst it
+ * costs is a tag the user never gets, never a library that lights up whole. A
+ * *newer* version reseeds on the same terms, since a store written by a future
+ * shape is no more legible for having come from one.
+ */
+const SEEN_VERSION = 1;
+
+/** id -> { at }, meaningful only once ensureSeenLoaded() has run. */
+let seenIndex = new Map();
+let seenLoaded = false;
+let seenSeededAt = null;
+
+/**
+ * Load the store, creating it the first time. The *absence* of the file is
+ * load-bearing: it means this library has never been looked at through the
+ * GUI, and the only sane reading of that is "everything already here is old" -
+ * a first run against a catalogue of two hundred NPCs must not light all two
+ * hundred up. Hence the seed. It happens once, ever, and explicitly not on
+ * every start: an NPC rolled at the CLI while this server was down is
+ * genuinely new and has to still be new after the next boot.
+ *
+ * A store that exists but will not parse is treated as an absent one and
+ * re-seeded rather than ignored. There is nothing to recover from it, and the
+ * alternative failure - falling through with an empty index - is the loud one
+ * this whole function is arranged to avoid. A store written under a different
+ * SEEN_VERSION goes the same way and for the same reason; see the constant.
+ */
+function ensureSeenLoaded() {
+    if (seenLoaded) return;
+    let raw;
+    try {
+        raw = fs.readFileSync(SEEN_FILE, 'utf8');
+    } catch {
+        seedSeen();
+        return;
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(raw);
+    } catch (err) {
+        console.warn(`[${PLUGIN_ID}] ${SEEN_FILE} is not valid JSON, reseeding:`, err.message);
+        seedSeen();
+        return;
+    }
+    if (parsed?.version !== SEEN_VERSION) {
+        console.warn(
+            `[${PLUGIN_ID}] ${SEEN_FILE} is version ${parsed?.version}, not ${SEEN_VERSION}, reseeding`);
+        seedSeen();
+        return;
+    }
+    seenSeededAt = typeof parsed?.seededAt === 'number' ? parsed.seededAt : null;
+    for (const [id, rec] of Object.entries(parsed?.seen || {})) {
+        seenIndex.set(id, { at: typeof rec?.at === 'number' ? rec.at : Date.now() });
+    }
+    seenLoaded = true;
+}
+
+/**
+ * Mark the whole current library seen and write the store.
+ *
+ * What this function refuses to do matters more than what it does.
+ * loadManifest() answers `[]` for a manifest that is missing *and* for one
+ * that is momentarily unreadable, and seeding a library-wide "already seen"
+ * from that empty answer, in the unreadable case, would write an empty store -
+ * after which the entire library lights up New on the next two-second poll,
+ * silently and with no way back. So a read or parse error seeds nothing and
+ * leaves seenLoaded false, and the next read tries again.
+ *
+ * A *missing* manifest is the opposite case and must not take the same route,
+ * which is why ENOENT is picked out of that error rather than lumped in with
+ * it. On a fresh install the manifest is gitignored and simply absent, so
+ * deferring the seed there would leave it to run on the first /api/items poll
+ * instead - by which time the user has generated their first NPCs, and the
+ * manifest the seed reads is the one those NPCs just created, marking every
+ * one of them already seen. That would make the first NPCs anyone ever
+ * generates the only ones the New tag can never fire for. So ENOENT seeds an
+ * empty set and persists it, which is the honest reading: a library with no
+ * manifest holds nothing to have seen, and everything written afterwards is
+ * genuinely new. A manifest that is present but empty means the same thing.
+ */
+function seedSeen() {
+    let raw;
+    try {
+        raw = fs.readFileSync(config.npcManifestPath, 'utf8');
+    } catch (err) {
+        if (err.code !== 'ENOENT') return;
+        raw = '{}';
+    }
+    let parsed;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        return;
+    }
+    const at = Date.now();
+    seenIndex = new Map();
+    for (const item of manifestItemsFrom(parsed)) seenIndex.set(item.id, { at });
+    seenSeededAt = at;
+    seenLoaded = true;
+    saveSeen();
+}
+
+/**
+ * Write the store, best-effort. Persistence here is worth strictly less than
+ * serving the library, and the first write happens at module load, so a throw
+ * would be a server that will not boot at all: point npcManifestPath at a
+ * directory the generator has not created yet - the GUI configured ahead of
+ * its first run, or a typo in config.json - and an ENOENT out of this function
+ * takes the whole process down over a pill in the corner of a card. The parent
+ * directory is created when it is merely missing, and anything past that warns
+ * and leaves the in-memory index exactly as it was. A seen store that cannot
+ * be persisted is a New tag that forgets itself across a restart, which is a
+ * degradation the user can live with and be told about.
+ */
+function saveSeen() {
+    try {
+        fs.mkdirSync(path.dirname(SEEN_FILE), { recursive: true });
+        fs.writeFileSync(SEEN_FILE, JSON.stringify({
+            version: SEEN_VERSION,
+            // Every entry whose `at` matches this was auto-seeded rather than
+            // actually looked at. Nothing reads it back, but it is what makes
+            // the file explain itself to whoever opens it wondering why an
+            // existing library arrived with nothing flagged.
+            seededAt: seenSeededAt,
+            seen: Object.fromEntries(seenIndex),
+        }, null, 2));
+    } catch (err) {
+        console.warn(`[${PLUGIN_ID}] could not write ${SEEN_FILE}:`, err.message);
+    }
+}
+
+/**
+ * Called from itemView, i.e. once per NPC on every two-second /api/items poll,
+ * so it must stay an in-memory Map lookup - see the warning on read3dFolder
+ * for what happens when something in that path starts reading the disk. The
+ * ensureSeenLoaded() call is free after the first: it early-returns, and in
+ * the one case where it does not (seeding deferred because the manifest is
+ * unreadable) loadManifest() has returned no items, so there is nothing to
+ * call this for anyway.
+ */
+function isSeen(id) {
+    ensureSeenLoaded();
+    return seenIndex.has(id);
+}
+
+/**
+ * Mark ids seen, ignoring any the manifest does not know about. The filter is
+ * not defensiveness for its own sake: a stale client tab posting the id of an
+ * NPC that has since been deleted would otherwise re-mark it, and a re-marked
+ * deleted id is exactly how a regenerated NPC loses the tag deleteItem went to
+ * the trouble of clearing.
+ */
+function markSeen(ids) {
+    ensureSeenLoaded();
+    const known = new Set(loadManifest().map((item) => item.id));
+    const at = Date.now();
+    let changed = false;
+    for (const id of ids) {
+        if (!known.has(id) || seenIndex.has(id)) continue;
+        seenIndex.set(id, { at });
+        changed = true;
+    }
+    if (changed) saveSeen();
+    return changed;
+}
+
+function markAllSeen() {
+    return markSeen(loadManifest().map((item) => item.id));
+}
+
+/**
+ * Drop ids back out of the store, so whatever wears them is new again.
+ *
+ * This exists for the create job, which measures what it produced over folder
+ * paths while newness is keyed by manifest id - the two disagree exactly when
+ * generate-npc.py rolls the same name and seed twice, since the id is minted
+ * from those two alone while npc_folder() suffixes the colliding folder to
+ * "Name (2)". The run then adds a folder under an id the store may already
+ * hold, which is a real NPC on disk that itemView reports isNew false for: the
+ * banner announces one new NPC while the grid draws no pill on anything,
+ * /api/unseen lists nothing, and "Show new NPCs" lands on a grid with nothing
+ * to find. A run's own output is new by definition, so the run un-sees it.
+ *
+ * Both folders share the one id and so both light up, which is the honest
+ * answer available to an id-keyed store: the pair are two versions of one NPC
+ * and the user has just asked for the comparison.
+ */
+function forgetSeen(ids) {
+    ensureSeenLoaded();
+    let changed = false;
+    for (const id of ids) {
+        if (seenIndex.delete(id)) changed = true;
+    }
+    if (changed) saveSeen();
+    return changed;
+}
+
+/** Every id the user has not looked at yet, across all kinds. */
+function unseenIds() {
+    ensureSeenLoaded();
+    return loadManifest().filter((item) => !seenIndex.has(item.id)).map((item) => item.id);
+}
+
+// Seed (or load) at startup rather than lazily on the first request. Lazily
+// would swallow anything generate-npc.py wrote between this process starting
+// and the first page load - which, for a tool whose empty state tells you to
+// go and run generate-npc.py, is not a corner case.
+ensureSeenLoaded();
 
 /* ------------------------------------------------------------------ */
 /* Regenerate art                                                      */
@@ -703,23 +974,121 @@ const OVERRIDE_TABLES = (() => {
 })();
 
 /**
- * Traits `--reroll-trait` accepts, derived from the generator's own
- * REROLLABLE_TRAITS. No hard-coded fallback, deliberately: which traits can be
- * re-rolled alone is a property of what the manifest stores, and guessing it
- * here would be guessing about the generator's internals. An empty list means
- * the UI offers no reroll buttons, which is a safe way to be wrong.
+ * Traits `--reroll-trait` accepts, derived from the generator's own two lists.
+ *
+ * Two, because the generator chooses between them per NPC rather than once:
+ * reroll_trait() reads the manifest entry's rawTraits and takes
+ * RAW_REROLLABLE_TRAITS when they are there, REROLLABLE_TRAITS when they are
+ * not. An entry written before rawTraits existed stores its bullets with the
+ * flags stripped, so only the eleven traits nothing else gates can be re-rolled
+ * from it; an entry that recorded its raw bullets has those flags back and
+ * re-rolls all twenty-two - everything but the two halves of the name and
+ * Pronouns, which are refused for reasons raw bullets do not touch.
+ *
+ * Reading only the shorter list, as this server did before both were parsed
+ * here, fails quietly rather than loudly, which is why it is worth naming:
+ * Theme is on the raw list alone, so the single most useful re-roll in the
+ * generator had no button on any modern NPC - and nor did Outfit, Weapon, Role,
+ * Backdrop, Faction, Gear, Age, Hair colour, Weather or Stance, every one of
+ * which the generator will re-roll from raw bullets. Which list applies is
+ * decided per item, at both the offer (itemView, and openDetail in the
+ * client) and the refusal (POST /api/reroll-trait), and those two have to agree:
+ * a button that answers 400 is worse than no button.
+ *
+ * No hard-coded fallback for either, deliberately: which traits can be
+ * re-rolled is a property of what the manifest stores, and guessing it here
+ * would be guessing about the generator's internals. An empty list means the UI
+ * offers no reroll buttons, which is a safe way to be wrong.
+ *
+ * TRAIT_DEPENDENTS comes off the same read, and it answers the question the
+ * page asks second: not whether a trait can be re-rolled but how much of the
+ * NPC goes with it. The two lists cannot answer that - inferring it from them,
+ * by treating anything outside the legacy eleven as a cascade, warns about
+ * Faction, Weather and Stance, which cascade to nothing at all, and can never
+ * name what a real cascade carries. The map is read here rather than in the
+ * client because the client cannot read a Python file, and it degrades to an
+ * empty map on a parse miss like everything else in this block.
  */
-const REROLLABLE_TRAITS = (() => {
+const [REROLLABLE_TRAITS, RAW_REROLLABLE_TRAITS, TRAIT_DEPENDENTS] = (() => {
     try {
-        return overrideTables.rerollableTraitsFrom(fs.readFileSync(GENERATE_NPC_SCRIPT, 'utf8'));
+        const source = fs.readFileSync(GENERATE_NPC_SCRIPT, 'utf8');
+        return [
+            overrideTables.rerollableTraitsFrom(source),
+            overrideTables.rawRerollableTraitsFrom(source),
+            overrideTables.traitDependentsFrom(source),
+        ];
     } catch (err) {
         console.warn(
             `Could not read REROLLABLE_TRAITS from ${GENERATE_NPC_SCRIPT} (${err.message}) - `
             + 'the per-trait reroll button will not be offered.',
         );
-        return [];
+        return [[], [], {}];
     }
 })();
+
+/**
+ * Whether this manifest entry recorded the raw bullets a wider re-roll needs.
+ *
+ * The emptiness half of the test is load-bearing rather than defensive, and it
+ * mirrors generate-npc.py's own: reroll_trait() treats a recorded-but-empty
+ * rawTraits as NO raw bullets on purpose, since pinning nothing would re-roll
+ * the whole NPC under the name of one trait. A bare `!!item.rawTraits` would
+ * send such an entry down the raw path here and offer it buttons the generator
+ * is about to refuse.
+ *
+ * Presence and emptiness only - never the KEYS. A legacy entry can carry raw
+ * bullets under names the generator renames on load (rename_legacy_traits),
+ * and a missing bullet is something it already handles by warning and
+ * re-rolling that trait along, so matching keys against the table list here
+ * would be predicting the generator's repairs from the outside.
+ */
+function hasRawTraits(item) {
+    return !!(item.rawTraits && Object.keys(item.rawTraits).length);
+}
+
+/** The re-rollable list that applies to one NPC - see the pair above. */
+function rerollableFor(item) {
+    return hasRawTraits(item) ? RAW_REROLLABLE_TRAITS : REROLLABLE_TRAITS;
+}
+
+/**
+ * The manifest's NPC entries as they stand right now - each one's folder path
+ * and id - or null if we could not read them. Taken either side of a create job
+ * so the job can report what it actually produced rather than what was asked
+ * for; see `job.produced` and `job.producedIds` below. loadManifest() re-reads
+ * the file fresh (and treats a missing one as empty, so a first-ever run
+ * snapshots nothing and still counts correctly); it only throws on a hard read
+ * error, and a transient one of those inside a 'close' handler would be an
+ * unhandled throw taking the server with it, so it is swallowed here into "we do
+ * not know".
+ *
+ * The difference is taken over folders rather than ids, because counting ids
+ * quietly mis-reports an entire class of run.
+ * generate-npc.py mints an id of "npc-<slug>-<seed>", derived from the name and
+ * the seed and nothing else, while npc_folder() suffixes a colliding folder to
+ * "Name (2)" - and the GUI never passes --overwrite. So pinning a name and a
+ * seed, generating, tweaking an override and generating again writes a second
+ * folder and a second manifest entry under an id that is already in the
+ * before-snapshot: a real NPC on disk, which an id count would put at zero and
+ * the client would report as a run that detected nothing. The manifest is keyed
+ * by folder path, so counting its keys counts the entries the run actually
+ * added.
+ *
+ * The ids ride along beside the folders because a count on its own is not enough
+ * for the client to act on. The banner raised over a finished run carries one
+ * dismiss button, and dismissing it clears the New tag - which it may only do
+ * for the NPCs that banner is announcing, so the run has to be able to name
+ * them. See the comment on `job.producedIds`.
+ */
+function npcEntriesSnapshot() {
+    try {
+        return loadManifest()
+            .filter((item) => item.kind === 'npc')
+            .map((item) => ({ folderPath: item.folderPath, id: item.id }));
+    } catch {
+        return null;
+    }
+}
 
 function startCreateJob(opts) {
     if (!fs.existsSync(GENERATE_NPC_SCRIPT)) {
@@ -738,8 +1107,18 @@ function startCreateJob(opts) {
     if (opts.server) args.push('--server', opts.server);
     if (opts.dryRun) args.push('--dry-run');
 
+    // Snapshot before the child can write anything. `produced` and
+    // `producedIds` stay null until the run ends and, for a dry run or an
+    // unreadable manifest, forever: null means "not measured", which the client
+    // tells apart from a measured zero (and from a measured empty list).
+    const entriesBefore = npcEntriesSnapshot();
+    const foldersBefore = entriesBefore && new Set(entriesBefore.map((entry) => entry.folderPath));
+
     const jobId = crypto.randomUUID();
-    const job = { status: 'running', dryRun: !!opts.dryRun, startedAt: Date.now(), log: '' };
+    const job = {
+        status: 'running', dryRun: !!opts.dryRun, startedAt: Date.now(), log: '',
+        produced: null, producedIds: null,
+    };
     createJobs.set(jobId, job);
 
     let child;
@@ -760,6 +1139,37 @@ function startCreateJob(opts) {
         job.doneAt = Date.now();
         job.status = code === 0 ? 'done' : 'error';
         if (code !== 0) job.error = job.log.trim() || `generate-npc.py exited with code ${code}`;
+        // Exit code 0 only means the script did not crash - it can and does
+        // finish having written fewer entries than asked for, or none at all,
+        // when ComfyUI drops a job or a per-NPC error is swallowed mid-batch.
+        // Count the manifest entries that are new since the snapshot so the
+        // client can say what landed instead of what was requested. Not for a
+        // dry run: it writes no manifest entries, and the client ignores the
+        // number anyway.
+        if (job.status === 'done' && !job.dryRun && foldersBefore) {
+            const entriesAfter = npcEntriesSnapshot();
+            const added = entriesAfter
+                && entriesAfter.filter((entry) => !foldersBefore.has(entry.folderPath));
+            job.produced = added ? added.length : null;
+            // Which NPCs those were, not merely how many. The client raises one
+            // banner over a finished run and offers one × to be rid of it, and
+            // that × also clears the New tag - which it may only do for the
+            // NPCs the banner is announcing. A library can hold NPCs rolled at
+            // the command line while this server was down, which the seed-once
+            // store keeps flagged across a reboot precisely so they can be
+            // found later, and there is nothing in the UI able to re-flag one:
+            // a banner promising one NPC must not take those with it. Naming
+            // the run's own NPCs is what lets the client clear exactly those.
+            // De-duplicated because the same-name-same-seed re-roll described
+            // above writes two folders under one id.
+            job.producedIds = added ? [...new Set(added.map((entry) => entry.id))] : null;
+            // And un-see them, for that same collision. `produced` counts
+            // folders, isNew asks about ids, so a second folder under an id the
+            // user has already opened is counted by one and dismissed by the
+            // other - announced as new by the banner and drawn as old by the
+            // grid. See forgetSeen.
+            if (job.producedIds) forgetSeen(job.producedIds);
+        }
     });
 
     return { ok: true, jobId };
@@ -1057,6 +1467,17 @@ function itemView(item) {
         when: item.when,
         importable: isImportable(item),
         imported: !!imported,
+        // Absent from the seen store, i.e. generated since the user last
+        // opened this one - see the seen index above for why that is a set
+        // membership test and emphatically not a comparison against `when`.
+        // Reported honestly even for an imported item; the grid is what
+        // decides not to draw a New pill on a card it has already dimmed.
+        isNew: !isSeen(item.id),
+        // Which of the generator's two re-rollable lists applies to this NPC -
+        // see hasRawTraits above. The boolean and not the bullets: they run to
+        // kilobytes per entry, the grid polls every item every two seconds, and
+        // the importer contract deliberately never exposes trait text.
+        hasRawTraits: hasRawTraits(item),
         importedActorUuid: imported?.actorUuid ?? null,
         importedAt: imported?.importedAt ?? null,
         jobStatus: job ? job.status : null,
@@ -1116,6 +1537,48 @@ async function handleApi(req, res, url) {
             .map(itemView)
             .sort((a, b) => a.name.localeCompare(b.name));
         return sendJson(res, 200, { items });
+    }
+
+    if (url.pathname === '/api/unseen' && req.method === 'GET') {
+        // Across every kind, deliberately, and not derived from whatever
+        // /api/items last returned - which only ever holds the one category
+        // the grid happens to be showing. Nothing in public/ calls this: the
+        // page learns newness from the `isNew` on each item view it already
+        // polls for. It is here for anything outside the bundled client that
+        // wants the one-line answer, a shell script asking "is there anything
+        // I have not looked at" being the obvious one.
+        const ids = unseenIds();
+        return sendJson(res, 200, { count: ids.length, ids });
+    }
+
+    if (url.pathname === '/api/seen' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        // `ids` is what the page posts, from the detail overlay one at a time
+        // and from the batch banner a finished run's worth at once. `all` marks
+        // the entire library and has no caller in public/, deliberately: the
+        // banner names the ids of the run it is announcing, because a banner
+        // that says "1 new NPC" must not clear the tag on every unlooked-at
+        // NPC in the library. `all` stays because "I have looked at all of
+        // this" is a coherent thing to ask of a library and there is no other
+        // way to say it - but it wants a control that admits to its scope
+        // before anything in the page reaches for it.
+        //
+        // A body that is neither is a 400 rather than a silently successful
+        // no-op, so a client bug shows up as a client bug.
+        if (body.all === true) {
+            markAllSeen();
+        } else if (Array.isArray(body.ids) && body.ids.every((id) => typeof id === 'string')) {
+            markSeen(body.ids);
+        } else {
+            return sendJson(res, 400, { error: 'ids must be an array of item ids, or pass all: true' });
+        }
+        return sendJson(res, 200, { ok: true, unseen: unseenIds().length });
     }
 
     if (url.pathname === '/api/image' && req.method === 'GET') {
@@ -1249,7 +1712,23 @@ async function handleApi(req, res, url) {
     }
 
     if (url.pathname === '/api/npc-tables' && req.method === 'GET') {
-        return sendJson(res, 200, { tables: OVERRIDE_TABLES, rerollable: REROLLABLE_TRAITS });
+        // Both lists, because which one applies is a property of the NPC
+        // rather than of the server - the client pairs them with each item's
+        // hasRawTraits. `rerollable` keeps its name and its legacy meaning so
+        // an older page served from a cache still works, just narrowly.
+        //
+        // `dependents` is the generator's cascade map, sent as its direct edges
+        // rather than as a closure per trait: the closure is four lines in the
+        // client and the edges are what the file actually says, so a shape sent
+        // here can never be a stale flattening of one. The client warns before
+        // a re-roll that reaches past its own trait, and names the traits it
+        // reaches - neither of which it could do from the two lists alone.
+        return sendJson(res, 200, {
+            tables: OVERRIDE_TABLES,
+            rerollable: REROLLABLE_TRAITS,
+            rawRerollable: RAW_REROLLABLE_TRAITS,
+            dependents: TRAIT_DEPENDENTS,
+        });
     }
 
     if (url.pathname === '/api/reroll-trait' && req.method === 'POST') {
@@ -1265,13 +1744,23 @@ async function handleApi(req, res, url) {
 
         const table = typeof body.table === 'string' ? body.table : '';
         if (!table) return sendJson(res, 400, { error: 'table is required' });
-        if (REROLLABLE_TRAITS.length && !REROLLABLE_TRAITS.includes(table)) {
+        // The list this NPC gets, chosen the same way reroll_trait() chooses
+        // it, so the refusal here can never disagree with the one the
+        // generator would give a moment later.
+        const allowed = rerollableFor(item);
+        if (allowed.length && !allowed.includes(table)) {
             // Refused here as well as in the generator, so the UI gets a clean
             // 400 rather than a spawned process that exits with a message.
             // The generator stays the authority on the reason.
+            //
+            // The set named is the one that applies to THIS entry, never the
+            // shorter one by default: printing the legacy eleven to the owner
+            // of an NPC that can re-roll twenty-two would be a lie about their
+            // own NPC, and it is the exact lie generate-npc.py refuses to tell
+            // in the matching refusal.
             return sendJson(res, 400, {
                 error: `"${table}" cannot be re-rolled on its own. Re-rollable: `
-                    + REROLLABLE_TRAITS.join(', '),
+                    + allowed.join(', '),
             });
         }
 
@@ -1524,7 +2013,20 @@ async function handleApi(req, res, url) {
         const jobId = url.searchParams.get('jobId');
         const job = jobId && createJobs.get(jobId);
         if (!job) return sendJson(res, 404, { error: 'unknown job' });
-        return sendJson(res, 200, { status: job.status, dryRun: job.dryRun, log: job.log, error: job.error ?? null });
+        return sendJson(res, 200, {
+            status: job.status,
+            dryRun: job.dryRun,
+            log: job.log,
+            error: job.error ?? null,
+            // How many NPCs the run actually added to the manifest, or null if
+            // it was not measured (dry run, unreadable manifest, still going).
+            produced: job.produced ?? null,
+            // And which ones, so the banner the client raises over this run can
+            // clear the New tag on those NPCs alone when it is dismissed. Null
+            // under exactly the conditions `produced` is null; a client that
+            // cannot name the run's NPCs clears nothing rather than guessing.
+            producedIds: job.producedIds ?? null,
+        });
     }
 
     if (url.pathname === '/api/trait-candidates' && req.method === 'GET') {

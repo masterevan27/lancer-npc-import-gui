@@ -67,3 +67,38 @@ test('app.js binds the copy controls rather than shipping them inert', async (t)
     assert.match(js, /clipboard/,
         'app.js never reaches the clipboard');
 });
+
+// The copy buttons and the Re-roll buttons sit a few centimetres apart in the
+// same detail sheet, and styled separately they read as two different classes
+// of control - a ghost button beside a filled one - which is the complaint that
+// put them in one rule. Sharing the rule is the only arrangement that cannot
+// drift, so that is what this pins, rather than any particular colour: a future
+// repaint of the pair passes and a quiet re-split does not.
+test('the copy buttons share Re-roll\'s rule rather than restating it', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const css = await fetchText(server, '/style.css');
+
+    assert.match(
+        css, /\.reroll-btn,\s*\.copy-btn\s*\{[^}]*background:/,
+        '.copy-btn no longer shares .reroll-btn\'s rule, so the two can drift apart again');
+    // The shared rule opens on a line of its own - `.reroll-btn,` then
+    // `.copy-btn {` - so "does the class start a rule" cannot tell the joined
+    // rule from a re-split one. Count instead: one opening is the shared rule
+    // the assertion above just matched, and a second would be a private base
+    // colour of the kind the sharing exists to prevent.
+    const baseRules = css.match(/^\.copy-btn\s*\{/gm) || [];
+    assert.equal(
+        baseRules.length, 1,
+        '.copy-btn opens a base rule of its own again beside the shared one');
+    // The flash states overpaint the shared fill for 1200ms. A border and a
+    // text colour alone were enough while the button underneath was
+    // transparent; over a filled one they are not, so each state has to bring
+    // its own background or the flash says nothing.
+    for (const state of ['copied', 'copy-failed']) {
+        assert.match(
+            css, new RegExp(`\\.copy-btn\\.${state}\\s*\\{[^}]*background:`),
+            `.copy-btn.${state} sets no background, so the flash cannot be read over the button's fill`);
+    }
+});
