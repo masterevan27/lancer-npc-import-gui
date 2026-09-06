@@ -1976,7 +1976,18 @@ async function handleApi(req, res, url) {
 
         const result = await readTraitChoices(item, trait);
         if (!result.ok) return sendJson(res, 502, { error: result.reason });
-        return sendJson(res, 200, result.data);
+        // `label` is added here rather than by the generator or the client.
+        // The '||' -> '·' convention belongs to lib/traitOptions.js, which the
+        // Create form's dropdown already renders through; computing it a
+        // second time in the browser would give the same bullet two spellings
+        // depending on which control you met it in. `value` is untouched - it
+        // is what gets posted back and pasted into a prompt verbatim.
+        return sendJson(res, 200, {
+            ...result.data,
+            choices: result.data.choices.map((choice) => ({
+                ...choice, label: traitOptions.readableLabel(choice.value),
+            })),
+        });
     }
 
     if (url.pathname === '/api/trait-options' && req.method === 'GET') {

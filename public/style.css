@@ -380,6 +380,68 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .confirm-dialog h2 { margin: 0 0 0.6rem; }
 .confirm-dialog p { color: #d7dae0; }
 .confirm-dialog .confirm-warning { color: #e0a458; font-size: 0.85rem; }
+
+/* The Set... picker. Wider than the confirm dialogs because its rows carry
+   whole bullets - a Backdrop runs to a couple of hundred characters - and a
+   scrolling list rather than a <select> because each row can also carry a note
+   about what it would contradict, which a <select> cannot show. */
+.set-trait-dialog { max-width: 640px; }
+.set-trait-dialog h2 { margin: 0 0 0.6rem; }
+.set-trait-dialog .confirm-warning { color: #e0a458; font-size: 0.85rem; }
+#set-trait-filter {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.6rem;
+  padding: 0.3rem 0.45rem;
+  background: #14161c;
+  border: 1px solid #2c2f38;
+  border-radius: 5px;
+  color: #d7dae0;
+}
+.set-trait-list {
+  max-height: 46vh;
+  overflow-y: auto;
+  border: 1px solid #2c2f38;
+  border-radius: 5px;
+  padding: 0.35rem 0.5rem;
+  color: #d7dae0;
+}
+.set-trait-heading {
+  margin: 0.7rem 0 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #9aa1ad;
+  text-transform: none;
+}
+.set-trait-heading:first-child { margin-top: 0; }
+.set-trait-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 0.45rem;
+  align-items: baseline;
+  padding: 0.2rem 0;
+  cursor: pointer;
+}
+.set-trait-label { font-size: 0.85rem; }
+.set-trait-label em { color: #7fb3ff; font-style: normal; }
+/* The note sits under the label, in the label's column, so it reads as
+   belonging to that row rather than to the radio beside it. */
+.set-trait-note {
+  grid-column: 2;
+  font-size: 0.75rem;
+  color: #e0a458;
+}
+/* Greyed, but never disabled. Both grey groups stay selectable on purpose:
+   the user was told what the value costs, and refusing the click after saying
+   the row was pickable would be a dialog arguing with itself. */
+.set-trait-row-greyed .set-trait-label { color: #9aa1ad; }
+#set-trait-release-row {
+  display: block;
+  margin-top: 0.7rem;
+  font-size: 0.85rem;
+  color: #d7dae0;
+  cursor: pointer;
+}
 #delete-confirm-list {
   margin: 0 0 0.75rem;
   padding-left: 1.2rem;
@@ -479,6 +541,13 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
    sheet. Every other property already matched to the pixel, so the colour is
    all that joined; keeping two near-identical rule sets would only let them
    drift, which is why #regen-btn and #model3d-btn share one above too. */
+/* Set... joins at the FRONT rather than between or after the other two.
+   ui.copyPrompts.test.js pins ".reroll-btn," immediately followed by
+   ".copy-btn {" as an adjacent pair, to stop those two drifting apart; a third
+   name anywhere inside or after that pair breaks the guard. Order in a
+   selector list means nothing to CSS, so the new name goes where it leaves the
+   guard standing. */
+.set-trait-btn,
 .reroll-btn,
 .copy-btn {
   background: #2b4a9e;
@@ -495,10 +564,18 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .reroll-btn:hover,
 .reroll-btn:focus,
 .copy-btn:hover,
-.copy-btn:focus { background: #3d6ef0; border-color: #3d6ef0; color: #ffffff; }
+.copy-btn:focus,
+.set-trait-btn:hover,
+.set-trait-btn:focus { background: #3d6ef0; border-color: #3d6ef0; color: #ffffff; }
+/* Set... sits beside Re-roll in the same gutter cell, so it needs the gap the
+   two buttons would otherwise not have, and a quieter fill: Re-roll is the
+   one-click action and this one opens a dialog, so leading with equal weight
+   would make the gutter read as two primary buttons. */
+.set-trait-btn { margin-left: 0.3rem; background: #33406b; border-color: #33406b; }
 /* Flat grey rather than a dimmed blue: at 0.4 opacity the fill was still
    plainly blue, so a re-roll already running read as one still on offer. */
-.reroll-btn:disabled {
+.reroll-btn:disabled,
+.set-trait-btn:disabled {
   background: #2c2f38;
   border-color: #2c2f38;
   color: #6b7280;

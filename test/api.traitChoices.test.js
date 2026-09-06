@@ -124,8 +124,20 @@ test('a good request returns the choices with every documented key', async (t) =
     for (const c of body.choices) {
         assert.deepEqual(
             Object.keys(c).sort(),
-            ['allowed', 'conflicts', 'current', 'heading', 'releases', 'value']);
+            ['allowed', 'conflicts', 'current', 'heading', 'label', 'releases', 'value']);
     }
+});
+
+test('the readable label is added here, not invented in the browser', async (t) => {
+    // The '||' -> '·' convention belongs to lib/traitOptions.js, which the
+    // Create form's dropdown already renders through. Spelling it a second
+    // time in the client would give one bullet two appearances depending on
+    // which control you met it in.
+    const s = await server(t);
+    const body = await (await ask(s, 'id=npc-test-1&trait=Outfit')).json();
+    const kimono = body.choices.find((c) => c.value.includes('kimono'));
+    assert.equal(kimono.label, 'a kimono · civ notac');
+    assert.equal(kimono.value, 'a kimono || civ notac', 'the value is untouched');
 });
 
 test('the flags stay on the value', async (t) => {
