@@ -1490,6 +1490,21 @@ function itemView(item) {
         has3d: fs.existsSync(model3dDir(item)),
         model3dStatus: model3dJob ? model3dJob.status : null,
         model3dError: model3dJob?.status === 'error' ? model3dJob.error : null,
+        // Where the art actually sits on disk. The browser is served
+        // /api/image URLs and cannot resolve a local path, so this is text for
+        // the user to read and copy - it is how they find the source files
+        // outside this page at all. Re-derived from the manifest key on every
+        // poll rather than remembered: importing an NPC copies its files under
+        // foundryDataRoot and repoints that key (see copyIntoFoundry), so a
+        // captured path would start lying the moment the user imported. The
+        // filenames come with it because the folder holds both, and naming
+        // them beats repeating an 80-character prefix twice.
+        //
+        // Not part of the /importer/* contract, which carries Data-relative
+        // paths Foundry can serve and no absolute ones.
+        folderPath: item.folderPath || null,
+        portraitFile: item.portrait || null,
+        tokenFile: item.token || null,
         portraitUrl: item.portrait
             ? `/api/image?id=${encodeURIComponent(item.id)}&which=portrait&v=${fileVersion(portraitFile)}`
             : null,
