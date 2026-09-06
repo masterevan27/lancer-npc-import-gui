@@ -94,6 +94,19 @@ and open <http://127.0.0.1:5089>.
   away, since both are ordinary things to click on an NPC's sheet. Copying works
   over a LAN address as well as on localhost, where the browser's clipboard API
   is unavailable and an older fallback runs in its place.
+  A **Files** block under the generated date names the folder the NPC's
+  portrait and token actually sit in, the two filenames beneath it, and a
+  **Copy** button for the path. Finding the source files previously meant
+  guessing the generator's `<category>/<name>` nesting from the NPC's name and
+  role. It is text rather than a link because a browser will not follow a
+  `file://` from an http page, so pasting the folder into a file manager is the
+  only route that actually works — and it is the folder rather than two full
+  file paths because the two share an eighty-character prefix there is no
+  reason to read twice. The path comes off the manifest on every poll instead
+  of being remembered, which is what keeps it honest across an import:
+  importing copies the files under `foundryDataRoot` and repoints the manifest
+  entry at the copy, so the line names where the art is now rather than where
+  it was generated.
   A blue **New** tag in a card's top-left corner marks an NPC generated since
   you last opened it — including ones rolled at the shell rather than through
   the Create tab, since the server keeps the record rather than your browser.
@@ -265,14 +278,14 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test "test/*.test.js"
 ```
 
-Expect `pass 262`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 269`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other
 file uses.
 
 Ports are written two ways, which is worth knowing before you pick one:
-nineteen of the thirty-one test files bind a port at all, and of those, twelve
+twenty-one of the thirty-three test files bind a port at all, and of those, fourteen
 declare `const PORT = 5196` at the top and pass that, while the other seven
 (`api.createArgs`, `api.nonTableSections`, `api.presets`, `api.pronouns`,
 `api.tableBullets`, `api.traitOptions` and `helpers.testServer`) pass
@@ -285,11 +298,11 @@ hangs the run until the whole suite times out:
 grep -rhoE "(port: |PORT = )5[0-9]+" test/*.test.js | sort -u
 ```
 
-Ports 5193–5199 and 5201–5212 are taken.
+Ports 5193–5199 and 5201–5214 are taken.
 
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs bare
 `node --test` instead, which also picks up `test/helpers/testServer.js` as a
-file with no tests in it — so expect one more there, `pass 263`, for a helper
+file with no tests in it — so expect one more there, `pass 270`, for a helper
 that declares no tests and therefore cannot fail. Both numbers move whenever a
 test is added; they are worth updating together.
 

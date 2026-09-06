@@ -512,7 +512,8 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
    cursor, which wins over an inherited one on the element itself. */
 .reroll-unavailable { cursor: help; }
 .reroll-unavailable .reroll-btn:disabled { cursor: help; }
-#detail-prompts h3 { font-size: 0.82rem; color: #9aa1ad; margin: 0; }
+#detail-prompts h3,
+.detail-files h3 { font-size: 0.82rem; color: #9aa1ad; margin: 0; }
 /* The heading and its Copy button share a row so the button sits against the
    prompt it copies rather than floating above both of them. */
 .prompt-head {
@@ -537,7 +538,8 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
    "failed" in the second it is up. */
 .copy-btn.copied { background: #2f7d4a; border-color: #2f7d4a; color: #ffffff; }
 .copy-btn.copy-failed { background: #a53434; border-color: #a53434; color: #ffffff; }
-#detail-prompts pre {
+#detail-prompts pre,
+.detail-files pre {
   white-space: pre-wrap;
   word-break: break-word;
   background: #0e0f13;
@@ -546,6 +548,23 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   padding: 0.6rem;
   font-size: 0.82rem;
   margin: 0;
+}
+
+/* ---- Files: where an NPC's art actually sits on disk ---- */
+
+/* Borrows the prompts' block above, but has to read as a caption rather than
+   as a third panel: it sits between the generated line and Regenerate, and a
+   full-weight panel there would push the trait table off the first screen. */
+.detail-files { margin: 0.9rem 0 0; }
+.detail-files .prompt-head { margin-top: 0; }
+/* break-all rather than the prompts' break-word: break-word wraps between
+   words, and a path has none, so it would have nowhere to break and the line
+   would run on. The prompts are prose and wrap at their own spaces. */
+.detail-files pre { word-break: break-all; font-size: 0.78rem; }
+.detail-file-names {
+  margin: 0.3rem 0 0;
+  font-size: 0.78rem;
+  color: #9aa1ad;
 }
 
 /* ---- Create NPC ---- */
