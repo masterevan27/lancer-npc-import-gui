@@ -150,6 +150,13 @@ not, so they get separate headings:
   default: the whole point of this feature over Re-roll is that nothing else
   moves unless asked. It does **not** appear for an `allowed: false` selection,
   which has nothing to release.
+- Where the value's `releases` list is longer than its `conflicts` list, the
+  checkbox says so — *"also re-roll Headgear (and 2 traits that depend on
+  it)"*. Releasing a trait re-rolls its whole cascade, because freeing
+  `Outfit` while `Headgear`, `Weapon` and `Gear` stay pinned to bullets chosen
+  for the old outfit recreates the contradiction one level down. The generator
+  reports `releases` precisely so this end can name what moves without a copy
+  of `trait_cascade()` in JavaScript.
 - Selecting a value in either grey group leaves **Set and regen** enabled. The
   user was told what it costs; refusing the click after saying it is selectable
   would be a dialog that argues with itself.
