@@ -222,7 +222,7 @@ const CONFIG = {
     npcManifestPath: path.join('G:', 'gen', '.generated-npcs.json'),
     foundryNpcSubdir: 'LancerNPCs',
     foundrySpaceshipSubdir: 'LancerSpaceships',
-    foundryNpcActorType: 'npc',
+    foundryNpcActorType: 'npc', // set explicitly here; the SHIPPED default is ''
     foundrySpaceshipActorType: 'deployable',
 };
 const KINDS = kindsLib.buildKinds(derivePaths(CONFIG), CONFIG);
@@ -350,7 +350,7 @@ To `DEFAULT_CONFIG` (`server.js:64-107`) and `config.example.json`:
 | `spaceshipStagedImportsDir` | `''` → derived |
 | `spaceshipStagedRefsDir` | `''` → derived |
 | `foundrySpaceshipSubdir` | `'LancerSpaceships'` |
-| `foundryNpcActorType` | `'npc'` — today's behaviour, named explicitly |
+| `foundryNpcActorType` | `''` — empty, so the field is omitted from the job entirely and today's NPC payload is unchanged (R14). Set it to `'npc'` if you want the field emitted |
 | `foundrySpaceshipActorType` | `'deployable'` — **G6, unverified**; empty string omits the field |
 | `spaceshipOutputRoot` | `''` → passed as `--out-root` when non-empty |
 

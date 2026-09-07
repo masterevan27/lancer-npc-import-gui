@@ -42,6 +42,37 @@ code rather than as a bug to chase:
   were, and worth doing only if duplicate bullets ever turn out to be
   deliberate rather than accidental.
 
+## Kinds (NPCs and spaceships)
+
+Nothing open here either. These two are traps rather than bugs — the code is
+right today and both of these are cheap to get wrong the next time a kind is
+added, which is the only reason they are written down.
+
+- **Both tables files carry a `## Backdrop`, so a table name alone does not
+  identify a table.** `npc-generator-tables.md` and
+  `spaceship-generator-tables.md` share that heading (and `Weather`, `Glow
+  colour`, `Glow placement`, `Theme`, `Faction` and `Weapon` besides), which is
+  why table identity is `(kind, table)` on the wire: every route that names a
+  table also carries a kind, and resolves the file through `kind.tables` off
+  the registry rather than through a constant. It is also why the two
+  staged-imports directories are **siblings** rather than one nested inside the
+  other — `listStagedFiles` reads `*.json` at the top level of the directory it
+  is given, so a ship directory under the NPC one would sweep every ship run
+  into the NPC listing, and `/api/trait-candidates/import` would then append a
+  ship's Backdrop bullet to the NPC file and report success. `lib/paths.js`
+  derives `staged-imports-spaceship` beside `staged-imports` for exactly that
+  reason; do not "tidy" it into a subdirectory.
+
+- **`SEEN_VERSION` must never be bumped as part of adding a kind.**
+  `ensureSeenLoaded` treats a version mismatch as "this store is from a
+  different world" and reseeds the *entire* library as seen. Adding a kind
+  changes what is in the library, which makes bumping the version look like the
+  careful thing to do — and it would silently mark every existing NPC and every
+  ship already looked at, wiping the New badge off the whole grid with no way
+  to get it back. A new kind needs no bump: unseen is the default for an id the
+  store has never recorded, so a ship is new the first time it appears without
+  anything being versioned at all.
+
 ## Resolved
 
 1. ~~**`/api/presets/apply` swallows failed writes.**~~ Fixed. The route's

@@ -260,8 +260,20 @@ function rerollNeedsConfirm(trait, vocab = createState) {
   return traitCascade(trait, vocab).length > 1;
 }
 
-/** Shows the cascade warning before a re-roll of `trait`; resolves true/false. */
-function confirmReroll(trait) {
+/**
+ * Shows the cascade warning before a re-roll of `trait`; resolves true/false.
+ *
+ * `vocab` is whose dependency map the named list is walked over, and it is a
+ * parameter rather than something derived here because this function has no
+ * item and no kind in scope at all - it is handed a trait name and a dialog.
+ * Its caller knows which item the button belongs to, so the caller resolves
+ * the vocabulary and passes the same one to rerollNeedsConfirm() and to this,
+ * which is what stops the question ("does this cascade?") and the answer
+ * ("these are the traits it frees") from being asked of two different kinds.
+ * Defaulted to createState for the same reason the other three seam functions
+ * are: every existing single-argument call keeps meaning the NPC vocabulary.
+ */
+function confirmReroll(trait, vocab = createState) {
   return new Promise((resolve) => {
     // Named, not gestured at. "More than one trait" is not something a user can
     // weigh, and one stock sentence about the outfit, weapon, hair and the whole
@@ -274,7 +286,7 @@ function confirmReroll(trait) {
     // back on. It has to say that it cannot name them rather than name none:
     // this dialog exists to let the user decline, and a warning that quietly
     // knows nothing is worse than one that says so.
-    const alsoFreed = traitCascade(trait).filter((name) => name !== trait);
+    const alsoFreed = traitCascade(trait, vocab).filter((name) => name !== trait);
     elRerollConfirm.message.textContent = alsoFreed.length
       ? `Re-rolling ${trait} frees the traits it gates as well, so `
         + `${alsoFreed.length} other ${alsoFreed.length === 1 ? 'trait' : 'traits'} `
@@ -1074,7 +1086,16 @@ function renderDetailTraits(item) {
   // trait value that runs to a couple of hundred characters on Backdrop and
   // Stance, so their left edge moved with every row and the eye had to hunt for
   // them. Leading, they stack in two fixed gutters.
-  const rerollable = rerollableForItem(item);
+  //
+  // vocabFor(item.kind), not the default: a spaceship's traits are not an
+  // NPC's, and until this argument was passed every sheet asked the NPC lists
+  // whose traits were rerollable. The two vocabularies overlap on exactly two
+  // names - Glow colour and Glow placement - so a ship drew buttons on two of
+  // its sixteen rerollable traits and nothing on the other fourteen. The item
+  // carries its own kind, so the sheet reads the lists that item was rolled
+  // from; an item with no kind, and a kind this page does not know, both fall
+  // back to createState inside vocabFor and behave exactly as before.
+  const rerollable = rerollableForItem(item, vocabFor(item.kind));
   el.detailTraits.innerHTML = Object.entries(item.traits || {})
     .filter(([k]) => !TRAIT_KEY_EXCLUDE.includes(k))
     .map(([k, v]) => {
@@ -3913,10 +3934,22 @@ el.detailTraits.addEventListener('click', async (event) => {
   if (!id) return;
   const trait = button.dataset.trait;
 
+  // Both halves of the question read the vocabulary the clicked item was
+  // rolled from, not the NPC lists this used to reach by default. Resolved
+  // once and passed to both, so the check and the dialog cannot answer from
+  // two different kinds - a ship whose cascade was read off the NPC map named
+  // the wrong freed traits in the warning it then showed.
+  //
+  // An id with no matching row falls to vocabFor(undefined), which is
+  // createState - the same lists this asked before, so a click on a sheet
+  // whose item has left the list behaves exactly as it always did rather than
+  // throwing on the way to a dialog.
+  const vocab = vocabFor((state.items.find((i) => i.id === id) || {}).kind);
+
   // Ask first when the re-roll can reach past the trait named on the button -
   // see rerollNeedsConfirm(). Awaited before anything is disabled or posted, so
   // backing out leaves the sheet exactly as it was.
-  if (rerollNeedsConfirm(trait) && !(await confirmReroll(trait))) return;
+  if (rerollNeedsConfirm(trait, vocab) && !(await confirmReroll(trait, vocab))) return;
 
   await stageTraitEdit({ id, op: 'reroll', table: trait, button });
 });

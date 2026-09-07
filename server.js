@@ -193,20 +193,14 @@ if (!config.npcManifestPath || !config.foundryDataRoot) {
 // Path layout lives in lib/paths.js so it can be tested directly; see the
 // comment there for how each value is derived and overridden.
 const DERIVED_PATHS = derivePaths(config);
-const {
-    generate3dScript: GENERATE_3D_SCRIPT,
-    // npc-generator-tables.md alone, for the one route that is still
-    // deliberately NPC-only: insertBulletIntoTables(), behind
-    // /api/trait-candidates/import, which writes an imported trait bullet
-    // into the file the npc-trait-import skill stages against. That skill
-    // has no spaceship counterpart yet, so this constant stays a plain path
-    // rather than joining OVERRIDE_DATA_BY_KIND's per-kind map below -
-    // everything else that used to read NPC_TABLES_PATH now reads
-    // kind.tables off the registry instead.
-    npcTablesPath: NPC_TABLES_PATH,
-    stagedImportsDir: STAGED_IMPORTS_DIR,
-    stagedRefsDir: STAGED_REFS_DIR,
-} = DERIVED_PATHS;
+// GENERATE_3D_SCRIPT is the last path here that belongs to no kind: the 3D
+// pipeline is NPC-only by construction (generate-3d.py imports generate-npc.py
+// for its own DEFAULT_MANIFEST, and lib/model3d.js matches exact NPC
+// deliverable names), which the registry records as supports.model3d.
+// Everything else - the tables files, the two presets roots, the two staging
+// directories - is now read off the kind the request resolved to, including
+// the trait-candidate routes that were the last holdouts.
+const { generate3dScript: GENERATE_3D_SCRIPT } = DERIVED_PATHS;
 
 // The kind registry - see lib/kinds.js for what varies between an NPC and a
 // spaceship and why it is resolved here rather than as scattered constants.
@@ -1477,24 +1471,39 @@ function handleCreateRequest(kindEntry, body) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Trait candidates (npc-trait-import skill staging)                   */
+/* Trait candidates (trait-import skill staging)                       */
 /* ------------------------------------------------------------------ */
 
-function listStagedFiles() {
+/*
+ * Every function in this block takes the kind registry entry first rather
+ * than reading a module-level staging directory, for the reason lib/paths.js
+ * makes the two directories siblings instead of nesting one inside the
+ * other: listStagedFiles reads *.json at the TOP level of the directory it is
+ * given, so a ship staging directory under the NPC one would have every ship
+ * run swept into the NPC listing the moment it was written.
+ *
+ * A staged candidate's `table` only means something paired with the file it
+ * came from. Both tables files carry a '## Backdrop', so a candidate for it
+ * belongs to whichever kind's staging directory held the run - which is why
+ * the kind travels with the file all the way down to insertBulletIntoTables
+ * rather than being resolved once at the route and then forgotten.
+ */
+
+function listStagedFiles(kind) {
     try {
-        return fs.readdirSync(STAGED_IMPORTS_DIR).filter((f) => f.endsWith('.json')).sort();
+        return fs.readdirSync(kind.stagedImportsDir).filter((f) => f.endsWith('.json')).sort();
     } catch (err) {
         if (err.code === 'ENOENT') return [];
         throw err;
     }
 }
 
-function loadStagedFile(file) {
-    return JSON.parse(fs.readFileSync(path.join(STAGED_IMPORTS_DIR, file), 'utf8'));
+function loadStagedFile(kind, file) {
+    return JSON.parse(fs.readFileSync(path.join(kind.stagedImportsDir, file), 'utf8'));
 }
 
-function saveStagedFile(file, data) {
-    fs.writeFileSync(path.join(STAGED_IMPORTS_DIR, file), JSON.stringify(data, null, 2));
+function saveStagedFile(kind, file, data) {
+    fs.writeFileSync(path.join(kind.stagedImportsDir, file), JSON.stringify(data, null, 2));
 }
 
 /* What the detail sheet can show. An extension off this list is not served at
@@ -1521,22 +1530,22 @@ const REF_IMAGE_TYPES = {
  * one place that returns raw file bytes, which is worth being literal-minded
  * about.
  */
-function refImagePath(file, sourceImage) {
+function refImagePath(kind, file, sourceImage) {
     if (!file || !sourceImage) return null;
     if (path.basename(file) !== file || !file.endsWith('.json')) return null;
     if (path.basename(sourceImage) !== sourceImage) return null;
     if (!REF_IMAGE_TYPES[path.extname(sourceImage).toLowerCase()]) return null;
-    const full = path.join(STAGED_REFS_DIR, path.basename(file, '.json'), sourceImage);
+    const full = path.join(kind.stagedRefsDir, path.basename(file, '.json'), sourceImage);
     return fs.existsSync(full) ? full : null;
 }
 
-/** Every candidate across every staged-imports file, flattened for the GUI. */
-function allTraitCandidates() {
+/** Every candidate in one kind's staged-imports files, flattened for the GUI. */
+function allTraitCandidates(kind) {
     const out = [];
-    for (const file of listStagedFiles()) {
+    for (const file of listStagedFiles(kind)) {
         let data;
         try {
-            data = loadStagedFile(file);
+            data = loadStagedFile(kind, file);
         } catch (err) {
             console.warn(`[${PLUGIN_ID}] ${file} is not valid JSON:`, err.message);
             continue;
@@ -1552,7 +1561,7 @@ function allTraitCandidates() {
                 // sheet knows to ask for one. Runs staged before the skill
                 // started copying - and any run whose copy has since been
                 // deleted - report false and fall back to naming the file.
-                hasSourceImage: !!refImagePath(file, entry.source_image),
+                hasSourceImage: !!refImagePath(kind, file, entry.source_image),
                 placementHint: entry.placement_hint,
                 bookkeepingNote: entry.bookkeeping_note,
                 notes: entry.notes,
@@ -1854,14 +1863,20 @@ function runApplyTrait(item, { op, table, value, release, seed }) {
 }
 
 /**
- * Appends one bullet to npc-generator-tables.md under its exact '## <table>'
- * heading, right before the next heading (or EOF) - i.e. as the new last
- * bullet in that section. A heading that doesn't exist yet is refused rather
- * than invented; deciding where a brand-new table belongs in the file is a
+ * Appends one bullet to `kind.tables` under its exact '## <table>' heading,
+ * right before the next heading (or EOF) - i.e. as the new last bullet in
+ * that section. A heading that doesn't exist yet is refused rather than
+ * invented; deciding where a brand-new table belongs in the file is a
  * judgment call this shouldn't make silently.
+ *
+ * kind.tables rather than the NPC tables file it used to write
+ * unconditionally. Both files carry a '## Backdrop', so a ship candidate for
+ * it landed as a new NPC backdrop - and the kind the caller resolved is the
+ * only thing that says which of the two a staged bullet was ever about.
  */
-function insertBulletIntoTables(table, bullet) {
-    const lines = fs.readFileSync(NPC_TABLES_PATH, 'utf8').split('\n');
+function insertBulletIntoTables(kind, table, bullet) {
+    const tablesPath = kind.tables;
+    const lines = fs.readFileSync(tablesPath, 'utf8').split('\n');
     const headingRe = /^##\s+(?!#)\s*(.*?)\s*$/;
 
     let sectionStart = -1;
@@ -1877,7 +1892,7 @@ function insertBulletIntoTables(table, bullet) {
         break;
     }
     if (sectionStart === -1) {
-        throw new Error(`no "## ${table}" heading in ${path.basename(NPC_TABLES_PATH)} - add the heading by hand first`);
+        throw new Error(`no "## ${table}" heading in ${path.basename(tablesPath)} - add the heading by hand first`);
     }
 
     // Walk sectionEnd back past trailing blank lines, so the new bullet lands
@@ -1886,7 +1901,7 @@ function insertBulletIntoTables(table, bullet) {
     while (insertAt > sectionStart + 1 && lines[insertAt - 1].trim() === '') insertAt--;
 
     lines.splice(insertAt, 0, `- ${bullet}`);
-    fs.writeFileSync(NPC_TABLES_PATH, lines.join('\n'));
+    fs.writeFileSync(tablesPath, lines.join('\n'));
 }
 
 /* ------------------------------------------------------------------ */
@@ -2751,7 +2766,7 @@ async function handleApi(req, res, url) {
         // survive JSON.parse on the client, so a flat `tables` field would
         // give the client two independent copies of every table and silently
         // desync whichever one it doesn't mutate.
-        return sendJson(res, 200, { groups: tableGroups.groupTables(tables) });
+        return sendJson(res, 200, { groups: tableGroups.groupTables(tables, kind.id) });
     }
 
     if (url.pathname === '/api/table-odds' && req.method === 'GET') {
@@ -2778,7 +2793,7 @@ async function handleApi(req, res, url) {
         if (typeof table !== 'string' || !table || typeof text !== 'string' || typeof enabled !== 'boolean') {
             return sendJson(res, 400, { error: 'table (string), text (string), and enabled (boolean) are required' });
         }
-        // kind.tables, never NPC_TABLES_PATH: writing an npc-shaped edit
+        // kind.tables, never a fixed tables path: writing an npc-shaped edit
         // through the ship's kind and landing it in npc-generator-tables.md
         // (or the reverse) would corrupt a 252 KB hand-authored file the GM
         // never asked to touch.
@@ -3137,20 +3152,35 @@ async function handleApi(req, res, url) {
     }
 
     if (url.pathname === '/api/trait-candidates' && req.method === 'GET') {
-        return sendJson(res, 200, { candidates: allTraitCandidates() });
+        const kind = resolveKind(url, null);
+        if (!kind) {
+            return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
+        }
+        // One kind's staging directory, not both flattened together. A
+        // candidate's table name is only meaningful paired with the file it
+        // came from - '## Backdrop' exists in both tables files - so a merged
+        // listing would be a list the GUI could not act on.
+        return sendJson(res, 200, { candidates: allTraitCandidates(kind) });
     }
 
     if (url.pathname === '/api/trait-image' && req.method === 'GET') {
+        const kind = resolveKind(url, null);
+        if (!kind) {
+            return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
+        }
         const file = url.searchParams.get('file');
         const id = url.searchParams.get('id');
         // Resolved through the candidate listing rather than from the query
         // directly, so the filename served is one the staging directory
         // actually offered - a `file` that climbs out of it matches nothing
-        // and never reaches the filesystem at all.
+        // and never reaches the filesystem at all. Now also one kind's
+        // listing: the two staging directories are siblings and a run in one
+        // is not a run in the other, so a ship run named on ?kind=npc is as
+        // unknown as a file that never existed.
         const candidate = file && id
-            && allTraitCandidates().find((c) => c.file === file && c.id === id);
+            && allTraitCandidates(kind).find((c) => c.file === file && c.id === id);
         if (!candidate) return sendJson(res, 404, { error: 'unknown candidate' });
-        const full = refImagePath(candidate.file, candidate.sourceImage);
+        const full = refImagePath(kind, candidate.file, candidate.sourceImage);
         if (!full) return sendJson(res, 404, { error: 'no reference image staged for this candidate' });
         res.writeHead(200, {
             'Content-Type': REF_IMAGE_TYPES[path.extname(full).toLowerCase()],
@@ -3168,12 +3198,22 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
+        const kind = resolveKind(url, body);
+        if (!kind) {
+            return sendJson(res, 400, {
+                error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"`,
+            });
+        }
         const items = Array.isArray(body.items) ? body.items : [];
 
+        // The whole batch is one kind's. Reading the run, writing the bullet
+        // and marking the entry imported all go to the same kind, which is
+        // what stops a ship's '## Backdrop' candidate from being appended to
+        // the NPC tables file and then recorded as imported in the ship run.
         const results = items.map(({ file, id }) => {
             let data;
             try {
-                data = loadStagedFile(file);
+                data = loadStagedFile(kind, file);
             } catch (err) {
                 return { file, id, imported: false, reason: `couldn't read ${file}: ${err.message}` };
             }
@@ -3181,13 +3221,13 @@ async function handleApi(req, res, url) {
             if (!entry) return { file, id, imported: false, reason: 'no such candidate' };
             if (entry.imported) return { file, id, imported: false, reason: 'already imported' };
             try {
-                insertBulletIntoTables(entry.table, entry.bullet);
+                insertBulletIntoTables(kind, entry.table, entry.bullet);
             } catch (err) {
                 return { file, id, imported: false, reason: err.message };
             }
             entry.imported = true;
             entry.imported_at = new Date().toISOString();
-            saveStagedFile(file, data);
+            saveStagedFile(kind, file, data);
             return { file, id, imported: true };
         });
         return sendJson(res, 200, { results });

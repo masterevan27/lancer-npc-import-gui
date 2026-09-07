@@ -173,10 +173,13 @@ Record these; they are real but were out of scope.
    Measured: **40 occurrences across 20 rolled ships**, roughly two per ship. Reproduce with
    `python _ship_cli.py --dry-run --count 20 --seed 11 2>&1 | grep -coE '\. [a-z]'`.
    Either capitalize on join or make those clauses comma-joined continuations.
-2. **Two pre-existing test-port collisions in the GUI**, unrelated to this work and present before
-   it: `api.traitImage`/`api.traitOdds` both bind 5203, and `api.createPresets`/`ui.traitColumns`
-   both bind 5218. `node --test` runs files in parallel, so these are latent flakiness — the same
-   fault that hung the suite on 5222 until it was moved to 5221.
+2. ~~**Two pre-existing test-port collisions in the GUI**, on 5203 and 5218.~~ Not real, and struck
+   rather than deleted so nobody re-derives it: `api.traitImage` is on 5204 and `api.createPresets`
+   on 5219, and no pair of test files shares a port today. The genuine version of this hazard is
+   the one the README's Development section now documents — the suite hangs on *file count* rather
+   than on port reuse, because every file spawns a server with a 20-second readiness timeout and
+   `node --test` defaults its concurrency to the CPU count. Both the local command and CI cap it at
+   `--test-concurrency=8`.
 3. **Role reroll strands the folder** (pre-existing, from the design doc's out-of-scope list).
    `generate-npc.py:4159` recomputes the category but reuses the stored folder and never re-keys
    `manifest[folder_path]`. The GUI derives the displayed category from the folder's parent, so

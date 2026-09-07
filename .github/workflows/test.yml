@@ -6,6 +6,15 @@
 # Matrix jobs get separate runners, so they cannot collide with each other;
 # within a job, each test file was given a distinct port.
 #
+# --test-concurrency is capped rather than left at node --test's default of the
+# CPU count. Every file starts a server and waits up to 20s for it to answer;
+# past a certain number of servers coming up at once one of them loses that
+# race, and the runner then waits forever instead of failing - a job that hangs
+# until the workflow timeout and says nothing about why. Measured locally on 16
+# CPUs at 55 test files: 53 clean at the default, 54 and 55 hang, all 55 pass at
+# 8 in 8.8s (and in 59.9s at 1, which is why the cap is 8 and not 1). README's
+# Development section has the same note for anyone adding a file.
+#
 # Node 20 is the floor: the tests use global fetch (18+) and node:test's
 # directory discovery (20+). Action versions are pinned deliberately -- bump
 # them on purpose, not by drift.
@@ -31,4 +40,4 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      - run: node --test
+      - run: node --test --test-concurrency=8

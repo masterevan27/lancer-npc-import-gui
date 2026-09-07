@@ -131,6 +131,18 @@ test('renderDetailTraits renders the current values and the right buttons', asyn
         rerollableForItem: liftFunction(js, 'rerollableForItem', {
             createState: { rawRerollableTraits: ['Outfit'], rerollableTraits: [] },
         }),
+        // renderDetailTraits now asks vocabFor(item.kind) which lists to read,
+        // so the lift has to supply it or the call throws a ReferenceError
+        // before a single row is built. The shipped vocabFor is lifted rather
+        // than stubbed - it closes over traitVocab and over createState, both
+        // free variables, so both are injected here. The items below carry no
+        // kind, so this resolves the createState above: the same NPC lists
+        // this file has always asserted against. Which kinds traitVocab really
+        // holds is ui.kindVocab.test.js's question, not this file's.
+        vocabFor: liftFunction(js, 'vocabFor', {
+            traitVocab: {},
+            createState: { rawRerollableTraits: ['Outfit'], rerollableTraits: [] },
+        }),
     });
 
     // A modern entry: the value it holds now, and a live pair of controls.

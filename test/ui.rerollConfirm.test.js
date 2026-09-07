@@ -391,7 +391,7 @@ test('the confirmation is awaited before anything is posted', async (t) => {
     const js = await fetchText(server, '/app.js');
     // The order is the point: a dialog raised after the POST would be a
     // question asked about a job already running.
-    const gate = js.indexOf('rerollNeedsConfirm(trait) && !(await confirmReroll(trait))');
+    const gate = js.indexOf('rerollNeedsConfirm(trait, vocab) && !(await confirmReroll(trait, vocab))');
     assert.notEqual(gate, -1, 'the click handler no longer gates the re-roll on the dialog');
     // /api/stage-trait, not /api/reroll-trait: a Re-roll applies the edit to
     // the NPC and renders nothing, so the route it posts to changed. What this
