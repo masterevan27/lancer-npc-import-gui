@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { traitOptionsFrom, readableLabel } = require('../lib/traitOptions');
+const { traitOptionsFrom, readableLabel, variantSubjectOf } = require('../lib/traitOptions');
 
 const TABLES = [
     { name: 'Outfit', bullets: [
@@ -77,6 +77,46 @@ test('base-table options come before variant ones', () => {
     const firstVariant = Outfit.findIndex((o) => o.isVariant);
     const lastBase = Outfit.map((o) => o.isVariant).lastIndexOf(false);
     assert.ok(firstVariant > lastBase, 'variants must sort after the base table');
+});
+
+test('both documented variant forms report their pronoun subject', () => {
+    // '(she) +' adds to the base table and '(she)' replaces it - a difference
+    // that decides the generator's roll and changes nothing here, since either
+    // way the bullet is reachable by that pronoun alone.
+    assert.equal(variantSubjectOf('Outfit (she) +'), 'she');
+    assert.equal(variantSubjectOf('Hair (he) +'), 'he');
+    assert.equal(variantSubjectOf('Build (she)'), 'she');
+    assert.equal(variantSubjectOf('Height (they)'), 'they');
+});
+
+test('a base table has no pronoun subject', () => {
+    assert.equal(variantSubjectOf('Outfit'), null);
+    assert.equal(variantSubjectOf('Given names'), null);
+});
+
+test('a parenthesis that is not a pronoun is not read as one', () => {
+    // The tables file documents no such heading today, and nothing stops one
+    // being added. Guessing 'she' from any parenthesis would hide a neutral
+    // option from every man - failing in the same direction as the bug the
+    // field exists to fix, only against options nobody meant to gate.
+    assert.equal(variantSubjectOf('Backdrop (interior)'), null);
+    assert.equal(variantSubjectOf('Weapon (melee) +'), null);
+});
+
+test('an option carries the pronoun subject of its own heading', () => {
+    const { Outfit, Gear } = traitOptionsFrom(TABLES);
+    const flight = Outfit.find((o) => o.value === 'a fitted flight suit');
+    assert.equal(flight.variantSubject, 'she');
+
+    const jacket = Outfit.find((o) => o.value === 'a heavy work jacket || civ');
+    assert.equal(jacket.variantSubject, null);
+    assert.equal(Gear[0].variantSubject, null);
+
+    // What the client gates on: with Pronouns set to 'he', everything left is
+    // neutral, and the woman-only flight suit is not among it.
+    const forHim = Outfit.filter((o) => o.variantSubject === null || o.variantSubject === 'he');
+    assert.ok(!forHim.some((o) => o.value === 'a fitted flight suit'));
+    assert.equal(forHim.length, 3);
 });
 
 test('a table with no bullets contributes no key', () => {

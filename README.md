@@ -162,6 +162,60 @@ and open <http://127.0.0.1:5089>.
   disabled on the Tables tab are still listed, marked `[disabled]`, since
   `--set-trait` bypasses the roll pool anyway. Pick **Custom value…** to type
   something that is in no table at all.
+  Above each dropdown is a **search box** that narrows it, matching every
+  whitespace-separated term against the bullet and its heading in any order, so
+  `civ kimono` finds the one that is both. It is a plain substring match over
+  the visible text, heading included — which is worth knowing before you use it
+  to answer a question about the tables rather than to find a value: searching
+  `(she)` gets you the per-pronoun variants, while a bare `she` also matches
+  every bullet with "she" inside a word. It is a filter over the same list rather than a replacement for it —
+  the dropdown still opens whole when the box is empty — and a value already
+  chosen stays pinned at the top under **Currently selected** even when the
+  search would hide it, so narrowing the list can never quietly reset the row.
+  Below the dropdown the **full bullet** is printed, wrapped, exactly as it
+  will be sent: `--set-trait` takes the flags too, and a 250-character Backdrop
+  is a truncated line in any dropdown. That readout is also what keeps the form
+  card from stretching — the control itself is capped at the card's width now,
+  rather than sizing itself to its widest option and running a few hundred
+  pixels off the right-hand side.
+  Two things are called out under a row where they apply. **Backdrop**,
+  **Weather** and **Glow placement** only reach the *portrait* — the token
+  renders on flat white for background removal, so it has no scene at all —
+  and **Stance** only reaches the *token*, which is the full-body figure whose
+  pose it is. Forcing one of those and generating only the other image changes
+  almost nothing — the scene or the pose simply never appears — which was
+  previously indistinguishable from an override that had failed. (Almost: a
+  Backdrop flagged `nogear` narrows the Gear roll, and the Gear does reach the
+  token, so the notes say "used by" rather than "affects".)
+  And a value from a per-pronoun variant table (`Outfit (she) +`) is
+  **greyed out and unselectable unless Pronouns matches it**, with the reason
+  on hover. `--set-trait` pastes the bullet in verbatim, so a woman-only outfit
+  chosen under `he` renders a man wearing it. **Any** is blocked for the same
+  reason and is the case worth spelling out: it means the generator *rolls* the
+  pronouns, so such a value is a coin flip on contradicting itself — a failure
+  that only shows up in the finished image. Changing Pronouns after choosing
+  clears any override the new setting has just ruled out, and says how many
+  went; the row and its table stay, so it is one more click rather than a
+  rebuild. A hand-typed **Custom value…** is never cleared: nothing here knows
+  what pronouns an off-table string belongs to, and the generator is the one
+  entitled to refuse it.
+
+  The form has **presets** of its own, the sibling of the Tables tab's. Saving
+  one snapshots the whole recipe — count, seed, pronouns, the ComfyUI server,
+  the four switches and every trait override — under a name, so "frontier medic
+  run" or "zero-g salvage crew" is one click rather than eight. Load, Download
+  and Delete act on the chosen preset, and **Import preset…** reads a `.json`
+  someone sent you. Two things it deliberately does *not* save: the single-NPC
+  **Name**, because a preset is reusable and a character's name is not, and
+  which button you meant to press — loading a preset never starts a run.
+  Create presets live in `presets/create/` beside the Tables presets in
+  `presets/`, and the two are told apart by shape rather than by folder, so
+  importing one into the other's button is refused with a message naming which
+  is which instead of quietly producing an empty form. An imported file is
+  validated by the same normaliser that guards the save route — every field
+  coerced and clamped to its own type, unknown keys dropped — because an
+  imported preset would otherwise be the way to get an unchecked value onto
+  the generator's command line.
   An NPC's detail sheet lists its rolled traits, and each trait the generator
   can re-roll on its own gets a **Re-roll** button. The buttons lead their rows,
   stacked in one gutter down the left of the trait table rather than trailing a
@@ -290,17 +344,17 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test "test/*.test.js"
 ```
 
-Expect `pass 315`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 367`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other
 file uses.
 
 Ports are written two ways, which is worth knowing before you pick one: of the
-37 test files, 17 declare `const PORT = 5196` at the top and pass that, while
-the rest (`api.createArgs`, `api.nonTableSections`, `api.presets`,
-`api.pronouns`, `api.tableBullets`, `api.traitOptions` and `helpers.testServer`)
-pass `port: 5199` inline at each `startTestServer` call. The enumerated half is
+41 test files, 19 declare `const PORT = ...` at the top and pass that, while
+the rest (`api.createArgs`, `api.createPresets`, `api.nonTableSections`,
+`api.presets`, `api.pronouns`, `api.tableBullets`, `api.traitOptions` and
+`helpers.testServer`) pass a `port:` inline at each `startTestServer` call. The enumerated half is
 the smaller one, and it used to be the other half — which is the point: grep
 for both before claiming a number, because a collision does not fail loudly, it
 hangs the run until the whole suite times out:
@@ -309,7 +363,13 @@ hangs the run until the whole suite times out:
 grep -rhoE "(port: |PORT = )5[0-9]+" test/*.test.js | sort -u
 ```
 
-Ports 5193–5199 and 5201–5217 are taken.
+Ports 5193–5199 and 5201–5220 are taken.
+
+One collision worth naming, because it does not look like a port problem when
+it happens: running the suite while a previous run of it is still going produces
+two processes reaching for the same fixed ports, and both hang until they time
+out rather than either failing. If a run seems to have stalled, check for a
+leftover `node --test` process before looking anywhere else.
 
 The same collision bites from outside the runner, which is worth knowing
 because the symptom points at the wrong thing: run a single test file while a
@@ -319,7 +379,7 @@ to lose. Let one run finish before starting another.
 
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs bare
 `node --test` instead, which also picks up `test/helpers/testServer.js` as a
-file with no tests in it — so expect one more there, `pass 316`, for a helper
+file with no tests in it — so expect one more there, `pass 368`, for a helper
 that declares no tests and therefore cannot fail. Both numbers move whenever a
 test is added; they are worth updating together.
 

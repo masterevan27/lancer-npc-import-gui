@@ -12,5 +12,6 @@
   "stagedImportsDir": "",
   "stagedRefsDir": "",
   "presetsDir": "",
+  "createPresetsDir": "",
   "traitOddsSamples": 20000
 }

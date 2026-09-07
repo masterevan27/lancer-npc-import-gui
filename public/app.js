@@ -1621,6 +1621,10 @@ function switchTab(tab) {
     panel.hidden = panel.id !== `tab-${tab}`;
   }
   if (tab === 'create' && !createState.tablesLoaded) loadOverrideTables();
+  // Re-listed on every visit rather than once, the way the Tables tab's own
+  // presets are: a preset saved in another browser tab should be there when
+  // this one comes back to the form, not after a reload.
+  if (tab === 'create') refreshCreatePresets().catch(() => { /* the list stays empty */ });
   if (tab === 'traits') refreshTraitCandidates().catch((err) => {
     elTraits.status.textContent = `Failed to load: ${err.message}`;
   });
@@ -1901,7 +1905,11 @@ const createState = {
   traitDependents: {},
   traitOptions: {},   // { [baseTableName]: Array<{ value, label, heading, isVariant, enabled }> }
   tablesLoaded: false,
-  overrides: [], // { table, value, custom }
+  overrides: [], // { table, value, custom, search }
+  // The saved Create-form presets, as /api/create-presets lists them. Kept so
+  // the Load, Download and Delete buttons can resolve the chosen slug back to
+  // a name for their own messages without a second round trip.
+  presets: [],
   pollTimer: null,
 };
 
@@ -1917,6 +1925,13 @@ const elCreate = {
   unarmed: document.getElementById('create-unarmed'),
   overrideRows: document.getElementById('override-rows'),
   addOverrideBtn: document.getElementById('add-override'),
+  presetSelect: document.getElementById('create-preset-select'),
+  presetLoad: document.getElementById('create-preset-load'),
+  presetSave: document.getElementById('create-preset-save'),
+  presetDownload: document.getElementById('create-preset-download'),
+  presetDelete: document.getElementById('create-preset-delete'),
+  presetImport: document.getElementById('create-preset-import'),
+  presetStatus: document.getElementById('create-preset-status'),
   dryRunBtn: document.getElementById('create-dry-run-btn'),
   generateBtn: document.getElementById('create-generate-btn'),
   status: document.getElementById('create-status'),
@@ -1973,10 +1988,215 @@ async function loadOverrideTables() {
 /** Sentinel <option> value meaning "let me type something not in the table". */
 const CUSTOM_OVERRIDE = '__custom__';
 
+/**
+ * Which of the two images a forced trait actually reaches, as the sentence
+ * shown under its row - or null for the twenty-odd traits that reach both.
+ *
+ * Four of the tables the override dropdown offers are half-useless in a way
+ * nothing on this form said out loud. Backdrop is the scene BEHIND the
+ * subject, and the token renders on flat white so RMBG can cut it out, so
+ * forcing a Backdrop and then generating only a token changes almost nothing:
+ * the scene itself never appears. (Almost, not nothing - a Backdrop flagged
+ * 'nogear' narrows the Gear roll, and the Gear does reach the token. The note
+ * says "used by" rather than "affects" for that reason.) Stance is the
+ * reverse: the token is a full-body figure and Stance is its pose, while the
+ * portrait is framed by its Backdrop and never mentions one. A GM who forced
+ * either and got an unchanged image had no way to tell whether the override
+ * had failed or simply did not apply.
+ *
+ * Weather and Glow placement are here for the same reason even though nobody
+ * asked about them: both are portrait-only in generate-npc.py's templates, and
+ * naming two of the four would imply the other two reach both.
+ *
+ * Kept as a literal inside the function rather than a module constant so the
+ * whole thing lifts into a test with no helper injection - see
+ * ui.overrideRow.test.js, and the note on liftFunction in
+ * ui.setTraitPicker.test.js for why that matters here.
+ */
+function traitScopeNote(table) {
+  const NOTES = {
+    Backdrop: 'Portrait images only — the token renders on flat white for background '
+      + 'removal, so it has no scene for a backdrop to sit in.',
+    Stance: 'Token images only — the token is the full-body figure and this is its pose. '
+      + 'The portrait is framed by its Backdrop instead.',
+    Weather: 'Portrait images only, and only when the rolled Backdrop is an outdoor one: '
+      + 'rain inside a cockpit is nonsense, so the generator drops it otherwise.',
+    'Glow placement': 'Portrait images only — the token has no scene to place a glow '
+      + 'against and keeps its own unplaced wording.',
+  };
+  return NOTES[table] || null;
+}
+
+/**
+ * Why this option cannot be picked under the currently chosen Pronouns, or
+ * null when it can.
+ *
+ * The tables file carries per-pronoun variants - 'Outfit (she) +', 'Hair (he)
+ * +' - and lib/traitOptions.js folds them into their base table's list so the
+ * dropdown can offer them together. That is right for browsing and wrong for
+ * choosing: --set-trait pastes the bullet verbatim, so picking a woman-only
+ * outfit while Pronouns says "he" produces a render of a man wearing it. The
+ * optgroup label said "(this pronoun set only)", which reads as a description
+ * of what the value IS rather than as a rule about when it applies.
+ *
+ * "Any" is blocked too, and that is the case worth explaining rather than
+ * defending. Leaving Pronouns blank means the generator ROLLS them, so a
+ * she-only bullet forced under Any is a coin flip on whether the render
+ * contradicts itself - which is a worse failure than the refusal, because it
+ * only shows up in the finished image.
+ *
+ * Pure and self-contained for the lifting reason above.
+ */
+function pronounBlockReason(option, subject) {
+  if (!option) return null;
+
+  // The other half of the rule, and the half that is easy to miss: a variant
+  // heading written WITHOUT a trailing '+' does not add to its base table, it
+  // REPLACES it. Two live tables do that - Build and Height - because the
+  // masculine builds should not reach a woman even as long odds. So with
+  // Pronouns on "she" every bullet under plain '## Build' is unrollable, and
+  // the form was offering all of them ungreyed, because a base bullet carries
+  // no variant subject of its own to gate on. lib/traitOptions.js works out
+  // which subjects each base table is superseded for and puts them here.
+  const replaced = (option.replacedFor || []).includes(subject);
+  if (replaced) {
+    return `Pronouns is “${subject}”, and “${option.heading} (${subject})” replaces `
+      + `“${option.heading}” outright for that pronoun rather than adding to it - so the `
+      + 'generator would never roll this value. Pick one from the variant instead.';
+  }
+
+  const wants = option.variantSubject;
+  if (!wants) return null;
+  if (subject && subject === wants) return null;
+  const from = option.heading ? `“${option.heading}”` : `the ${wants} table`;
+  if (!subject) {
+    return `Set Pronouns to “${wants}” to use values from ${from}. With Pronouns `
+      + 'left on Any the generator rolls them, so this one may land on an NPC it contradicts.';
+  }
+  return `Needs Pronouns “${wants}”: this value comes from ${from}, and Pronouns `
+    + `is “${subject}”.`;
+}
+
+/**
+ * The options whose text matches every whitespace-separated term in `query`,
+ * in the order they were given.
+ *
+ * Every term rather than the whole string, so "kimono civ" finds the bullet
+ * that is both without the user having to remember which segment comes first -
+ * these are single-line renderings of bullets whose own word order is the
+ * tables file's, not anything a searcher would predict. The heading is part of
+ * the haystack so typing "she" narrows to the variant tables, which is the
+ * fastest way to answer "what are the women-only outfits".
+ *
+ * An empty query returns a copy rather than the array itself: the caller
+ * splices the current selection into the result, and mutating the caller's own
+ * options array would corrupt createState.traitOptions for every other row.
+ */
+function filterTraitOptions(options, query) {
+  const terms = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return (options || []).slice();
+  return (options || []).filter((option) => {
+    const haystack = `${option.label || ''}\n${option.heading || ''}`.toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+/**
+ * Fill one row's value <select> from the table's options, the row's own search
+ * text and the form's chosen Pronouns.
+ *
+ * Separate from renderOverrideRows because the search box calls it on every
+ * keystroke. Re-rendering the whole row there would rebuild the input the user
+ * is typing into and drop focus after the first character, which is the bug
+ * this split exists to avoid rather than a stylistic preference.
+ *
+ * Returns the count of options the pronoun rule blocked, which is what decides
+ * whether the row prints an explanation.
+ */
+function populateOverrideValues(valueSelect, options, override, subject) {
+  const filtered = filterTraitOptions(options, override.search);
+  valueSelect.innerHTML = '';
+
+  const blank = document.createElement('option');
+  blank.value = '';
+  if (!options.length) blank.textContent = '— no values loaded —';
+  else if (!filtered.length) blank.textContent = '— nothing matches that search —';
+  else blank.textContent = '— pick a value —';
+  valueSelect.appendChild(blank);
+
+  // A search that hides the value already chosen would silently reset the
+  // row: the <select> would fall back to the blank option and the next change
+  // event would write that emptiness into the override. Keeping the current
+  // choice pinned at the top means narrowing the list can never lose it.
+  const stillListed = filtered.some((option) => option.value === override.value);
+  if (override.value && !override.custom && !stillListed) {
+    const kept = document.createElement('optgroup');
+    kept.label = 'Currently selected';
+    const opt = document.createElement('option');
+    opt.value = override.value;
+    const known = options.find((option) => option.value === override.value);
+    opt.textContent = known ? known.label : override.value;
+    opt.selected = true;
+    kept.appendChild(opt);
+    valueSelect.appendChild(kept);
+  }
+
+  let group = null;
+  let groupName = null;
+  let blocked = 0;
+  for (const option of filtered) {
+    if (option.heading !== groupName) {
+      groupName = option.heading;
+      group = document.createElement('optgroup');
+      group.label = option.isVariant ? `${option.heading} (this pronoun set only)` : option.heading;
+      valueSelect.appendChild(group);
+    }
+    const reason = pronounBlockReason(option, subject);
+    const opt = document.createElement('option');
+    opt.value = option.value;
+    // Two independent reasons a value can be marked, and they are not the
+    // same thing: 'disabled' is a bullet the user switched off on the Tables
+    // tab, which --set-trait may still legitimately force, while the pronoun
+    // rule is a contradiction the render would have to draw. So the first is
+    // annotated and left selectable and the second is annotated and disabled.
+    let label = option.enabled ? option.label : `${option.label}  [disabled]`;
+    if (reason) {
+      blocked += 1;
+      // A replaced base bullet has no variantSubject of its own, so it needs
+      // its own suffix - "[needs pronouns: undefined]" was the first draft.
+      label = option.variantSubject
+        ? `${label}  [needs pronouns: ${option.variantSubject}]`
+        : `${label}  [replaced for “${subject}”]`;
+      opt.disabled = true;
+      opt.className = 'trait-option-unavailable';
+      opt.title = reason;
+    } else if (!option.enabled) {
+      opt.className = 'trait-option-disabled';
+    }
+    opt.textContent = label;
+    opt.selected = !override.custom && option.value === override.value;
+    group.appendChild(opt);
+  }
+
+  const customOpt = document.createElement('option');
+  customOpt.value = CUSTOM_OVERRIDE;
+  customOpt.textContent = 'Custom value…';
+  customOpt.selected = !!override.custom;
+  valueSelect.appendChild(customOpt);
+
+  return blocked;
+}
+
 function renderOverrideRows() {
   elCreate.overrideRows.innerHTML = '';
+  // Blank means Any, which the pronoun rule treats as "not she and not he" -
+  // see pronounBlockReason for why a rolled pronoun set is not good enough to
+  // unlock a bullet written for one.
+  const subject = (elCreate.pronouns && elCreate.pronouns.value) || '';
+
   createState.overrides.forEach((override, index) => {
     if (!override.table) override.table = createState.overrideTables[0] || '';
+    if (typeof override.search !== 'string') override.search = '';
 
     const row = document.createElement('div');
     row.className = 'filter-row';
@@ -1989,9 +2209,14 @@ function renderOverrideRows() {
       opt.selected = t === override.table;
       tableSelect.appendChild(opt);
     }
-    tableSelect.addEventListener('change', () => { override.table = tableSelect.value; });
     row.appendChild(tableSelect);
 
+    // Everything about the value - search, picker, readout, notes - stacks
+    // inside one cell so the row stays three columns wide however tall the
+    // readout grows.
+    const cell = document.createElement('div');
+    cell.className = 'override-cell';
+    row.appendChild(cell);
 
     // A picker over the table's own bullets, plus the free-text input that
     // was here before it. --set-trait takes a bullet verbatim including its
@@ -2002,41 +2227,24 @@ function renderOverrideRows() {
     // for; it is also the whole behaviour when /api/trait-options failed.
     const options = createState.traitOptions[override.table] || [];
 
+    // The search box. Counting the per-pronoun variants folded in, Backdrop
+    // offers 319 values and Outfit 192, and a native <select> has no way
+    // through a list that long but the arrow keys and a one-character
+    // type-ahead that matches from the start of the label - which for these is
+    // always the same handful of opening phrases.
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.className = 'override-search';
+    search.value = override.search;
+    search.placeholder = options.length
+      ? `Search ${override.table}… (${options.length} values)`
+      : `Search ${override.table}…`;
+    search.hidden = !options.length;
+    cell.appendChild(search);
+
     const valueSelect = document.createElement('select');
     valueSelect.className = 'filter-value';
-    const blank = document.createElement('option');
-    blank.value = '';
-    blank.textContent = options.length ? '— pick a value —' : '— no values loaded —';
-    valueSelect.appendChild(blank);
-
-    // Grouped by the heading each bullet came from, so a woman-only option is
-    // visibly a woman-only option rather than sitting unmarked among the
-    // neutral ones.
-    let group = null;
-    let groupName = null;
-    for (const option of options) {
-      if (option.heading !== groupName) {
-        groupName = option.heading;
-        group = document.createElement('optgroup');
-        group.label = option.isVariant ? `${option.heading} (this pronoun set only)` : option.heading;
-        valueSelect.appendChild(group);
-      }
-      const opt = document.createElement('option');
-      opt.value = option.value;
-      // Disabled bullets are offered, since --set-trait bypasses the roll
-      // pool entirely and forcing one is legitimate - marked, not hidden.
-      opt.textContent = option.enabled ? option.label : `${option.label}  [disabled]`;
-      if (!option.enabled) opt.className = 'trait-option-disabled';
-      opt.selected = !override.custom && option.value === override.value;
-      group.appendChild(opt);
-    }
-
-    const customOpt = document.createElement('option');
-    customOpt.value = CUSTOM_OVERRIDE;
-    customOpt.textContent = 'Custom value…';
-    customOpt.selected = !!override.custom;
-    valueSelect.appendChild(customOpt);
-    row.appendChild(valueSelect);
+    cell.appendChild(valueSelect);
 
     const valueInput = document.createElement('input');
     valueInput.type = 'text';
@@ -2048,8 +2256,59 @@ function renderOverrideRows() {
     // back to exactly the free-text input it was before the picker existed,
     // rather than making the user select 'Custom value...' to reach it.
     valueInput.hidden = !override.custom && options.length > 0;
-    valueInput.addEventListener('input', () => { override.value = valueInput.value; });
-    row.appendChild(valueInput);
+    cell.appendChild(valueInput);
+
+    // The full bullet, wrapped. The <select> above is capped at the width of
+    // the form card, so a 250-character Backdrop bullet is a truncated line
+    // in it whatever the browser does; this is where the rest of it goes.
+    // Deliberately the RAW value rather than the prettied label: it is what
+    // gets sent to --set-trait, flag segments and all, and the flags are the
+    // part a reader most needs to check.
+    const full = document.createElement('div');
+    full.className = 'override-full';
+    cell.appendChild(full);
+
+    const note = document.createElement('div');
+    note.className = 'override-note';
+    cell.appendChild(note);
+
+    // Both notes go in one element, since they are both "here is what this row
+    // will and will not do" and two stacked grey lines read as one paragraph
+    // anyway. The scope note comes first: it is true of the row whatever is
+    // selected, while the pronoun note counts what is in the list right now -
+    // which is why this is a function rather than a one-off. A search narrows
+    // the list, so a count written once would go on claiming a number that was
+    // true before the user typed.
+    const showNotes = (blockedCount) => {
+      const notes = [];
+      const scope = traitScopeNote(override.table);
+      if (scope) notes.push(scope);
+      if (blockedCount) {
+        notes.push(`${blockedCount} value${blockedCount === 1 ? ' is' : 's are'} greyed out because `
+          + `Pronouns is ${subject ? `“${subject}”` : 'Any'}. Hover one for the reason.`);
+      }
+      note.textContent = notes.join(' ');
+      note.hidden = !notes.length;
+    };
+    showNotes(populateOverrideValues(valueSelect, options, override, subject));
+
+    const showFull = () => {
+      full.textContent = override.value;
+      full.hidden = !override.value;
+    };
+    showFull();
+
+    search.addEventListener('input', () => {
+      override.search = search.value;
+      // Only the <select> and the note are rebuilt - see populateOverrideValues
+      // on why the whole row must not be.
+      showNotes(populateOverrideValues(valueSelect, options, override, subject));
+    });
+
+    valueInput.addEventListener('input', () => {
+      override.value = valueInput.value;
+      showFull();
+    });
 
     valueSelect.addEventListener('change', () => {
       if (valueSelect.value === CUSTOM_OVERRIDE) {
@@ -2062,14 +2321,18 @@ function renderOverrideRows() {
       override.value = valueSelect.value;
       valueInput.value = valueSelect.value;
       valueInput.hidden = true;
+      showFull();
     });
 
     // Changing the table changes which bullets are on offer, so the row has
     // to be rebuilt - and the old value, which belonged to the old table, is
-    // dropped rather than carried into a table it means nothing in.
+    // dropped rather than carried into a table it means nothing in. The
+    // search text goes with it for the same reason.
     tableSelect.addEventListener('change', () => {
+      override.table = tableSelect.value;
       override.value = '';
       override.custom = false;
+      override.search = '';
       renderOverrideRows();
     });
 
@@ -2088,9 +2351,47 @@ function renderOverrideRows() {
   });
 }
 
+/**
+ * Drop any override whose chosen value the current Pronouns setting has just
+ * ruled out, and report how many went.
+ *
+ * Changing Pronouns after choosing a value is the path the disabled options
+ * cannot cover: the option was legal when it was picked, and leaving it
+ * selected would send a she-only bullet on a run the form now says is "he".
+ * Clearing the value rather than the whole row keeps the table choice and the
+ * search text, so the fix is one more click rather than a rebuild.
+ */
+function clearOverridesBlockedByPronouns(overrides, traitOptions, subject) {
+  let cleared = 0;
+  for (const override of overrides || []) {
+    if (!override.value || override.custom) continue;
+    const options = (traitOptions || {})[override.table] || [];
+    const chosen = options.find((option) => option.value === override.value);
+    if (!chosen) continue;
+    if (!pronounBlockReason(chosen, subject)) continue;
+    override.value = '';
+    cleared += 1;
+  }
+  return cleared;
+}
+
 elCreate.addOverrideBtn.addEventListener('click', () => {
   createState.overrides.push({ table: '', value: '' });
   renderOverrideRows();
+});
+
+// Pronouns gates which values each override row may offer, so changing it has
+// to redraw every row - and clear any value the new setting has just ruled
+// out. The disabled options cover the choice that has not been made yet; this
+// covers the one that already was.
+elCreate.pronouns.addEventListener('change', () => {
+  const cleared = clearOverridesBlockedByPronouns(
+    createState.overrides, createState.traitOptions, elCreate.pronouns.value);
+  renderOverrideRows();
+  if (cleared) {
+    elCreate.status.textContent = `Cleared ${cleared} trait override${cleared === 1 ? '' : 's'} `
+      + 'that the new pronoun set rules out — pick replacements below.';
+  }
 });
 
 elCreate.count.addEventListener('input', () => {
@@ -2226,6 +2527,223 @@ function pollCreateJob(jobId, dryRun, jobCount) {
 
 elCreate.dryRunBtn.addEventListener('click', () => startCreateJob(true));
 elCreate.generateBtn.addEventListener('click', () => startCreateJob(false));
+
+/* -------------------------------------------------------------------- */
+/* Create-form presets                                                    */
+/* -------------------------------------------------------------------- */
+
+/**
+ * The Create form's settings, as the shape lib/createPresets.js stores.
+ *
+ * Deliberately NOT createRequestBody(): that one is the run request, and it
+ * carries dryRun and the single-NPC name, neither of which belongs in a saved
+ * recipe. A preset that restored a name would hand the next NPC the last
+ * one's, and a preset that restored dryRun would decide for the user which
+ * button they meant to press.
+ *
+ * The overrides are copied field by field rather than passed through, because
+ * createState.overrides also carries the row's `search` text - live UI state
+ * that has no business surviving into a file someone else may import.
+ */
+function createFormSettings() {
+  return {
+    count: Number(elCreate.count.value) || 1,
+    seed: elCreate.seed.value.trim() === '' ? null : Number(elCreate.seed.value),
+    pronouns: elCreate.pronouns.value,
+    server: elCreate.server.value.trim(),
+    portrait: elCreate.portrait.checked,
+    token: elCreate.token.checked,
+    keepRawToken: elCreate.keepRaw.checked,
+    unarmed: elCreate.unarmed.checked,
+    overrides: createState.overrides
+      .filter((o) => o.table && String(o.value).trim())
+      .map((o) => ({ table: o.table, value: o.value, custom: !!o.custom })),
+  };
+}
+
+/**
+ * Load a preset's settings into the form.
+ *
+ * Every field is written from the preset rather than merged over what is
+ * there, including the ones a preset can legitimately have left falsy - an
+ * unchecked box and an absent key have to end the same way, or applying a
+ * preset saved with "Generate token" off would leave it on and the user would
+ * blame the preset rather than the merge.
+ *
+ * The one thing not restored is the pronoun-gated legality of each override.
+ * A preset can name a she-only Outfit and a preset can name Pronouns "he";
+ * nothing stops a hand-edited file carrying both. The rows are re-rendered
+ * after loading, so such a value arrives visibly greyed out with its reason on
+ * hover, which is a better answer than silently dropping it on load.
+ */
+function applyCreateSettings(settings) {
+  const s = settings || {};
+  elCreate.count.value = String(s.count || 1);
+  elCreate.seed.value = s.seed === null || s.seed === undefined ? '' : String(s.seed);
+  elCreate.pronouns.value = s.pronouns || '';
+  elCreate.server.value = s.server || '';
+  elCreate.portrait.checked = s.portrait !== false;
+  elCreate.token.checked = s.token !== false;
+  elCreate.keepRaw.checked = !!s.keepRawToken;
+  elCreate.unarmed.checked = !!s.unarmed;
+  createState.overrides = (Array.isArray(s.overrides) ? s.overrides : []).map((o) => ({
+    table: String(o.table || ''),
+    value: String(o.value || ''),
+    custom: !!o.custom,
+    search: '',
+  }));
+  // The Name field is disabled for a batch, and count is what decides that -
+  // so a preset that restores count > 1 has to restore that too, or the field
+  // stays enabled and typing in it silently does nothing. It is CLEARED as
+  // well as disabled, which is the half the count listener already does and
+  // this one first did not: a name typed before the preset was loaded
+  // otherwise survives into the request body behind a field the user can no
+  // longer reach, and the server refuses the whole run with "--name only makes
+  // sense with a single NPC" over a value that is not on screen.
+  elCreate.name.disabled = Number(elCreate.count.value) !== 1;
+  if (elCreate.name.disabled) elCreate.name.value = '';
+  renderOverrideRows();
+}
+
+function setPresetStatus(text, isError) {
+  elCreate.presetStatus.textContent = text || '';
+  elCreate.presetStatus.classList.toggle('is-error', !!isError);
+}
+
+async function refreshCreatePresets(selectSlug) {
+  try {
+    const { presets } = await api('/api/create-presets');
+    createState.presets = presets || [];
+  } catch (err) {
+    createState.presets = [];
+    setPresetStatus(`Could not list presets: ${err.message}`, true);
+    return;
+  }
+  const wanted = selectSlug || elCreate.presetSelect.value;
+  elCreate.presetSelect.innerHTML = '';
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = createState.presets.length ? '— pick a preset —' : '— no presets saved —';
+  elCreate.presetSelect.appendChild(blank);
+  for (const preset of createState.presets) {
+    const opt = document.createElement('option');
+    opt.value = preset.slug;
+    const n = preset.overrideCount;
+    opt.textContent = typeof n === 'number'
+      ? `${preset.name} (${n} override${n === 1 ? '' : 's'})`
+      : preset.name;
+    opt.selected = preset.slug === wanted;
+    elCreate.presetSelect.appendChild(opt);
+  }
+  // Every button but Save acts on a chosen preset, so with none chosen they
+  // would each answer with an error the user could have been spared.
+  const chosen = !!elCreate.presetSelect.value;
+  elCreate.presetLoad.disabled = !chosen;
+  elCreate.presetDownload.disabled = !chosen;
+  elCreate.presetDelete.disabled = !chosen;
+}
+
+elCreate.presetSelect.addEventListener('change', () => {
+  const chosen = !!elCreate.presetSelect.value;
+  elCreate.presetLoad.disabled = !chosen;
+  elCreate.presetDownload.disabled = !chosen;
+  elCreate.presetDelete.disabled = !chosen;
+  setPresetStatus('');
+});
+
+elCreate.presetLoad.addEventListener('click', () => {
+  const preset = createState.presets.find((p) => p.slug === elCreate.presetSelect.value);
+  if (!preset) return;
+  // The list route carries only the summary, so the settings are fetched from
+  // the export route - the same JSON the Download button hands over, which is
+  // one shape to keep true rather than two.
+  api(`/api/create-presets/export?slug=${encodeURIComponent(preset.slug)}`)
+    .then((full) => {
+      applyCreateSettings(full.settings);
+      setPresetStatus(`Loaded “${full.name || preset.name}”.`);
+    })
+    .catch((err) => setPresetStatus(`Could not load that preset: ${err.message}`, true));
+});
+
+elCreate.presetSave.addEventListener('click', async () => {
+  const name = window.prompt('Name this preset');
+  if (name === null) return;
+  try {
+    const { slug } = await api('/api/create-presets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, settings: createFormSettings() }),
+    });
+    await refreshCreatePresets(slug);
+    setPresetStatus(`Saved “${name.trim()}”.`);
+  } catch (err) {
+    setPresetStatus(err.message, true);
+  }
+});
+
+elCreate.presetDownload.addEventListener('click', () => {
+  const slug = elCreate.presetSelect.value;
+  if (!slug) return;
+  // Through a hidden <a download> rather than window.location. Both fetch the
+  // same attachment the server already names, but a location assignment
+  // NAVIGATES: when the route answers 404 - a preset deleted in another tab -
+  // the browser leaves this page and renders the JSON error, throwing away
+  // whatever was typed into the form. A link that the browser declines to
+  // follow leaves the page alone.
+  const link = document.createElement('a');
+  link.href = `/api/create-presets/export?slug=${encodeURIComponent(slug)}`;
+  link.download = `${slug}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+});
+
+elCreate.presetDelete.addEventListener('click', async () => {
+  const preset = createState.presets.find((p) => p.slug === elCreate.presetSelect.value);
+  if (!preset) return;
+  if (!window.confirm(`Delete the preset “${preset.name}”? The form itself is not changed.`)) return;
+  try {
+    await api('/api/create-presets/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: preset.slug }),
+    });
+    await refreshCreatePresets('');
+    setPresetStatus(`Deleted “${preset.name}”.`);
+  } catch (err) {
+    setPresetStatus(err.message, true);
+  }
+});
+
+elCreate.presetImport.addEventListener('change', async () => {
+  const file = elCreate.presetImport.files && elCreate.presetImport.files[0];
+  // Cleared straight away so importing the same file twice in a row still
+  // fires a change event the second time.
+  elCreate.presetImport.value = '';
+  if (!file) return;
+  let parsed;
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch (err) {
+    setPresetStatus(`That file is not valid JSON: ${err.message}`, true);
+    return;
+  }
+  try {
+    // Validated by the server rather than here. The same normaliser that
+    // guards the save route has to guard this one, or an imported file would
+    // be the way to get an unchecked value into the form and from there onto
+    // the generator's command line.
+    const { name, settings } = await api('/api/create-presets/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(parsed),
+    });
+    applyCreateSettings(settings);
+    setPresetStatus(`Loaded “${name}” from file. Save it if you want to keep it.`);
+  } catch (err) {
+    setPresetStatus(err.message, true);
+  }
+});
 
 /* ==================================================================== */
 /* Trait imports                                                         */

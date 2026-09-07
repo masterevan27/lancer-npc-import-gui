@@ -113,6 +113,24 @@ body {
    label also carries a "[disabled]" suffix - this is the hint, not the
    mechanism. */
 .trait-option-disabled { color: #8b93a1; font-style: italic; }
+/* A bullet ruled out by the Pronouns setting rather than by the Tables tab - a
+   woman-only Outfit while the run is set to he/him. It sits next to the rule
+   above because the two look alike at a glance and mean opposite things: that
+   one is a value the user switched off and may still force, this one is a
+   value that does not exist for the pronoun set the form is currently on, so
+   it carries the `disabled` attribute and cannot be picked at all.
+
+   Giving it the same grey italic was tried first and was the bug: with both
+   greys reading identically, a user who had disabled nothing on the Tables tab
+   assumed the whole grey band was their own doing and went looking for a
+   checkbox to undo it. So this one takes the amber the rest of the sheet
+   already spends on "careful, this is not what you think" (.confirm-warning,
+   .preset-preview-not-found, .set-trait-note), dimmed a step so a long band of
+   them is not shouting, and stays upright while the other stays italic - two
+   independent signals, because platforms that honour an <option> colour and
+   platforms that honour its font-style are not the same set, and on the ones
+   that honour neither the label's own suffix is still the real mechanism. */
+.trait-option-unavailable { color: #c2925a; font-style: normal; }
 
 .categories { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
 .categories button {
@@ -729,6 +747,210 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   word-break: break-word;
   color: #b3bac6;
 }
+
+/* ---- Trait override rows ---- */
+
+/* The override rows borrow .filter-rows and .filter-row from the Filters tab,
+   and the borrowing is where the overflow came from: on the Filters tab a row
+   holds a text input, here it holds a <select> whose options are whole table
+   bullets, and a Backdrop bullet runs past 250 characters. A native select is
+   as wide as its widest option and there is no way to talk it out of that from
+   the inside, so a single Backdrop override made its row a couple of thousand
+   pixels wide, blew straight through .create-form's 760px cap - a max-width
+   binds the box, not what is painted inside it - and put a horizontal
+   scrollbar under the whole Create tab.
+
+   These rules therefore all hang off #override-rows or off the new
+   .override-cell rather than editing `.filter-row .filter-value` in place. The
+   Filters tab wears that same class on a plain input where the 160px floor is
+   doing real work, and one shared rule serving a control that must stay at
+   least 160px wide and a control that must be free to shrink to nothing is a
+   rule that will be wrong for one of them; two scoped rules cannot be. */
+#override-rows {
+  flex-direction: column;
+  /* .filter-rows sets wrap for the Filters tab, where rows are chips that
+     should flow. A column container with wrap only wraps against a definite
+     height, which this never has, so today it is inert - but it is inert by
+     accident, and a row that silently jumped into a second column the day
+     something gave this a height would be a baffling bug to chase. */
+  flex-wrap: nowrap;
+}
+#override-rows .filter-row {
+  /* The cell below stacks four things, so the trait select and the remove
+     button belong at the top of the row beside the search box, not floated to
+     the middle of a stack whose height depends on how long the chosen bullet
+     happens to be. */
+  align-items: flex-start;
+  max-width: 100%;
+}
+/* The table picker, the row's own direct child - the child combinator is what
+   keeps this off the value select, which is now a level deeper inside the
+   cell. Table names are short and predictable, so it takes a fixed share and
+   leaves the rest to the cell. */
+#override-rows .filter-row > select {
+  flex: 0 0 auto;
+  max-width: 11rem;
+}
+#override-rows .filter-row .filter-remove { flex: 0 0 auto; }
+
+/* The block between the two: search box, value select, full-value readout and
+   note, stacked, so the row reads [table][everything about the value][x].
+
+   min-width: 0 is the whole fix and the reason this wrapper exists. A flex
+   item's min-width defaults to `auto`, which resolves to its content's minimum
+   size, and the content's minimum here is that 250-character option - so
+   `flex: 1` alone was ignored and the cell refused to shrink below a bullet's
+   width exactly as the bare select did. Zeroing the automatic minimum is what
+   finally lets the cell take the width the row has left rather than the width
+   its contents would prefer, and max-width holds the other end so a cell can
+   never be wider than the row that contains it either. */
+.override-cell {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+/* Both the select and the free-text fallback input wear .filter-value, and
+   both need the same treatment: fill the cell, never exceed it.
+
+   This beats the 160px floor in `.filter-row .filter-value` on SOURCE ORDER,
+   not on specificity - both selectors are two classes and score identically,
+   and an earlier version of this comment claimed otherwise. So it has to stay
+   below that rule in the file. If the Filters-tab block above is ever moved
+   down past this one, the override rows get their 160px minimum back and the
+   card starts stretching again. */
+.override-cell .filter-value {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* The filter above the select. Quieter than the select on purpose - it is not
+   part of the value the form will submit, and a second control of equal weight
+   directly above the real one made people fill it in and then wonder why the
+   override had not taken. Recessed background, dimmer text, smaller type: it
+   reads as a way to find the value rather than as somewhere to put one. The
+   two-class selector is again what beats `.filter-row input` above, which
+   would otherwise hand it the same #262a33 fill as the select. */
+.filter-row .override-search {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  background: #14161c;
+  border: 1px solid #2c2f38;
+  color: #b3bac6;
+  padding: 0.25rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+}
+.filter-row .override-search::placeholder { color: #6b7280; }
+
+/* The selected bullet in full. A native select paints one line and truncates
+   it, and truncating is not acceptable when the thing being truncated is the
+   text the generator will actually use - so the select stays the control and
+   this stays the readout, which is why it gets a left rule and an indent
+   instead of a border box: an outlined block here was clicked at, repeatedly,
+   by people who took it for a third input.
+
+   overflow-wrap: anywhere rather than break-word, because break-word only
+   breaks a line that has no break opportunity at all, and a 250-character
+   bullet usually has one inconvenient space near the end - enough to satisfy
+   break-word while the long run before it still pushes the card wide. This is
+   the element the whole overflow fix rests on: everything above it is capped
+   in width, so if this one could not wrap, the card would grow. */
+.override-full {
+  margin: 0.1rem 0 0;
+  padding-left: 0.5rem;
+  border-left: 2px solid #363b47;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #9aa1ad;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* Nothing picked yet is not worth a floating rule of border with no text
+   beside it. */
+.override-full:empty { display: none; }
+
+/* Muted footnote under a row: that Backdrop only reaches the portrait and
+   Stance only the token, and that the greyed values in the list are greyed for
+   a reason. Small and in the page's secondary grey because it is an
+   explanation someone reads once, not a warning - the amber elsewhere in this
+   sheet is spent on things that will go wrong, and spending it here would make
+   an ordinary fact look like a problem. */
+.override-note {
+  margin: 0.25rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #9aa1ad;
+}
+
+/* ---- Create NPC presets ---- */
+
+/* The Create tab's own presets strip, mirroring .presets-panel on the Tables
+   tab: same top rule separating it from the form above, same grey button fill
+   as .create-actions, same control colours as .form-field. It borrows rather
+   than invents because the two strips do the same job on two tabs, and a
+   preset strip that looked like its own subsystem would suggest it saved
+   something different from the one the user already knows.
+
+   It sits above the action buttons, so it wraps rather than scrolls: this is
+   the last block before Generate, and a row that could push Generate sideways
+   off a narrow window would hide the button the whole form exists for. */
+.create-presets {
+  margin-top: 1.2rem;
+  border-top: 1px solid #363b47;
+  padding-top: 0.9rem;
+}
+.create-presets-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  color: #b3bac6;
+}
+/* Capped, for the same reason the override select is: a preset's name is
+   whatever the user typed, and one long name would otherwise set the width of
+   the strip. min-width: 0 lets it give the width back when the row is tight,
+   since it is a flex item like everything else on this line. */
+.create-presets-row select {
+  background: #262a33;
+  border: 1px solid #363b47;
+  color: #e6e6e6;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  max-width: 18rem;
+  min-width: 0;
+}
+.create-presets-row button {
+  background: #262a33;
+  border: 1px solid #363b47;
+  color: #e6e6e6;
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.create-presets-row button:disabled { opacity: 0.5; cursor: default; }
+/* Its own line under the row rather than a fourth item in it: the messages
+   here run to a sentence ("Saved as ...", "That file is not a preset"), and a
+   sentence inside the flex line re-flowed the buttons every time one landed. */
+.create-preset-status {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: #9aa1ad;
+}
+
+/* setPresetStatus() passes an isError flag and toggles this class with it, and
+   for a while nothing here defined the class - so a refused save and a
+   successful one printed in the identical muted grey and the only difference
+   was the wording. The warm tone is the one .banner.error already uses, so the
+   two ways this app reports a failure look like the same app. */
+.create-preset-status.is-error { color: #e8a798; }
 
 /* ---- Trait imports ---- */
 

@@ -331,3 +331,44 @@ test('POST /api/presets/apply reports bullets it could not write rather than cla
     assert.equal(body.notFound[0].text, 'a bullet that is not in this file');
     assert.ok(Array.isArray(body.failed), 'the response must carry a failed list');
 });
+
+/* ---- the slug reaches path.join, so it has to be a slug ---- */
+
+test('a traversing slug is refused rather than reaching the filesystem', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: 5198 });
+    t.after(() => server.stop());
+
+    // Both routes hand their slug to path.join(dir, slug + '.json'), so before
+    // safeSlug() an export could read any .json on the box and a delete could
+    // remove one. slugify() only ever emits [a-z0-9-], so no preset this app
+    // can save is named anything the guard refuses - it costs nothing.
+    //
+    // The export route has a second reason of its own: the slug is
+    // interpolated into a Content-Disposition header, so a CR or LF in it
+    // injects response headers.
+    const hostile = [
+        '../../../../package', '..%2F..%2Fetc%2Fhosts', 'a/b', 'a\\b', '.',
+        'x%0d%0aX-Injected:%20yes',
+    ];
+    for (const slug of hostile) {
+        const exported = await fetch(
+            `${server.baseUrl}/api/presets/export?slug=${slug}`);
+        assert.equal(exported.status, 404, `export should refuse ${slug}`);
+        assert.equal(exported.headers.get('x-injected'), null,
+            'no header may be injected through the slug');
+
+        const deleted = await fetch(`${server.baseUrl}/api/presets/delete`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slug }),
+        });
+        assert.equal(deleted.status, 404, `delete should refuse ${slug}`);
+    }
+
+    // And an ordinary slug still works, so the guard is a guard and not a ban.
+    await fetch(`${server.baseUrl}/api/presets`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Guard check' }),
+    });
+    const ok = await fetch(`${server.baseUrl}/api/presets/export?slug=guard-check`);
+    assert.equal(ok.status, 200);
+});
