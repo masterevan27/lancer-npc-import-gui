@@ -69,8 +69,16 @@ Everything else in `config.example.json` is optional and derived by default:
 
 Eleven more exist for spaceships, and every one of them is optional in the same
 way — a GUI pointed at a generator repo that has no `generate-spaceship.py`
-simply shows no **Spaceships** category and no **Create Spaceship** tab, rather
-than offering a button that fails when clicked:
+hides the ship half of itself rather than offering buttons that fail when
+clicked. The server reports which kinds it can actually generate (it looks for
+each kind's script on disk), and the page removes the **Create Spaceship** tab
+and the **Spaceships** entry on the **Tables** tab's kind select when the ship
+script is not among them. The **Spaceships** category on the Import tab is
+counted from the manifest instead, so it appears once you have generated a
+ship and keeps showing the ships you already have even if the script later
+moves. Nothing about the NPC half of the page depends on any of this: if that
+report is missing or the request for it fails, every control stays exactly
+where it was. The eleven:
 
 - `generateSpaceshipScript` — `generate-spaceship.py`. Defaults to the script
   beside `generateNpcScript`, which is where it lives in the generator repo, and
@@ -310,7 +318,8 @@ and open <http://127.0.0.1:5089>.
   wherever Re-roll is live and nowhere else — an NPC without raw bullets has
   nothing to pin the rest of itself to, and the greyed Re-roll already says so.
 - **Create Spaceship** — the same form over `generate-spaceship.py`, and the
-  tab only appears when that script is actually there. Count, seed, name, the
+  tab only appears when that script is actually there, as does the
+  **Spaceships** entry on the **Tables** tab's kind select. Count, seed, name, the
   portrait/token switches, dry-run and per-table overrides work exactly as they
   do for an NPC, and its presets live beside the NPC ones and are told apart by
   shape, so importing one into the other's button is refused by name rather
@@ -400,10 +409,10 @@ before changing any `/importer/*` route — the client ships inside a released
 ## Development
 
 ```bash
-node --test --test-concurrency=8 "test/*.test.js"
+node --test --test-concurrency=8 --test-timeout=120000 "test/*.test.js"
 ```
 
-Expect `pass 517`, `fail 0`, in about nine seconds. No install step; the suite
+Expect `pass 528`, `fail 0`, in about eleven seconds. No install step; the suite
 spawns real `server.js` child processes against synthetic fixture directories,
 never your real `config.json` or tables. Each test file binds a **fixed,
 distinct** port because `node --test` runs files concurrently — a new test file
@@ -417,11 +426,29 @@ runner then waits forever rather than failing, so the symptom is a suite that
 never finishes and never says why. Measured on a 16-CPU machine at 55 test
 files: 53 files finish clean at the default, 54 hangs, 55 hangs; all 55 pass at
 `--test-concurrency=8` in 8.8s. Serially (`--test-concurrency=1`) they also
-pass, in 59.9s — which is why the cap is 8 rather than 1. The number worth
-raising is the *ceiling*, not the concurrency: eight servers at a time is well
-inside what the readiness timeout tolerates, and the headroom grows as files are
-added rather than shrinking. If you add enough files that even 8 starts
-timing out, lower it before you consider anything else.
+pass, in 59.9s — which is why the cap is 8 rather than 1.
+
+**8 is that machine's number, not a constant, and the headroom shrinks rather
+than grows.** The rule worth carrying is roughly half your CPU count, and count
+*servers*, not files. `--test-concurrency` caps the files in flight, but the
+thing that loses the readiness race is a server start, and a file starts a
+fresh one for every test in it: `test/ui.shipCreate.test.js` starts 23 over its
+run, `api.presets` 15, `ui.rerollConfirm` 14. So the suite performs several
+hundred server starts, not 55, and adding tests to an existing file eats the
+same headroom that adding a file does. Every file does hold only one server at
+a time — each binds a single port, so it could not do otherwise — which is why
+the cap works at all; what it does not do is stay safe on its own as the suite
+grows. Lower it if you run the suite alongside your own dev server, which is
+one more process competing for the same CPUs. CI does not pin it at all: an
+`ubuntu-latest` runner is 4 vCPU, so `node --test`'s own default there is
+already below the cap measured here, and pinning 8 would have doubled it.
+
+**`--test-timeout=120000` is the safety net, and it belongs in every run.**
+Without a per-test deadline a file that loses the readiness race hangs the
+whole runner with no output; with one, it fails by name in two minutes — far
+above the slowest real test here, far below anything worth sitting through.
+Supported on the whole supported Node range (added in 20.11), and CI passes it
+too.
 
 Ports are written two ways, which is worth knowing before you pick one: of the
 55 test files, most declare `const PORT = ...` at the top and pass that, while
@@ -451,16 +478,19 @@ one port, surfacing as a 20-second readiness timeout in whichever test happened
 to lose. Let one run finish before starting another.
 
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs
-`node --test --test-concurrency=8` — same cap, and for the same reason — but
-without the glob, so it also picks up `test/helpers/testServer.js` as a file
-with no tests in it. Expect one more there, `pass 518`, for a helper that
+`node --test --test-timeout=120000` — the same safety net, no concurrency cap
+(a 4-vCPU runner already defaults below this machine's cap), and a
+`timeout-minutes: 10` on the job — but without the glob, so it also picks up
+`test/helpers/testServer.js` as a file
+with no tests in it. Expect one more there, `pass 529`, for a helper that
 declares no tests and therefore cannot fail. Both numbers move whenever a test
 is added; they are worth updating together.
 
 Bare `node --test` is a CI-only command in practice: it discovers by walking
 the tree, so run it in a working copy that has scratch directories under it —
 a git worktree, say — and it goes looking through all of them. `node --test
---test-concurrency=8 "test/*.test.js"` is the local form for that reason, and
+--test-concurrency=8 --test-timeout=120000 "test/*.test.js"` is the local form
+for that reason, and
 the extra file's contribution is measured on its own
 (`node --test "test/helpers/testServer.js"`) rather than by sitting through a
 bare run.

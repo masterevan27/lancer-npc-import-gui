@@ -6,14 +6,21 @@
 # Matrix jobs get separate runners, so they cannot collide with each other;
 # within a job, each test file was given a distinct port.
 #
-# --test-concurrency is capped rather than left at node --test's default of the
-# CPU count. Every file starts a server and waits up to 20s for it to answer;
-# past a certain number of servers coming up at once one of them loses that
-# race, and the runner then waits forever instead of failing - a job that hangs
-# until the workflow timeout and says nothing about why. Measured locally on 16
-# CPUs at 55 test files: 53 clean at the default, 54 and 55 hang, all 55 pass at
-# 8 in 8.8s (and in 59.9s at 1, which is why the cap is 8 and not 1). README's
-# Development section has the same note for anyone adding a file.
+# --test-concurrency is deliberately NOT pinned here. node --test defaults it
+# to the machine's CPU count, and a standard ubuntu-latest runner is 4 vCPU -
+# already half of the cap that was measured on a 16-CPU workstation, so writing
+# `--test-concurrency=8` here would have DOUBLED CI's concurrency on a machine
+# a quarter the size, in the name of lowering it. The cap belongs in README's
+# Development section, next to the machine the number was measured on.
+#
+# --test-timeout is what actually protects this job. Every file starts a server
+# and waits up to 20s for it to answer; past a certain number of servers coming
+# up at once one of them loses that race, and without a per-test deadline the
+# runner then waits forever instead of failing - a job that hangs until the
+# workflow timeout and says nothing about why. 120s is far above the slowest
+# real test here and far below anything a human would sit through, so a stuck
+# file becomes a named failure. Supported on the whole matrix (added in 20.11).
+# timeout-minutes backstops it for a hang that happens outside a test.
 #
 # Node 20 is the floor: the tests use global fetch (18+) and node:test's
 # directory discovery (20+). Action versions are pinned deliberately -- bump
@@ -29,6 +36,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -40,4 +48,4 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
 
-      - run: node --test --test-concurrency=8
+      - run: node --test --test-timeout=120000

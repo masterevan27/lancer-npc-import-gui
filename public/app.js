@@ -510,8 +510,46 @@ function markBatchSeen(ids) {
     .catch(() => { /* same as markSeen: a lingering tag is not worth an error */ });
 }
 
+/**
+ * Removes the affordances of every kind this install cannot actually
+ * generate, given /api/categories' `kinds` - the ids whose generator script
+ * lib/kinds.js's available() found on disk.
+ *
+ * The seam is declarative: anything in index.html carrying `data-kind` is an
+ * affordance for exactly that kind and nothing else, so this needs no list of
+ * its own and a third kind would need no edit here. NPC controls carry no
+ * data-kind at all and so can never be removed by this - the NPC half of the
+ * page is untouched whatever the server says.
+ *
+ * Three ways to answer "leave everything alone", all of them deliberate: no
+ * `kinds` field (a server too old to send one), a non-array, or an empty list
+ * (a server that can see no generator script whatsoever, which is a
+ * misconfiguration rather than a statement about spaceships). A failed
+ * /api/categories never calls this at all. In every one of those cases the
+ * page is exactly what it was before this function existed - degrading to
+ * today's UI, never to a page with controls missing.
+ */
+function applyKindAvailability(kinds) {
+  if (!Array.isArray(kinds) || !kinds.length) return;
+  const have = new Set(kinds);
+  for (const node of document.querySelectorAll('[data-kind]')) {
+    if (!have.has(node.dataset.kind)) node.remove();
+  }
+  // Removing a tab button that was the one showing would leave its panel open
+  // and no button to leave it by. Only reachable if someone clicked Create
+  // Spaceship inside the first round trip of the page load, but the recovery
+  // is one line: no active tab button left means fall back to Import.
+  if (!document.querySelector('#tabs button.active')) {
+    document.querySelector('#tabs button[data-tab="import"]')?.click();
+  }
+}
+
 async function loadCategories() {
-  const { categories } = await api('/api/categories');
+  const { categories, kinds } = await api('/api/categories');
+  // Before the early return below: an install with no generated content yet is
+  // precisely the one that must not be offered a Create Spaceship tab it has
+  // no generator for.
+  applyKindAvailability(kinds);
   el.categories.innerHTML = '';
   if (!categories.length) {
     el.categories.textContent = 'No generated content found yet.';
@@ -519,7 +557,10 @@ async function loadCategories() {
   }
   for (const cat of categories) {
     const btn = document.createElement('button');
-    btn.textContent = `${CATEGORY_LABELS[cat.id] || cat.id} (${cat.count})`;
+    // The server's own registry label, which is where the kind's name is
+    // defined; CATEGORY_LABELS stays as the fallback for a kind the server
+    // does not label (and for 'mech', which the registry has never held).
+    btn.textContent = `${cat.label || CATEGORY_LABELS[cat.id] || cat.id} (${cat.count})`;
     btn.addEventListener('click', () => selectCategory(cat.id));
     btn.dataset.id = cat.id;
     el.categories.appendChild(btn);
@@ -2226,7 +2267,7 @@ const shipCreateState = {
   // /api/ship-catalogue's {types, sizes, themes}, or null before it loads or
   // if the route fails - see sizeBlockReason, which degrades to no gating.
   catalogue: null,
-  formLoaded: false, // whether traitOptions/catalogue have been fetched yet
+  formLoaded: false, // whether the form's own trait options have been fetched
   pinned: { 'Ship type': '', Size: '', Theme: '' },
   overrides: [], // further overrides, same shape as createState.overrides
   presets: [],
@@ -3188,15 +3229,24 @@ async function ensureShipCreateForm() {
       elShipCreate.status.textContent = `Failed to load ship trait options: ${err.message}`;
       return;
     }
-    // Own try/catch: the trait-options fetch above already succeeded, so a
-    // catalogue failure must not be blamed on "trait options" or stop
-    // formLoaded from being true - Type -> Size gating degrades to none,
-    // exactly as the design's own phase-6 note says, but the rest of the
-    // form still works.
+  }
+  // Outside the formLoaded block, and guarded on the catalogue itself rather
+  // than on a "loaded" flag. formLoaded flips as soon as the trait options
+  // land, so a catalogue fetch nested inside it got exactly one attempt per
+  // page load: one transient failure of /api/ship-catalogue silently disabled
+  // Type -> Size gating for the whole session, with no retry and no message.
+  // Keyed on `catalogue === null` it retries on the next tab visit and stops
+  // asking the moment it succeeds.
+  //
+  // Own try/catch for the reason it always had: the trait-options fetch above
+  // has already succeeded by here, so a catalogue failure must not be blamed
+  // on "trait options" or stop the rest of the form from rendering. Gating
+  // degrades to none, exactly as the design's own phase-6 note says.
+  if (shipCreateState.catalogue === null) {
     try {
       shipCreateState.catalogue = await api('/api/ship-catalogue');
     } catch {
-      shipCreateState.catalogue = null; // Type -> Size gating degrades to none
+      shipCreateState.catalogue = null; // Type -> Size gating degrades to none, and we try again next visit
     }
   }
   renderShipPinnedSelects();
@@ -3220,14 +3270,23 @@ async function ensureShipCreateForm() {
  * (both smuggler) - so that approach silently disabled gating for them.
  * The flag segment is authoritative and needs no guessing.
  *
+ * The LAST `||` segment, not the second. Ship bullets come in two shapes:
+ * most are `text || flags`, but '## Backdrop' is one of the two
+ * three-segment tables (`text || scene || flags`), where `[1]` is the scene
+ * and the flags are one further along. Only the two-segment Ship type and
+ * Size reach this function today, so `[1]` was harmless - but it is a trap
+ * for the next caller, and popping the last segment is right for both shapes.
+ *
  * Null when the bullet carries no `||` flag segment, or its first flag token
  * names no slug the catalogue knows - including a catalogue that never
  * loaded - which sizeBlockReason already treats as "do not gate".
  */
 function shipTypeSlugFor(bullet, catalogue) {
   if (!catalogue || !bullet) return null;
-  const flags = String(bullet).split('||')[1];
-  if (!flags) return null;
+  const parts = String(bullet).split('||');
+  if (parts.length < 2) return null;
+  const flags = parts.pop();
+  if (!flags.trim()) return null;
   const slug = flags.trim().split(/\s+/)[0];
   return catalogue.types.some((t) => t.slug === slug) ? slug : null;
 }
@@ -3249,13 +3308,18 @@ function shipTypeSlugFor(bullet, catalogue) {
  * that rolls only `small`, wrongly permitted). The flag segment is
  * authoritative and needs no guessing.
  *
+ * The LAST `||` segment for the same reason shipTypeSlugFor takes it - see
+ * its note on the three-segment '## Backdrop' shape.
+ *
  * Null when the bullet carries no flag segment, or its first flag token
  * names no band the catalogue knows.
  */
 function sizeBandFor(sizeBullet, catalogue) {
   if (!catalogue || !sizeBullet) return null;
-  const flags = String(sizeBullet).split('||')[1];
-  if (!flags) return null;
+  const parts = String(sizeBullet).split('||');
+  if (parts.length < 2) return null;
+  const flags = parts.pop();
+  if (!flags.trim()) return null;
   const band = flags.trim().split(/\s+/)[0];
   return catalogue.sizes.some((s) => s.sizeBand === band) ? band : null;
 }

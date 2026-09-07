@@ -54,7 +54,7 @@ const tableGroups = require('./lib/tableGroups');
 const presets = require('./lib/presets');
 const createPresets = require('./lib/createPresets');
 const { derivePaths } = require('./lib/paths');
-const { buildKinds, kindFor, kindOf, requestKind, DEFAULT_KIND } = require('./lib/kinds');
+const { buildKinds, kindFor, kindOf, requestKind, available, DEFAULT_KIND } = require('./lib/kinds');
 const pronouns = require('./lib/pronouns');
 const traitOptions = require('./lib/traitOptions');
 const traitOdds = require('./lib/traitOdds');
@@ -2169,9 +2169,21 @@ async function handleApi(req, res, url) {
             // rather than sending the client a category row with an
             // undefined label.
             const entry = kindFor(KINDS, id) || kindFor(KINDS, DEFAULT_KIND);
-            return { id, count, label: entry.label, supports: entry.supports };
+            return { id, count, label: entry.label };
         });
-        return sendJson(res, 200, { categories });
+        // Which kinds this install can actually GENERATE, which is a different
+        // question from which ones the manifest already holds - a fresh
+        // install with generate-spaceship.py present has ships available and
+        // no Spaceships category, and that is exactly the case the Create
+        // Spaceship tab has to appear for. So it rides alongside `categories`
+        // rather than filtering it: the grid's rows stay manifest-derived,
+        // because hiding a category would hide content the user already has.
+        //
+        // available() reads the filesystem (two existsSync calls), which is
+        // why it is answered per request rather than frozen at boot: dropping
+        // generate-spaceship.py into place should not need a server restart to
+        // be noticed, and this route is fetched once at page load, not polled.
+        return sendJson(res, 200, { categories, kinds: Object.keys(available(KINDS)) });
     }
 
     if (url.pathname === '/api/items' && req.method === 'GET') {

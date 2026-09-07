@@ -12,7 +12,15 @@
   <nav class="tabs" id="tabs">
     <button type="button" data-tab="import" class="active">Import Generated Art</button>
     <button type="button" data-tab="create">Create NPC</button>
-    <button type="button" data-tab="shipcreate">Create Spaceship</button>
+    <!-- data-kind marks an affordance that only makes sense when that kind's
+         generator script is actually installed. app.js's applyKindAvailability
+         removes every [data-kind] node the server did not report in
+         /api/categories' `kinds`, so a GUI pointed at a generator repo with no
+         generate-spaceship.py never shows this tab at all. Rendered here
+         rather than built in JS so the markup is the same as it always was
+         when the script IS present, and so a failed or too-old /api/categories
+         degrades to exactly today's UI rather than to a missing tab. -->
+    <button type="button" data-tab="shipcreate" data-kind="spaceship">Create Spaceship</button>
     <button type="button" data-tab="traits">Trait Imports</button>
     <button type="button" data-tab="tables">Tables</button>
   </nav>
@@ -265,7 +273,11 @@
     Kind
     <select id="tables-kind">
       <option value="npc">NPCs</option>
-      <option value="spaceship">Spaceships</option>
+      <!-- Removed by applyKindAvailability when there is no ship generator -
+           see the data-kind note on the Create Spaceship tab button. Picking
+           it without one would read a spaceship-generator-tables.md that is
+           not there, which is the same 500 the tab used to produce. -->
+      <option value="spaceship" data-kind="spaceship">Spaceships</option>
     </select>
   </label>
   <div class="tables-layout">

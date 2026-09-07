@@ -109,7 +109,7 @@ async function getJson(url) {
     return { status: res.status, body: await res.json() };
 }
 
-test('GET /api/categories reports both kinds, correct counts, label and supports', async (t) => {
+test('GET /api/categories reports both kinds, correct counts and the registry label', async (t) => {
     const { server } = await startWithLibrary(t);
 
     const { status, body } = await getJson(`${server.baseUrl}/api/categories`);
@@ -118,8 +118,19 @@ test('GET /api/categories reports both kinds, correct counts, label and supports
     const byId = Object.fromEntries(body.categories.map((c) => [c.id, c]));
     assert.equal(byId.npc.count, 1);
     assert.equal(byId.spaceship.count, 2);
+    // The label the client actually renders on each category button. A
+    // per-category copy of `supports` used to ride along beside it and nothing
+    // ever read it - the per-ITEM supports on /api/items is what drives the
+    // detail sheet - so it was dropped rather than left as a second source of
+    // truth for the same answer.
     assert.equal(byId.spaceship.label, 'Spaceships');
-    assert.equal(byId.spaceship.supports.model3d, false);
+    assert.equal(byId.spaceship.supports, undefined);
+
+    // This fixture has no generator scripts at all, so nothing is generatable
+    // and `kinds` is empty - which the client reads as "say nothing about
+    // availability" and leaves every control alone. The two real states are
+    // pinned in ui.shipCreate.test.js.
+    assert.deepEqual(body.kinds, []);
 });
 
 test('GET /api/items?category=spaceship returns exactly the two ships, name-sorted, with kind-generic fields', async (t) => {

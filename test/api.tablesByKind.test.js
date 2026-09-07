@@ -115,6 +115,66 @@ test('?kind=spaceship reads the SHIP Backdrop - the collision test', async (t) =
     assert.ok(!texts.includes('a neon-lit market district || civ'));
 });
 
+/* ---- group ordering, per kind ---- */
+
+// The only test anywhere of SPACESHIP_TABLE_GROUPS and of groupTables' kindId
+// parameter. test/tableGroups.test.js is a protected lib/ unit test and every
+// other assertion in this file runs the groups through flatten() first, which
+// throws the group NAMES away - so the one thing the ship group list exists to
+// do had no coverage at all. Its own tables text rather than the shared
+// fixture, because the trait-options test above pins that fixture's table set
+// exactly.
+const GROUPED_SHIP_TABLES = [
+    '## Backdrop',
+    '- a debt collector with a grudge || crime',
+    '',
+    '## Name prefixes',
+    '- ISV',
+    '',
+    '## Hull',
+    '- a scorched patchwork hull',
+    '',
+    '## Ship type',
+    '- a rust-streaked patrol boat',
+    '',
+    '## Hull ID',
+    '- SV-0114',
+    '',
+].join('\n');
+
+test('?kind=spaceship groups by the SHIP list, with Name prefixes under Identity', async (t) => {
+    const server = await withServer(t, { spaceshipTablesText: GROUPED_SHIP_TABLES });
+
+    const { status, groups } = await getTableBullets(server, '?kind=spaceship');
+    assert.equal(status, 200);
+    // Systems is absent because nothing in the fixture belongs to it - an
+    // empty group is dropped rather than rendered - and 'Hull ID' is named in
+    // no group, so it lands in the trailing Other bucket.
+    assert.deepEqual(groups.map((g) => g.group), ['Identity', 'Structure', 'Scene', 'Other']);
+
+    // The Name prefixes fix itself: '## Name prefixes' is a real roll table
+    // (the registry mark joined to '## Ship names'), and before it was listed
+    // it fell through to Other while Ship names sat under Identity.
+    const identity = groups.find((g) => g.group === 'Identity');
+    assert.deepEqual(identity.rows.map((r) => r.table.name), ['Name prefixes', 'Ship type']);
+    const other = groups.find((g) => g.group === 'Other');
+    assert.deepEqual(other.rows.map((r) => r.table.name), ['Hull ID']);
+});
+
+test('?kind=npc groups by the NPC list, not the ship one', async (t) => {
+    const server = await withServer(t, { spaceshipTablesText: GROUPED_SHIP_TABLES });
+
+    // The same two headings exist in both lists' vocabularies, so this is the
+    // assertion that kindId actually selects a list: Role is an NPC Identity
+    // table and appears in no ship group, so a ship-grouped NPC file would put
+    // it in Other.
+    const { status, groups } = await getTableBullets(server, '?kind=npc');
+    assert.equal(status, 200);
+    assert.deepEqual(groups.map((g) => g.group), ['Identity', 'Scene']);
+    const identity = groups.find((g) => g.group === 'Identity');
+    assert.deepEqual(identity.rows.map((r) => r.table.name), ['Role']);
+});
+
 /* ---- the cross-file write guard ---- */
 
 test('POST /api/table-bullets/toggle for a ship rewrites ONLY the ship file', async (t) => {

@@ -172,6 +172,12 @@ async function startTestServer({
     return {
         baseUrl,
         dir,
+        // The spawned server.js process. No test drives the server through
+        // this - it is exposed so helpers.testServer.test.js can await the
+        // child's real 'exit' event and then call stop() against a child that
+        // has ALREADY gone, which is the one state the old stop() hung on and
+        // the only way to pin the fix.
+        child,
         tablesPath,
         // undefined when the caller never passed spaceshipTablesText, same
         // as generateSpaceshipScript is never exposed at all - a test that
@@ -180,12 +186,51 @@ async function startTestServer({
         spaceshipTablesPath,
         manifestPath,
         presetsDir,
+        /**
+         * Shuts the child down and removes its fixture directory. Called from
+         * a `t.after` hook in all 55 test files, which is why it must be
+         * incapable of hanging: a pending promise there stalls the whole
+         * runner with no output.
+         *
+         * The original waited on `child.once('exit')` unconditionally. 'exit'
+         * fires exactly once, so a child that had ALREADY gone - crashed after
+         * readiness, OOM-killed, reaped by a CI runner - never fired it again,
+         * `child.kill()` was a no-op returning false, and the promise stayed
+         * pending forever. The `exited` flag above was already tracking that
+         * and simply was not consulted.
+         *
+         * So: consult it first and finish immediately when the child is gone,
+         * and back even the live path with a timer that resolves anyway.
+         * `settle()` is idempotent and clears the timer, so the fallback can
+         * neither fire after a normal exit nor leave the temp directory
+         * behind - whichever of the three paths runs first does the rmSync.
+         */
         stop() {
             return new Promise((resolve) => {
-                child.once('exit', () => {
-                    fs.rmSync(dir, { recursive: true, force: true });
+                let done = false;
+                let timer = null;
+                const settle = () => {
+                    if (done) return;
+                    done = true;
+                    if (timer) clearTimeout(timer);
+                    // maxRetries/try-catch only for the fallback path: it can
+                    // run while the child is still alive and still holding a
+                    // handle inside `dir`, and on Windows that is an EBUSY
+                    // throw. Thrown from a timer callback it would be an
+                    // uncaught exception that kills the whole test process -
+                    // a stranded temp directory under os.tmpdir() is the far
+                    // cheaper failure.
+                    try {
+                        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+                    } catch { /* the OS cleans os.tmpdir(); a hung suite it does not */ }
                     resolve();
-                });
+                };
+                if (exited) return settle();
+                child.once('exit', settle);
+                // unref'd so a fallback still pending cannot by itself hold
+                // the test process open past the last assertion.
+                timer = setTimeout(settle, 5000);
+                if (timer.unref) timer.unref();
                 child.kill();
             });
         },
