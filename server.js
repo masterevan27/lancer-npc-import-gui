@@ -54,6 +54,7 @@ const tableGroups = require('./lib/tableGroups');
 const presets = require('./lib/presets');
 const createPresets = require('./lib/createPresets');
 const { derivePaths } = require('./lib/paths');
+const { buildKinds, kindFor, kindOf, DEFAULT_KIND } = require('./lib/kinds');
 const pronouns = require('./lib/pronouns');
 const traitOptions = require('./lib/traitOptions');
 const traitOdds = require('./lib/traitOdds');
@@ -174,6 +175,7 @@ if (!config.npcManifestPath || !config.foundryDataRoot) {
 
 // Path layout lives in lib/paths.js so it can be tested directly; see the
 // comment there for how each value is derived and overridden.
+const DERIVED_PATHS = derivePaths(config);
 const {
     generateNpcScript: GENERATE_NPC_SCRIPT,
     generate3dScript: GENERATE_3D_SCRIPT,
@@ -182,7 +184,11 @@ const {
     stagedRefsDir: STAGED_REFS_DIR,
     presetsDir: PRESETS_DIR,
     createPresetsDir: CREATE_PRESETS_DIR,
-} = derivePaths(config);
+} = DERIVED_PATHS;
+
+// The kind registry - see lib/kinds.js for what varies between an NPC and a
+// spaceship and why it is resolved here rather than as scattered constants.
+const KINDS = buildKinds(DERIVED_PATHS, config);
 
 /* ------------------------------------------------------------------ */
 /* Manifest access                                                     */
@@ -271,15 +277,17 @@ function sortKeysDeep(value) {
 }
 
 /**
- * <foundryDataRoot>/<foundryNpcSubdir>/<category>/<name>/ - the same
- * <category>/<name> nesting npc_folder() in generate-npc.py uses, just
- * rooted under Foundry's Data folder instead of wherever the item currently
- * lives (normally a ComfyUI review folder).
+ * <foundryDataRoot>/<kind's foundrySubdir>/<category>/<name>/ - the same
+ * <category>/<name> nesting npc_folder() (and its spaceship equivalent) in
+ * the generator uses, just rooted under Foundry's Data folder instead of
+ * wherever the item currently lives (normally a ComfyUI review folder). The
+ * subdir comes from the kind registry rather than a fixed constant so a ship
+ * files under LancerSpaceships instead of LancerNPCs.
  */
 function foundryDestFolder(item) {
     const category = path.basename(path.dirname(item.folderPath));
     const name = path.basename(item.folderPath);
-    return path.join(config.foundryDataRoot, config.foundryNpcSubdir, category, name);
+    return path.join(config.foundryDataRoot, kindOf(KINDS, item).foundrySubdir, category, name);
 }
 
 /**
@@ -1127,10 +1135,14 @@ function rerollableFor(item) {
 }
 
 /**
- * The manifest's NPC entries as they stand right now - each one's folder path
- * and id - or null if we could not read them. Taken either side of a create job
- * so the job can report what it actually produced rather than what was asked
- * for; see `job.produced` and `job.producedIds` below. loadManifest() re-reads
+ * The manifest's entries of one kind as they stand right now - each one's
+ * folder path and id - or null if we could not read them. Taken either side
+ * of a create job so the job can report what it actually produced rather
+ * than what was asked for; see `job.produced` and `job.producedIds` below.
+ * Generic over kind rather than hard-coded to 'npc' because startCreateJob's
+ * caller may one day create a ship the same way it creates an NPC today -
+ * today it only ever passes DEFAULT_KIND, since /api/create-npc is the only
+ * create route that exists. loadManifest() re-reads
  * the file fresh (and treats a missing one as empty, so a first-ever run
  * snapshots nothing and still counts correctly); it only throws on a hard read
  * error, and a transient one of those inside a 'close' handler would be an
@@ -1155,10 +1167,10 @@ function rerollableFor(item) {
  * for the NPCs that banner is announcing, so the run has to be able to name
  * them. See the comment on `job.producedIds`.
  */
-function npcEntriesSnapshot() {
+function entriesSnapshot(kind) {
     try {
         return loadManifest()
-            .filter((item) => item.kind === 'npc')
+            .filter((item) => (item.kind || 'npc') === kind)
             .map((item) => ({ folderPath: item.folderPath, id: item.id }));
     } catch {
         return null;
@@ -1186,7 +1198,7 @@ function startCreateJob(opts) {
     // `producedIds` stay null until the run ends and, for a dry run or an
     // unreadable manifest, forever: null means "not measured", which the client
     // tells apart from a measured zero (and from a measured empty list).
-    const entriesBefore = npcEntriesSnapshot();
+    const entriesBefore = entriesSnapshot(DEFAULT_KIND);
     const foldersBefore = entriesBefore && new Set(entriesBefore.map((entry) => entry.folderPath));
 
     const jobId = crypto.randomUUID();
@@ -1222,7 +1234,7 @@ function startCreateJob(opts) {
         // dry run: it writes no manifest entries, and the client ignores the
         // number anyway.
         if (job.status === 'done' && !job.dryRun && foldersBefore) {
-            const entriesAfter = npcEntriesSnapshot();
+            const entriesAfter = entriesSnapshot(DEFAULT_KIND);
             const added = entriesAfter
                 && entriesAfter.filter((entry) => !foldersBefore.has(entry.folderPath));
             job.produced = added ? added.length : null;
@@ -1771,6 +1783,18 @@ function itemView(item) {
         // `hidden = !item.artStale` and as a badge arm, and an entry written
         // before the marker existed has to answer false rather than undefined.
         artStale: !!item.artStale,
+        // What this item's kind can do - regen, setTrait, model3d and so on.
+        // Read from the registry rather than inlined per-route, so a route
+        // that wants to know whether to offer a button asks this instead of
+        // adding another `item.kind === 'npc'` branch next to roleCategory's.
+        supports: kindOf(KINDS, item).supports,
+        // Grid units, NOT pixels. The manifest's tokenWidth/tokenHeight are
+        // the rendered canvas in pixels; gridWidth/gridHeight are the hex
+        // count Foundry sets token.width from. Confusing the two draws a
+        // cruiser 1728 hexes wide.
+        tokenHexes: Number.isInteger(item.gridWidth)
+            ? { w: item.gridWidth, h: item.gridHeight ?? item.gridWidth }
+            : null,
     };
 }
 
@@ -1817,7 +1841,15 @@ async function handleApi(req, res, url) {
         for (const item of loadManifest()) {
             byKind.set(item.kind, (byKind.get(item.kind) || 0) + 1);
         }
-        const categories = [...byKind.entries()].map(([id, count]) => ({ id, count }));
+        const categories = [...byKind.entries()].map(([id, count]) => {
+            // Same fallback as the rest of the registry lookups: an id the
+            // manifest actually holds is always 'npc' or 'spaceship' today,
+            // but a garbage or missing kind must still resolve to something
+            // rather than sending the client a category row with an
+            // undefined label.
+            const entry = kindFor(KINDS, id) || kindFor(KINDS, DEFAULT_KIND);
+            return { id, count, label: entry.label, supports: entry.supports };
+        });
         return sendJson(res, 200, { categories });
     }
 
@@ -1974,6 +2006,15 @@ async function handleApi(req, res, url) {
     if (url.pathname === '/api/model-3d' && req.method === 'GET') {
         const item = url.searchParams.get('id') && findItem(url.searchParams.get('id'));
         if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        // Same refusal startModel3dJob's POST handler always gave a ship,
+        // just read off the registry's capability flag instead of a second
+        // `item.kind !== 'npc'` - so the GET side of the panel agrees with
+        // the POST side about what a kind supports without repeating the check.
+        if (!kindOf(KINDS, item).supports.model3d) {
+            return sendJson(res, 400, {
+                error: `building a 3D model isn't supported for kind "${item.kind}" yet`,
+            });
+        }
         return sendJson(res, 200, model3dView(item));
     }
 
