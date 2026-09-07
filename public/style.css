@@ -729,6 +729,11 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   gap: 0.8rem;
   margin-bottom: 0.9rem;
 }
+/* A flex column, and that is doing more than stacking: the bare text node
+   ("Seed "), the .hint span and the control each become their own flex item,
+   which is why a hint always sits on its own line under the field name rather
+   than trailing it inline. Both forms rely on that for a consistent shape - do
+   not switch this to block flow expecting the hint to stay put. */
 .form-field {
   display: flex;
   flex-direction: column;
@@ -736,13 +741,33 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   font-size: 0.82rem;
   color: #b3bac6;
 }
+/* margin-top: auto is the alignment fix for the Create NPC / Create Spaceship
+   grids. The label areas differ in height - "Count" is one line, "Seed" plus
+   its hint is two - and with the control laid out straight under whichever
+   label it got, one row of three fields showed three inputs at three
+   different heights (Count's sat 20px above Seed's and Name's). .form-grid
+   stretches every cell to its row's height (grid's default align-items), so
+   the cell already has the slack; the auto margin hands all of it to the gap
+   above the control and pins the control to the cell's bottom edge. Every
+   control in a row then shares one bottom, at any width and any font size,
+   without hard-coding a label height that would be wrong the moment a hint
+   wrapped differently. */
 .form-field input, .form-field select {
+  margin-top: auto;
   background: #262a33;
   border: 1px solid #363b47;
   color: #e6e6e6;
   padding: 0.35rem 0.5rem;
   border-radius: 4px;
   font-size: 0.85rem;
+  /* A shared bottom is only half of it: a native <select> renders ~2px taller
+     than a text input given the same padding and font, so with bottoms level
+     the tops still stepped. One explicit height (border-box, per the global
+     reset) makes both controls the same outer size, so tops and bottoms both
+     line up. Scoped to .form-field on purpose - the preset row's select and
+     the override rows' controls are not in these grids and keep their own
+     sizing. */
+  height: 2rem;
 }
 .form-field input:disabled { opacity: 0.5; }
 .hint { color: #6b7280; font-size: 0.75rem; font-weight: normal; }
