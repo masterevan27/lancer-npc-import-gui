@@ -359,7 +359,7 @@ To `DEFAULT_CONFIG` (`server.js:64-107`) and `config.example.json`:
 - [ ] **Step 11: Run the whole suite and commit**
 
 ```bash
-node --test
+node --test --test-concurrency=8 "test/*.test.js"
 ```
 
 Expected: 422 + the new tests, 0 failing. Nothing else changed, so nothing else can have moved.
@@ -483,7 +483,7 @@ All three are additive, so `test/api.imageLocation.test.js` and its neighbours k
 
 ```bash
 node --test test/api.items.spaceship.test.js
-node --test
+node --test --test-concurrency=8 "test/*.test.js"
 ```
 
 Expected: the new file passes; the suite is 422 + new, 0 failing. **If any `api.*` file went red, an existing route changed behaviour with `kind` absent — that is the Global Constraint, revert and re-read §2.5.**
@@ -676,7 +676,7 @@ Expected: all pass, the cross-file write assertion included.
 - [ ] **Step 14: Run the whole suite and commit**
 
 ```bash
-node --test
+node --test --test-concurrency=8 "test/*.test.js"
 ```
 
 Expected: green, with `api.createArgs`, `api.rerollTrait`, `api.setTrait`, `api.traitChoices`, `api.traitOdds`, `api.presets` and `api.tableBullets` all passing **unchanged** — every kind defaults to `npc`, so they cannot have moved.
@@ -875,7 +875,7 @@ And to `POST /importer/reconcile`:
 - [ ] **Step 10: Run the suite and commit**
 
 ```bash
-node --test
+node --test --test-concurrency=8 "test/*.test.js"
 git add server.js docs/foundry-importer-contract.md test/
 git commit -F - <<'MSG'
 feat: import a spaceship at the size it actually is
@@ -998,7 +998,7 @@ el.detailSub.textContent = [item.roleCategory, item.traits?.Role,
 node --test test/ui.rerollConfirm.test.js test/ui.traitColumns.test.js \
             test/ui.setTraitPicker.test.js test/ui.newBadge.test.js \
             test/ui.regenBanner.test.js test/ui.kindVocab.test.js
-node --test
+node --test --test-concurrency=8 "test/*.test.js"
 ```
 
 Expected: **every one of the first five passes unchanged** — if `ui.rerollConfirm` goes red the default parameter is wrong, and the fix is the default, not the test. Then the suite green with `ui.batchBanner` on its updated assertions.
@@ -1138,7 +1138,7 @@ Changing the kind clears `tablesState.selectedTable`, `odds` and `pendingPreset`
 
 ```bash
 node --test test/ui.shipCreate.test.js test/ui.newBadge.test.js
-node --test
+node --test --test-concurrency=8 "test/*.test.js"
 ```
 
 Expected: both named files pass — `ui.newBadge` unchanged — then the whole suite green.
@@ -1199,7 +1199,7 @@ Document the eleven new config keys and the ship tab. In the handoff plan, remov
 - [ ] **Step 5: Run the suite and commit**
 
 ```bash
-node --test
+node --test --test-concurrency=8 "test/*.test.js"
 git add server.js lib/tableGroups.js docs/ README.md
 git commit -F - <<'MSG'
 feat: ship trait staging, and the notes the next reader needs
@@ -1228,7 +1228,7 @@ MSG
 
 ```bash
 cd G:/GIT-REPOS/lancer-npc-import-gui/.claude/worktrees/ultracode-features
-node --test                     # 422 baseline + ~9 new files, 0 failing
+node --test --test-concurrency=8 "test/*.test.js"   # 422 baseline + ~9 new files, 0 failing
 ```
 
 Then, against a real generator and a real ComfyUI, by hand:

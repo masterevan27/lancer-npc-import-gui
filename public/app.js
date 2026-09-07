@@ -983,7 +983,27 @@ function releaseLabel(choice) {
   return `also re-roll ${named} (and ${extra} trait${extra === 1 ? '' : 's'} that depend on ${them})`;
 }
 
-function traitControlCells(trait, rerollable) {
+/**
+ * The two gutter cells for one trait's row: a live pair of controls, the
+ * explained-but-disabled Re-roll, or two empty cells.
+ *
+ * `vocab` is which kind's raw-rerollable list answers the middle branch, and
+ * it is the fourth reader of the trait vocabulary rather than the fourth
+ * hard-coded reference to createState. That branch used to ask the NPC list
+ * whatever kind the row belonged to, which put NPC copy on a spaceship's
+ * sheet: the seven headings both tables files share - Backdrop, Weather, Glow
+ * colour, Glow placement, Theme, Faction and Weapon - are all in the NPC raw
+ * list, so a ship trait missing from the ship's own rerollable list rendered a
+ * greyed button explaining that "this NPC was generated before its raw trait
+ * bullets were recorded". Reachable on any ship sheet opened while
+ * shipCreateState is still empty, since ensureVocab swallows a failed load.
+ *
+ * Optional and trailing, like the three seam functions above: every existing
+ * two-argument call - here and in the test files that lift this function out
+ * of the served source and inject a variable named createState - keeps
+ * resolving the NPC vocabulary it always meant.
+ */
+function traitControlCells(trait, rerollable, vocab = createState) {
   const name = escapeHtml(trait);
   // Both cells go out of every branch, so the row always has four columns.
   const cells = (reroll, set) =>
@@ -998,7 +1018,7 @@ function traitControlCells(trait, rerollable) {
       `<button type="button" class="set-trait-btn" data-trait="${name}"
              title="Choose a value for ${name} and re-render this NPC">Set&hellip;</button>`);
   }
-  if (createState.rawRerollableTraits.includes(trait)) {
+  if ((vocab.rawRerollableTraits || []).includes(trait)) {
     const why = `This NPC was generated before its raw trait bullets were recorded, so ${name} `
       + 'cannot be re-rolled on its own. Re-roll the whole NPC once to record them and this '
       + 'button turns on.';
@@ -1095,11 +1115,17 @@ function renderDetailTraits(item) {
   // carries its own kind, so the sheet reads the lists that item was rolled
   // from; an item with no kind, and a kind this page does not know, both fall
   // back to createState inside vocabFor and behave exactly as before.
-  const rerollable = rerollableForItem(item, vocabFor(item.kind));
+  //
+  // Resolved once and handed to both readers. traitControlCells needs it too:
+  // the list it consults when a trait is NOT rerollable decides whether the
+  // row gets the greyed "re-roll the whole NPC once" explanation, and asking
+  // the NPC list that question on a ship put NPC copy under a ship's traits.
+  const vocab = vocabFor(item.kind);
+  const rerollable = rerollableForItem(item, vocab);
   el.detailTraits.innerHTML = Object.entries(item.traits || {})
     .filter(([k]) => !TRAIT_KEY_EXCLUDE.includes(k))
     .map(([k, v]) => {
-      const cells = traitControlCells(k, rerollable);
+      const cells = traitControlCells(k, rerollable, vocab);
       return `<tr>${cells}<td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`;
     })
     .join('');

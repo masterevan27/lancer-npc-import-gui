@@ -403,7 +403,7 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test --test-concurrency=8 "test/*.test.js"
 ```
 
-Expect `pass 516`, `fail 0`, in about nine seconds. No install step; the suite
+Expect `pass 517`, `fail 0`, in about nine seconds. No install step; the suite
 spawns real `server.js` child processes against synthetic fixture directories,
 never your real `config.json` or tables. Each test file binds a **fixed,
 distinct** port because `node --test` runs files concurrently — a new test file
@@ -453,7 +453,7 @@ to lose. Let one run finish before starting another.
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs
 `node --test --test-concurrency=8` — same cap, and for the same reason — but
 without the glob, so it also picks up `test/helpers/testServer.js` as a file
-with no tests in it. Expect one more there, `pass 517`, for a helper that
+with no tests in it. Expect one more there, `pass 518`, for a helper that
 declares no tests and therefore cannot fail. Both numbers move whenever a test
 is added; they are worth updating together.
 

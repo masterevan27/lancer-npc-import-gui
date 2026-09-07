@@ -273,6 +273,14 @@ test('a ship\'s trait table draws its buttons from the ship vocabulary', async (
         'an NPC trait got a live Re-roll button on a spaceship');
     assert.equal((detailTraits.innerHTML.match(/class="reroll-btn" data-trait=/g) || []).length, 1,
         'the ship sheet offered a different set of live buttons than its own vocabulary holds');
+    // The disabled variant carries no data-trait, so the two assertions above
+    // cannot see it - and it is the branch that puts "This NPC was generated
+    // before its raw trait bullets were recorded" under a spaceship's traits.
+    // Asked of the ship's own vocabulary, Eyes is in neither of its lists and
+    // gets two empty cells; asked of the NPC's, it gets that sentence.
+    assert.doesNotMatch(detailTraits.innerHTML, /reroll-unavailable/,
+        'a ship trait row carries the NPC explanation, so the disabled branch is still '
+        + 'reading createState rather than the vocabulary the row was drawn from');
 
     // And the NPC path is unchanged by the same call: no kind on the item is
     // what every manifest entry written before spaceships existed looks like.
@@ -342,6 +350,42 @@ test('renderDetailTraits asks the item which vocabulary to read', async (t) => {
     t.after(() => server.stop());
 
     const js = await fetchText(server, '/app.js');
-    assert.match(js, /rerollableForItem\(item, vocabFor\(item\.kind\)\)/,
-        'the trait table resolves its rerollable list without consulting the item\'s kind');
+    // Resolved once, then handed to both readers. Two separate vocabFor calls
+    // would work, but the pair of them is the thing worth pinning: the list
+    // that decides which buttons are live and the list that decides whether a
+    // dead row gets an explanation have to be the same kind's, or a ship gets
+    // live ship buttons on some rows and NPC copy on others.
+    const start = js.indexOf('function renderDetailTraits(');
+    assert.notEqual(start, -1, 'app.js no longer defines renderDetailTraits');
+    const body = js.slice(start, js.indexOf('\n}', start));
+    assert.match(body, /const vocab = vocabFor\(item\.kind\)/,
+        'the trait table resolves its lists without consulting the item\'s kind');
+    assert.match(body, /rerollableForItem\(item, vocab\)/,
+        'the rerollable list is still read from the default NPC vocabulary');
+    assert.match(body, /traitControlCells\(k, rerollable, vocab\)/,
+        'the gutter cells are still built against the default NPC vocabulary, so a ship trait '
+        + 'in the NPC raw list gets the "this NPC was generated before..." explanation');
+});
+
+test('traitControlCells takes the vocabulary as an optional trailing argument', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    // Optional and trailing, exactly like the three functions above it. Every
+    // two-argument call keeps meaning createState, which is what lets
+    // ui.traitColumns.test.js go on lifting this function and calling it with
+    // two arguments without a line of that file changing.
+    assert.match(js, /function traitControlCells\(trait, rerollable, vocab = createState\)/,
+        'traitControlCells cannot be told which kind\'s raw list to explain from');
+
+    const traitControlCells = liftFunction(js, 'traitControlCells', NPC_STATE, { escapeHtml });
+    // Theme is in the NPC raw list and in no ship list. Two arguments still
+    // answer from createState; a third answers from what it is handed.
+    assert.match(traitControlCells('Theme', []), /reroll-unavailable/,
+        'the default no longer reaches createState, so an NPC row lost its explanation');
+    assert.doesNotMatch(traitControlCells('Theme', [], SHIP_STATE), /reroll-unavailable/,
+        'a ship row is explained out of the NPC raw list');
+    assert.match(traitControlCells('Hull', [], SHIP_STATE), /reroll-unavailable/,
+        'a ship trait in the ship raw list lost its explanation');
 });
