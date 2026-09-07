@@ -12,6 +12,7 @@ test('derives every generator path from npcManifestPath alone', () => {
     assert.strictEqual(p.stagedImportsDir, path.join(REPO, 'prompts', 'staged-imports'));
     assert.strictEqual(p.stagedRefsDir, path.join(REPO, 'prompts', 'staged-imports', 'refs'));
     assert.strictEqual(p.presetsDir, path.join(REPO, 'prompts', 'presets'));
+    assert.strictEqual(p.createPresetsDir, path.join(REPO, 'prompts', 'presets', 'create'));
 });
 
 test('an explicit config key overrides the derived value', () => {
@@ -24,6 +25,26 @@ test('an explicit config key overrides the derived value', () => {
     assert.strictEqual(p.stagedImportsDir, path.join('D:', 'elsewhere', 'staged-imports'));
     assert.strictEqual(p.stagedRefsDir, path.join('D:', 'elsewhere', 'staged-imports', 'refs'));
     assert.strictEqual(p.presetsDir, path.join('D:', 'elsewhere', 'presets'));
+    assert.strictEqual(p.createPresetsDir, path.join('D:', 'elsewhere', 'presets', 'create'));
+});
+
+test('createPresetsDir follows presetsDir, and can be moved on its own', () => {
+    // The failure this pins: a GM points presetsDir at a synced drive so their
+    // table presets travel between machines, and their Create-form presets
+    // keep being written into the generator repo because the second path was
+    // recomputed from npcTablesPath instead of following the first.
+    const moved = derivePaths({
+        npcManifestPath: path.join(REPO, '.generated-npcs.json'),
+        presetsDir: path.join('D:', 'synced', 'presets'),
+    });
+    assert.strictEqual(moved.createPresetsDir, path.join('D:', 'synced', 'presets', 'create'));
+
+    const split = derivePaths({
+        npcManifestPath: path.join(REPO, '.generated-npcs.json'),
+        createPresetsDir: path.join('E:', 'create-presets'),
+    });
+    assert.strictEqual(split.createPresetsDir, path.join('E:', 'create-presets'));
+    assert.strictEqual(split.presetsDir, path.join(REPO, 'prompts', 'presets'));
 });
 
 test('stagedRefsDir follows stagedImportsDir, and can be moved on its own', () => {

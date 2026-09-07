@@ -111,6 +111,29 @@
     <div class="filter-rows" id="override-rows"></div>
     <button id="add-override" type="button">+ Add trait override</button>
 
+    <!--
+      Presets for the form above, the sibling of the Tables tab's own. A saved
+      preset is the whole recipe - count, pronouns, the four switches and every
+      trait override - so "frontier medic run" or "zero-g salvage crew" is one
+      click rather than eight. Deliberately not the Name field: a preset is
+      reusable and a character's name is not.
+    -->
+    <div class="create-presets">
+      <div class="create-presets-row">
+        <label for="create-preset-select">Presets</label>
+        <select id="create-preset-select"></select>
+        <button id="create-preset-load" type="button" disabled>Load</button>
+        <button id="create-preset-save" type="button">Save current as preset&hellip;</button>
+        <button id="create-preset-download" type="button" disabled>Download</button>
+        <label class="preset-import-label">
+          Import preset&hellip;
+          <input type="file" id="create-preset-import" accept="application/json" hidden />
+        </label>
+        <button id="create-preset-delete" type="button" disabled>Delete</button>
+      </div>
+      <p class="create-preset-status" id="create-preset-status"></p>
+    </div>
+
     <div class="form-row create-actions">
       <button id="create-dry-run-btn" type="button">Preview (dry run)</button>
       <button id="create-generate-btn" type="button">Generate</button>

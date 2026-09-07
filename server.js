@@ -52,6 +52,7 @@ const { spawn } = require('node:child_process');
 const tableBullets = require('./lib/tableBullets');
 const tableGroups = require('./lib/tableGroups');
 const presets = require('./lib/presets');
+const createPresets = require('./lib/createPresets');
 const { derivePaths } = require('./lib/paths');
 const pronouns = require('./lib/pronouns');
 const traitOptions = require('./lib/traitOptions');
@@ -92,6 +93,11 @@ const DEFAULT_CONFIG = {
     // thing here measured in tens of megabytes per run.
     stagedRefsDir: '',
     presetsDir: '',
+    // Create NPC form presets. Defaults to create/ inside presetsDir, so the
+    // two flavours stay one folder to back up; override it only to split them
+    // deliberately, and note that overriding presetsDir alone already moves
+    // this one with it.
+    createPresetsDir: '',
     // Rolls behind each percentage on the Tables page. The trade is precision
     // against how long the number takes to settle after an edit: 20,000 rolls
     // is about six seconds and holds still at whole-percent precision, while
@@ -139,6 +145,7 @@ const {
     stagedImportsDir: STAGED_IMPORTS_DIR,
     stagedRefsDir: STAGED_REFS_DIR,
     presetsDir: PRESETS_DIR,
+    createPresetsDir: CREATE_PRESETS_DIR,
 } = derivePaths(config);
 
 /* ------------------------------------------------------------------ */
@@ -1634,6 +1641,27 @@ function serveStatic(req, res, pathname) {
     fs.createReadStream(file).pipe(res);
 }
 
+/**
+ * A slug off a query string or a request body, or null when it must not be
+ * allowed to reach path.join.
+ *
+ * The Create preset routes turn a slug straight into a filename, and the export
+ * route additionally spells it into a Content-Disposition header, so an
+ * unchecked slug is two holes at once: `../../../etc/passwd` reads any file on
+ * the box that happens to parse as JSON, and a slug carrying a CR/LF injects
+ * whatever headers it likes into that response.
+ *
+ * A whitelist rather than a hunt for '..' and separators, because slugify()
+ * only ever emits lowercase letters, digits and hyphens - anything outside that
+ * alphabet cannot have come from the save route, so refusing it outright costs
+ * nothing and leaves no second encoding (%2e%2e, backslashes on Windows,
+ * unicode lookalikes) to have to reason about later.
+ */
+function safeSlug(value) {
+    if (typeof value !== 'string' || !value) return null;
+    return /^[a-z0-9][a-z0-9-]*$/.test(value) ? value : null;
+}
+
 async function handleApi(req, res, url) {
     if (url.pathname === '/api/categories' && req.method === 'GET') {
         const byKind = new Map();
@@ -2114,13 +2142,23 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
-        const slug = typeof body.slug === 'string' ? body.slug : '';
+        // safeSlug rather than a bare string check. This reached
+        // path.join(dir, slug + '.json') unguarded, so a slug of
+        // '../../../../some/other' deleted any .json file the server process
+        // could write to. slugify() only ever emits [a-z0-9-], so nothing a
+        // preset saved through this app can be named is refused by the guard -
+        // it costs no legitimate behaviour at all. Same fix on /export below.
+        const slug = safeSlug(body.slug);
         const ok = slug && presets.deletePreset(PRESETS_DIR, slug);
         return ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'unknown preset' });
     }
 
     if (url.pathname === '/api/presets/export' && req.method === 'GET') {
-        const slug = url.searchParams.get('slug') || '';
+        // Guarded for the reason /delete above is, and for one more of its
+        // own: the slug is interpolated into a Content-Disposition header
+        // below, so a CR or LF in it injects response headers. safeSlug's
+        // character class excludes both without having to reason about it.
+        const slug = safeSlug(url.searchParams.get('slug'));
         const preset = slug && presets.readPreset(PRESETS_DIR, slug);
         if (!preset) return sendJson(res, 404, { error: 'unknown preset' });
         const payload = JSON.stringify(preset, null, 2);
@@ -2179,6 +2217,116 @@ async function handleApi(req, res, url) {
         ];
         const { failed } = tableBullets.applyEditsOnDisk(NPC_TABLES_PATH, edits);
         return sendJson(res, 200, { ...diff, failed });
+    }
+
+    /* ---- Create NPC form presets ---- */
+
+    // There is deliberately no /api/create-presets/apply beside the family
+    // below, and its absence next to the Tables presets - which do have one -
+    // is worth stating so nobody adds it back as an oversight. Applying a
+    // Tables preset rewrites npc-generator-tables.md, which only the server can
+    // do; applying a Create preset sets the value of a dozen form controls in
+    // the browser and touches nothing on disk at all. A round trip for that
+    // would be a route whose entire job is to hand its own request body back.
+    // The import route below is where a preset last passes through here, and
+    // the settings it returns are in the checkbox sense - the client flips
+    // portrait/token into the generator's --no-portrait / --no-token when it
+    // eventually posts /api/create-npc, which is also where the "both off
+    // leaves nothing to generate" rule still lives, because a preset saved
+    // half-edited is legitimate but a run made from it is not.
+
+    if (url.pathname === '/api/create-presets' && req.method === 'GET') {
+        return sendJson(res, 200, { presets: createPresets.listCreatePresets(CREATE_PRESETS_DIR) });
+    }
+
+    if (url.pathname === '/api/create-presets' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const name = typeof body.name === 'string' ? body.name.trim() : '';
+        if (!name) return sendJson(res, 400, { error: 'name is required' });
+        const slug = createPresets.slugify(name);
+        if (!slug) return sendJson(res, 400, { error: 'name must contain at least one letter or digit' });
+        // The duplicate check comes before the settings check, matching
+        // /api/presets, because "you already have one of those" is about the
+        // request the user made and a field-level complaint is about the form
+        // they are still holding - answering the second question first would
+        // have them fix a value only to be told the save was never possible.
+        if (createPresets.createPresetExists(CREATE_PRESETS_DIR, slug)) {
+            return sendJson(res, 409, { error: `a preset named "${name}" already exists` });
+        }
+        const result = createPresets.normaliseSettings(body.settings);
+        // Passed through verbatim: normaliseSettings names the field it choked
+        // on, and rewording that here into a generic "invalid settings" would
+        // throw away the only part of the message a user can act on.
+        if (!result.ok) return sendJson(res, 400, { error: result.error });
+        // `kind` is left off on purpose so writeCreatePreset stamps it. One
+        // place decides what a Create preset file is labelled, which is what
+        // keeps a file this app wrote re-importable by this app.
+        createPresets.writeCreatePreset(CREATE_PRESETS_DIR, slug, {
+            name,
+            created: new Date().toISOString(),
+            settings: result.settings,
+        });
+        return sendJson(res, 200, { ok: true, slug });
+    }
+
+    if (url.pathname === '/api/create-presets/delete' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        // A slug that fails safeSlug answers 404 rather than 400, the same as
+        // one that simply is not there. Separating the two would tell anyone
+        // poking at this which of their guesses were at least the right shape,
+        // and the honest client never sends either.
+        const slug = safeSlug(body.slug);
+        const ok = slug && createPresets.deleteCreatePreset(CREATE_PRESETS_DIR, slug);
+        return ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'unknown preset' });
+    }
+
+    if (url.pathname === '/api/create-presets/export' && req.method === 'GET') {
+        const slug = safeSlug(url.searchParams.get('slug') || '');
+        const preset = slug && createPresets.readCreatePreset(CREATE_PRESETS_DIR, slug);
+        if (!preset) return sendJson(res, 404, { error: 'unknown preset' });
+        const payload = JSON.stringify(preset, null, 2);
+        res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${slug}.json"`,
+            'Content-Length': Buffer.byteLength(payload),
+        });
+        return res.end(payload);
+    }
+
+    if (url.pathname === '/api/create-presets/import' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const result = createPresets.validatePresetFile(body);
+        if (!result.ok) return sendJson(res, 400, { error: result.error });
+        // The override tables are checked here even though validatePresetFile
+        // cannot - it has no view of the generator's REQUIRED_TABLES. A preset
+        // naming a table that has since been renamed or dropped would otherwise
+        // load into the form looking fine and then fail on Generate with this
+        // exact message, at which point the user has lost the connection
+        // between the file they imported and the row that is wrong.
+        const unknown = result.preset.settings.overrides
+            .find((o) => !OVERRIDE_TABLES.includes(o.table));
+        if (unknown) return sendJson(res, 400, { error: `unknown table "${unknown.table}"` });
+        // Nothing is written: import fills the form, and the user decides
+        // whether it is worth saving under a name of their own.
+        return sendJson(res, 200, { ok: true, name: result.preset.name, settings: result.preset.settings });
     }
 
     if (url.pathname === '/api/create-npc' && req.method === 'POST') {
