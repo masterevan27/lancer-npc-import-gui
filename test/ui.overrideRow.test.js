@@ -240,3 +240,113 @@ test('an additive variant leaves its base table alone', async (t) => {
     assert.equal(pronounBlockReason(NEUTRAL, 'she'), null);
     assert.equal(pronounBlockReason(NEUTRAL, 'he'), null);
 });
+
+/* ---- the search's own feedback, and the way back out of a chosen value ---- */
+
+// WHY THESE EXIST. The search box was reported as broken - "the list does not
+// repopulate or search what the user is typing". It was not: filterTraitOptions
+// narrowed the <select> correctly the whole time. What was missing was any sign
+// of it. A closed <select> paints its selected option and nothing else, and a
+// chosen value the search excludes is deliberately kept selected (the pinning
+// in populateOverrideValues, so narrowing a list can never silently drop a
+// choice) - so the closed control and the .override-full readout under it both
+// went on showing the old bullet and the search looked dead. The reported
+// workaround was to reopen the list, scroll to the blank option at the top of
+// up to 319 entries and pick it, which is the only thing that made the closed
+// control reflect the search.
+//
+// So two things are pinned here: the sentence that says what the search did,
+// and the fact that clearing a value is a button rather than a scroll.
+
+/** app.js as text, for the assertions that are about the two renderers rather
+ * than about one liftable function. */
+async function appSource(t) {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const res = await fetch(`${server.baseUrl}/app.js`);
+    assert.equal(res.status, 200, '/app.js should be served');
+    return res.text();
+}
+
+test('a search says how many values it matched, so typing visibly does something', async (t) => {
+    const overrideSearchNote = await lift(t, 'overrideSearchNote');
+    const note = overrideSearchNote({ matched: 47, total: 192, pinned: false }, 'black');
+    assert.match(note, /47 of 192/, 'the note must carry both counts');
+    assert.match(note, /black/, 'and quote the query, so it is clearly about this keystroke');
+});
+
+test('an empty search says nothing at all', async (t) => {
+    const overrideSearchNote = await lift(t, 'overrideSearchNote');
+    // Empty rather than "192 of 192 match", which would put a line of chrome
+    // under every row on a form nobody has typed into yet. The caller keys the
+    // element's hidden flag off emptiness, so this is load-bearing.
+    assert.equal(overrideSearchNote({ matched: 192, total: 192, pinned: false }, ''), '');
+    assert.equal(overrideSearchNote({ matched: 192, total: 192, pinned: false }, '   '), '');
+});
+
+test('a search that matches nothing says so rather than reporting a zero', async (t) => {
+    const overrideSearchNote = await lift(t, 'overrideSearchNote');
+    const note = overrideSearchNote({ matched: 0, total: 192, pinned: false }, 'zzz');
+    assert.doesNotMatch(note, /0 of 192/, '"0 of 192 match" is a sentence nobody writes');
+    assert.match(note, /No value/i);
+    assert.match(note, /zzz/);
+});
+
+test('a pinned selection is explained, because it is why the closed control did not change', async (t) => {
+    const overrideSearchNote = await lift(t, 'overrideSearchNote');
+    const note = overrideSearchNote({ matched: 47, total: 192, pinned: true }, 'black');
+    assert.match(note, /47 of 192/, 'the counts stay, the pinning is an addition to them');
+    assert.match(note, /Clear/, 'and it names the way out');
+    // The whole point: without this sentence the row looks broken, so a note
+    // that only appeared when nothing matched would miss the reported case.
+    assert.ok(note.length
+        > overrideSearchNote({ matched: 47, total: 192, pinned: false }, 'black').length);
+});
+
+test('an unpinned search is not told about a pinning that is not happening', async (t) => {
+    const overrideSearchNote = await lift(t, 'overrideSearchNote');
+    // Said on every search it would be noise, and noise in an explanation is
+    // how people learn to stop reading explanations.
+    assert.doesNotMatch(overrideSearchNote({ matched: 5, total: 60, pinned: false }, 'hull'), /Clear/);
+});
+
+test('both Create forms draw a Clear button beside the value select', async (t) => {
+    const js = await appSource(t);
+
+    // The offer has to exist on both forms or the ship rows keep the scroll.
+    // Counted rather than merely found: one occurrence would mean only the NPC
+    // row got it, which is exactly how the two renderers drift.
+    const buttons = [...js.matchAll(/className = 'override-clear'/g)];
+    assert.equal(buttons.length, 2,
+        `override-clear is created ${buttons.length} times - renderOverrideRows and renderShipOverrideRows each need one`);
+    const searchNotes = [...js.matchAll(/className = 'override-search-note'/g)];
+    assert.equal(searchNotes.length, 2,
+        `override-search-note is created ${searchNotes.length} times - both forms need the feedback`);
+});
+
+test('Clear clears the value and keeps the row, on both forms', async (t) => {
+    const js = await appSource(t);
+    // The difference between this button and the row's own x, and the reason
+    // the request asked for it: "without removing the trait completely". A
+    // Clear that spliced the override out would be the x with a longer label.
+    for (const fn of ['renderOverrideRows', 'renderShipOverrideRows']) {
+        const start = js.indexOf(`function ${fn}(`);
+        assert.notEqual(start, -1, `app.js no longer defines ${fn}`);
+        const body = js.slice(start, js.indexOf('\nfunction ', start + 1));
+        const at = body.indexOf("clear.addEventListener('click'");
+        assert.notEqual(at, -1, `${fn} draws a Clear button but never wires it up`);
+        const handler = body.slice(at, at + 400);
+        assert.match(handler, /override\.value = ''/, `${fn}'s Clear does not clear the value`);
+        assert.doesNotMatch(handler, /splice\(/,
+            `${fn}'s Clear removes the override row - it should only clear the value`);
+    }
+});
+
+test('the shared helpers stay shared - overrideSearchNote is declared once', async (t) => {
+    const js = await appSource(t);
+    // Same rule ui.shipCreate.test.js enforces for the other five: the row
+    // markup may be duplicated between the two forms, the logic may not.
+    const matches = [...js.matchAll(/function overrideSearchNote\(/g)];
+    assert.equal(matches.length, 1,
+        `overrideSearchNote is declared ${matches.length} times - it should be shared, not copied`);
+});

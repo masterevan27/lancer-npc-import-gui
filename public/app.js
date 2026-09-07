@@ -2512,8 +2512,11 @@ function filterTraitOptions(options, query) {
  * is typing into and drop focus after the first character, which is the bug
  * this split exists to avoid rather than a stylistic preference.
  *
- * Returns the count of options the pronoun rule blocked, which is what decides
- * whether the row prints an explanation.
+ * Returns what the row needs in order to describe itself: how many options the
+ * pronoun rule blocked, how many of the table's values the search matched, and
+ * whether the chosen value had to be pinned because the search excluded it.
+ * A count rather than a boolean for `blocked` because the note quotes the
+ * number; see overrideSearchNote for why the other three are needed at all.
  */
 function populateOverrideValues(valueSelect, options, override, subject) {
   const filtered = filterTraitOptions(options, override.search);
@@ -2531,9 +2534,16 @@ function populateOverrideValues(valueSelect, options, override, subject) {
   // event would write that emptiness into the override. Keeping the current
   // choice pinned at the top means narrowing the list can never lose it.
   const stillListed = filtered.some((option) => option.value === override.value);
-  if (override.value && !override.custom && !stillListed) {
+  const pinned = Boolean(override.value) && !override.custom && !stillListed;
+  if (pinned) {
     const kept = document.createElement('optgroup');
-    kept.label = 'Currently selected';
+    // The heading says why this one entry is sitting above the results when a
+    // search is running. Unlabelled, it reads as a match - which is the exact
+    // misreading that made a working search look broken from outside the
+    // closed <select>.
+    kept.label = String(override.search || '').trim()
+      ? 'Currently selected (not a match for this search)'
+      : 'Currently selected';
     const opt = document.createElement('option');
     opt.value = override.value;
     const known = options.find((option) => option.value === override.value);
@@ -2586,7 +2596,35 @@ function populateOverrideValues(valueSelect, options, override, subject) {
   customOpt.selected = !!override.custom;
   valueSelect.appendChild(customOpt);
 
-  return blocked;
+  return { blocked, matched: filtered.length, total: (options || []).length, pinned };
+}
+
+/**
+ * The one line under the search box that says what the search just did.
+ *
+ * This exists because of a bug that was never in the filtering: typing into
+ * the search box narrows the <select> correctly, but a <select> that is closed
+ * paints only its selected option, and a chosen value the search excludes is
+ * deliberately kept selected (see the pinning above). So every visible part of
+ * the row - the closed control and the full-value readout under it - went on
+ * showing the old bullet, and the search read as dead. The list had
+ * repopulated; there was simply nowhere on screen that said so.
+ *
+ * Pure, and returns '' when there is nothing worth saying, so the caller can
+ * treat empty as "hide the element" rather than paint a blank line.
+ */
+function overrideSearchNote(result, query) {
+  const text = String(query || '').trim();
+  if (!text || !result) return '';
+  const { matched = 0, total = 0, pinned = false } = result;
+  if (!matched) return `No value in this table matches “${text}”.`;
+  const head = `${matched} of ${total} match${matched === 1 ? 'es' : ''} “${text}”.`;
+  // Only worth explaining when it is actually happening. Said unconditionally
+  // it would be noise on every search that happens to keep its own selection.
+  return pinned
+    ? `${head} The value you already picked is not one of them - it stays selected, `
+      + 'at the top of the list, until you choose another or press Clear.'
+    : head;
 }
 
 function renderOverrideRows() {
@@ -2644,9 +2682,32 @@ function renderOverrideRows() {
     search.hidden = !options.length;
     cell.appendChild(search);
 
+    // Directly under the box it describes rather than down with the other
+    // notes: it answers a keystroke, and feedback about typing that appears
+    // four elements away from where the typing happens is feedback nobody
+    // connects to the typing.
+    const searchNote = document.createElement('div');
+    searchNote.className = 'override-search-note';
+    cell.appendChild(searchNote);
+
+    // The value select and its Clear button share a line. Clear undoes the
+    // choice without touching the row, which is the gap this fills: the only
+    // other way back to "nothing picked" was to open a list of up to 319
+    // bullets and find the blank option at the very top of it.
+    const valueRow = document.createElement('div');
+    valueRow.className = 'override-value-row';
+    cell.appendChild(valueRow);
+
     const valueSelect = document.createElement('select');
     valueSelect.className = 'filter-value';
-    cell.appendChild(valueSelect);
+    valueRow.appendChild(valueSelect);
+
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'override-clear';
+    clear.textContent = 'Clear';
+    clear.title = 'Clear the chosen value and keep this override row';
+    valueRow.appendChild(clear);
 
     const valueInput = document.createElement('input');
     valueInput.type = 'text';
@@ -2681,41 +2742,55 @@ function renderOverrideRows() {
     // which is why this is a function rather than a one-off. A search narrows
     // the list, so a count written once would go on claiming a number that was
     // true before the user typed.
-    const showNotes = (blockedCount) => {
+    const showNotes = (result) => {
       const notes = [];
       const scope = traitScopeNote(override.table);
       if (scope) notes.push(scope);
+      const blockedCount = (result && result.blocked) || 0;
       if (blockedCount) {
         notes.push(`${blockedCount} value${blockedCount === 1 ? ' is' : 's are'} greyed out because `
           + `Pronouns is ${subject ? `“${subject}”` : 'Any'}. Hover one for the reason.`);
       }
       note.textContent = notes.join(' ');
       note.hidden = !notes.length;
+      searchNote.textContent = overrideSearchNote(result, override.search);
+      searchNote.hidden = !searchNote.textContent;
     };
-    showNotes(populateOverrideValues(valueSelect, options, override, subject));
 
     const showFull = () => {
       full.textContent = override.value;
       full.hidden = !override.value;
     };
-    showFull();
+
+    // The whole row's readout in one call: the list, both notes, the readout
+    // and whether Clear has anything to clear. Every handler below ends here
+    // rather than updating the three or four pieces it happens to remember,
+    // which is how the note and the list drifted apart in the first place.
+    const refresh = () => {
+      showNotes(populateOverrideValues(valueSelect, options, override, subject));
+      showFull();
+      clear.disabled = !override.value && !override.custom;
+    };
+    refresh();
 
     search.addEventListener('input', () => {
       override.search = search.value;
-      // Only the <select> and the note are rebuilt - see populateOverrideValues
+      // Only the <select> and the notes are rebuilt - see populateOverrideValues
       // on why the whole row must not be.
-      showNotes(populateOverrideValues(valueSelect, options, override, subject));
+      refresh();
     });
 
     valueInput.addEventListener('input', () => {
       override.value = valueInput.value;
       showFull();
+      clear.disabled = !override.value && !override.custom;
     });
 
     valueSelect.addEventListener('change', () => {
       if (valueSelect.value === CUSTOM_OVERRIDE) {
         override.custom = true;
         valueInput.hidden = false;
+        clear.disabled = false;
         valueInput.focus();
         return;
       }
@@ -2723,7 +2798,24 @@ function renderOverrideRows() {
       override.value = valueSelect.value;
       valueInput.value = valueSelect.value;
       valueInput.hidden = true;
-      showFull();
+      refresh();
+    });
+
+    // Clear the choice, keep the row. The search text is deliberately left
+    // where it is - the reason to clear a value is nearly always to pick a
+    // different one out of the same search - but the box is focused with its
+    // text selected, so typing a new query replaces the old one in one go and
+    // keeps the old one for anyone who only wanted the value gone.
+    clear.addEventListener('click', () => {
+      override.value = '';
+      override.custom = false;
+      valueInput.value = '';
+      valueInput.hidden = options.length > 0;
+      refresh();
+      if (!search.hidden) {
+        search.focus();
+        search.select();
+      }
     });
 
     // Changing the table changes which bullets are on offer, so the row has
@@ -3474,9 +3566,27 @@ function renderShipOverrideRows() {
     search.hidden = !options.length;
     cell.appendChild(search);
 
+    // Same three additions as the NPC row above, and for the same reason -
+    // see the comments there. Only the markup is duplicated; the two pieces
+    // of logic (populateOverrideValues, overrideSearchNote) are shared.
+    const searchNote = document.createElement('div');
+    searchNote.className = 'override-search-note';
+    cell.appendChild(searchNote);
+
+    const valueRow = document.createElement('div');
+    valueRow.className = 'override-value-row';
+    cell.appendChild(valueRow);
+
     const valueSelect = document.createElement('select');
     valueSelect.className = 'filter-value';
-    cell.appendChild(valueSelect);
+    valueRow.appendChild(valueSelect);
+
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'override-clear';
+    clear.textContent = 'Clear';
+    clear.title = 'Clear the chosen value and keep this override row';
+    valueRow.appendChild(clear);
 
     const valueInput = document.createElement('input');
     valueInput.type = 'text';
@@ -3494,34 +3604,42 @@ function renderShipOverrideRows() {
     note.className = 'override-note';
     cell.appendChild(note);
 
-    const showNotes = () => {
+    const showNotes = (result) => {
       const scope = traitScopeNote(override.table);
       note.textContent = scope || '';
       note.hidden = !scope;
+      searchNote.textContent = overrideSearchNote(result, override.search);
+      searchNote.hidden = !searchNote.textContent;
     };
-    populateOverrideValues(valueSelect, options, override, '');
-    showNotes();
 
     const showFull = () => {
       full.textContent = override.value;
       full.hidden = !override.value;
     };
-    showFull();
+
+    const refresh = () => {
+      showNotes(populateOverrideValues(valueSelect, options, override, ''));
+      showFull();
+      clear.disabled = !override.value && !override.custom;
+    };
+    refresh();
 
     search.addEventListener('input', () => {
       override.search = search.value;
-      populateOverrideValues(valueSelect, options, override, '');
+      refresh();
     });
 
     valueInput.addEventListener('input', () => {
       override.value = valueInput.value;
       showFull();
+      clear.disabled = !override.value && !override.custom;
     });
 
     valueSelect.addEventListener('change', () => {
       if (valueSelect.value === CUSTOM_OVERRIDE) {
         override.custom = true;
         valueInput.hidden = false;
+        clear.disabled = false;
         valueInput.focus();
         return;
       }
@@ -3529,7 +3647,19 @@ function renderShipOverrideRows() {
       override.value = valueSelect.value;
       valueInput.value = valueSelect.value;
       valueInput.hidden = true;
-      showFull();
+      refresh();
+    });
+
+    clear.addEventListener('click', () => {
+      override.value = '';
+      override.custom = false;
+      valueInput.value = '';
+      valueInput.hidden = options.length > 0;
+      refresh();
+      if (!search.hidden) {
+        search.focus();
+        search.select();
+      }
     });
 
     tableSelect.addEventListener('change', () => {

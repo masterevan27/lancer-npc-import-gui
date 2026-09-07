@@ -880,6 +880,59 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 }
 .filter-row .override-search::placeholder { color: #6b7280; }
 
+/* "50 of 192 match "black"." - the answer to a keystroke, sitting between the
+   box that was typed into and the list that changed because of it.
+
+   It is here because a closed <select> paints one option and that option is
+   the one still selected, so narrowing the list from 192 entries to 5 changed
+   nothing a user could see and the search read as broken. Quieter than
+   .override-note and in the same grey as .override-search's own text: it
+   belongs to the search box above it, not to the value below. */
+.override-search-note {
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: #8b93a1;
+  margin: -0.05rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+/* The value select and its Clear button on one line. min-width: 0 on the row
+   for the same reason .override-cell needs it - without it the row's automatic
+   minimum is the widest bullet in the select and the card starts stretching
+   again, which is the bug the whole .override-cell block above exists to
+   prevent. The select takes what is left after the button. */
+.override-value-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.override-value-row .filter-value { flex: 1 1 auto; min-width: 0; }
+
+/* Clear undoes the choice and keeps the row, which is a different act from the
+   row's × and has to look like one: a labelled button in the row's own grey
+   rather than a second dismissal glyph beside the first. Sized down to the
+   select's height so the pair reads as one control.
+
+   Disabled rather than hidden when there is nothing to clear. Appearing only
+   once a value existed would mean the way out of a wrong choice was invisible
+   until after the choice was made, and the point of it is that someone stuck
+   in a 319-entry list can see the way out before they need it. */
+.override-clear {
+  flex: 0 0 auto;
+  background: #262a33;
+  border: 1px solid #363b47;
+  color: #b3bac6;
+  border-radius: 4px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.override-clear:hover:not(:disabled) { background: #2f343f; color: #e6e6e6; }
+.override-clear:disabled { opacity: 0.4; cursor: default; }
+
 /* The selected bullet in full. A native select paints one line and truncates
    it, and truncating is not acceptable when the thing being truncated is the
    text the generator will actually use - so the select stays the control and

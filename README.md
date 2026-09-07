@@ -214,6 +214,19 @@ and open <http://127.0.0.1:5089>.
   the dropdown still opens whole when the box is empty — and a value already
   chosen stays pinned at the top under **Currently selected** even when the
   search would hide it, so narrowing the list can never quietly reset the row.
+  That pinning is also the one thing about the search that reads as a fault, so
+  the box now says what it did: a line under it reads `47 of 192 match "black"`
+  and, when the pinned value is not one of them, adds that it stays selected
+  until you choose another. Without it, typing into a search box above a
+  **closed** dropdown changed nothing you could see — the control and the
+  readout below it both went on showing the bullet you had already picked —
+  and a search that had in fact narrowed 192 values to 47 looked dead.
+  Beside the dropdown, **Clear** drops the chosen value and keeps the row, its
+  table and its search text, putting the cursor back in the search box with the
+  old query selected so a new one replaces it in one go. It is not the row's
+  `×`: that removes the override entirely. Before it existed the only way back
+  to "nothing picked" was to open a list of up to 319 bullets and find the
+  blank option at the very top of it.
   Below the dropdown the **full bullet** is printed, wrapped, exactly as it
   will be sent: `--set-trait` takes the flags too, and a 250-character Backdrop
   is a truncated line in any dropdown. That readout is also what keeps the form
@@ -436,7 +449,7 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test --test-concurrency=4 --test-timeout=120000 "test/*.test.js"
 ```
 
-Expect `tests 586` with one known failure (see below), in about fifteen
+Expect `tests 594` with one known failure (see below), in about fifteen
 seconds. No install step; the suite spawns real `server.js` child processes against synthetic fixture directories,
 never your real `config.json` or tables. Each test file binds a **fixed,
 distinct** port because `node --test` runs files concurrently — a new test file
@@ -523,7 +536,7 @@ CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs
 (a 4-vCPU runner already defaults below this machine's cap), and a
 `timeout-minutes: 10` on the job — but without the glob, so it also picks up
 `test/helpers/testServer.js` as a file
-with no tests in it. Expect one more there, `tests 587`, for a helper that
+with no tests in it. Expect one more there, `tests 595`, for a helper that
 declares no tests and therefore cannot fail. Both numbers move whenever a test
 is added; they are worth updating together.
 
