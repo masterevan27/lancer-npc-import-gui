@@ -67,6 +67,11 @@ const DEFAULT_CONFIG = {
     host: '127.0.0.1',
     secret: '',
     npcManifestPath: '',
+    // Preferred alias for npcManifestPath - resolves as
+    // config.manifestPath || config.npcManifestPath, right after
+    // loadConfig() below, before the startup guard checks it. Existing
+    // configs that only set npcManifestPath keep working untouched.
+    manifestPath: '',
     foundryDataRoot: '',
     // Regenerating an NPC's art shells out to generate-npc.py, which lives
     // beside npcManifestPath by default (that's where the script's own
@@ -78,10 +83,21 @@ const DEFAULT_CONFIG = {
     // generate-npc.py in the same repo - only override this if it has been
     // moved on its own.
     generate3dScript: '',
+    // generate-spaceship.py sits beside generate-npc.py by default (see
+    // lib/paths.js); override only if the ship generator has been moved on
+    // its own.
+    generateSpaceshipScript: '',
     // Where an imported item's files get copied to under foundryDataRoot -
     // see copyIntoFoundry(). Mirrors generate-npc.py's own COMFY_PREFIX so
     // the two output trees read as the same convention.
     foundryNpcSubdir: 'LancerNPCs',
+    foundrySpaceshipSubdir: 'LancerSpaceships',
+    // Sent to the Foundry module as the actor type to create. foundryNpcActorType
+    // names today's behaviour explicitly; foundrySpaceshipActorType is unverified
+    // against the Lancer system (the module isn't vendored in this repo) - an
+    // empty string omits the field entirely rather than guessing wrong.
+    foundryNpcActorType: 'npc',
+    foundrySpaceshipActorType: 'deployable',
     // npc-generator-tables.md and the npc-trait-import skill's staging
     // directory both default to prompts/ beneath generate-npc.py; override
     // either for a nonstandard layout.
@@ -99,6 +115,18 @@ const DEFAULT_CONFIG = {
     // deliberately, and note that overriding presetsDir alone already moves
     // this one with it.
     createPresetsDir: '',
+    // The ship-tables, staging and presets equivalents of the six NPC keys
+    // above - see lib/paths.js for how each is derived when left empty.
+    spaceshipTablesPath: '',
+    spaceshipStagedImportsDir: '',
+    spaceshipStagedRefsDir: '',
+    spaceshipPresetsDir: '',
+    spaceshipCreatePresetsDir: '',
+    // Passed to generate-spaceship.py as --out-root when non-empty. Not a
+    // per-kind --out: --out names a single run folder, so a configured --out
+    // would pin every ship run to the same directory. --out-root is a tree
+    // the generator numbers run folders under, same as its own default.
+    spaceshipOutputRoot: '',
     // Rolls behind each percentage on the Tables page. The trade is precision
     // against how long the number takes to settle after an edit: 20,000 rolls
     // is about six seconds and holds still at whole-percent precision, while
@@ -128,6 +156,13 @@ function loadConfig() {
 }
 
 const config = loadConfig();
+
+// manifestPath is the preferred alias for npcManifestPath (both kinds now
+// share one manifest file, so the older name is misleading); resolve it
+// before the startup guard below so an existing config.json that only sets
+// npcManifestPath keeps working untouched, and everything downstream
+// (derivePaths, the guard, the manifest reads) sees one resolved value.
+config.npcManifestPath = config.manifestPath || config.npcManifestPath;
 
 if (!config.npcManifestPath || !config.foundryDataRoot) {
     console.error(
