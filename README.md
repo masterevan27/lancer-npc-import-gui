@@ -156,7 +156,7 @@ and open <http://127.0.0.1:5089>.
   Each trait override offers a **dropdown of that table's own bullets**
   alongside the free-text box, grouped by the heading each came from so a
   per-pronoun variant is visibly one. The option's value is the raw bullet
-  *including its `||` flags* — `--set-trait` takes a bullet verbatim, and those
+  _including its `||` flags_ — `--set-trait` takes a bullet verbatim, and those
   flags gate the Weapon, Gear and Backdrop rolls that follow, so a value typed
   without them quietly changes what the rest of the roll may do. Bullets
   disabled on the Tables tab are still listed, marked `[disabled]`, since
@@ -179,9 +179,9 @@ and open <http://127.0.0.1:5089>.
   rather than sizing itself to its widest option and running a few hundred
   pixels off the right-hand side.
   Two things are called out under a row where they apply. **Backdrop**,
-  **Weather** and **Glow placement** only reach the *portrait* — the token
+  **Weather** and **Glow placement** only reach the _portrait_ — the token
   renders on flat white for background removal, so it has no scene at all —
-  and **Stance** only reaches the *token*, which is the full-body figure whose
+  and **Stance** only reaches the _token_, which is the full-body figure whose
   pose it is. Forcing one of those and generating only the other image changes
   almost nothing — the scene or the pose simply never appears — which was
   previously indistinguishable from an override that had failed. (Almost: a
@@ -191,7 +191,7 @@ and open <http://127.0.0.1:5089>.
   **greyed out and unselectable unless Pronouns matches it**, with the reason
   on hover. `--set-trait` pastes the bullet in verbatim, so a woman-only outfit
   chosen under `he` renders a man wearing it. **Any** is blocked for the same
-  reason and is the case worth spelling out: it means the generator *rolls* the
+  reason and is the case worth spelling out: it means the generator _rolls_ the
   pronouns, so such a value is a coin flip on contradicting itself — a failure
   that only shows up in the finished image. Changing Pronouns after choosing
   clears any override the new setting has just ruled out, and says how many
@@ -205,7 +205,7 @@ and open <http://127.0.0.1:5089>.
   the four switches and every trait override — under a name, so "frontier medic
   run" or "zero-g salvage crew" is one click rather than eight. Load, Download
   and Delete act on the chosen preset, and **Import preset…** reads a `.json`
-  someone sent you. Two things it deliberately does *not* save: the single-NPC
+  someone sent you. Two things it deliberately does _not_ save: the single-NPC
   **Name**, because a preset is reusable and a character's name is not, and
   which button you meant to press — loading a preset never starts a run.
   Create presets live in `presets/create/` beside the Tables presets in
@@ -229,7 +229,7 @@ and open <http://127.0.0.1:5089>.
   An entry the generator recorded raw bullets for can re-roll everything except
   the two halves of its name and its pronouns, since those decide the folder and
   the manifest id; an entry written before it kept those bullets stores them with
-  their flags stripped, so a trait gated by *another* trait's flags (Outfit by
+  their flags stripped, so a trait gated by _another_ trait's flags (Outfit by
   Role's `mil`, Stance by the Weapon's `hands`) cannot be re-rolled correctly
   from it and is left without a button — only eleven of the twenty-two stay
   re-rollable. The other eleven get a greyed-out **Re-roll** instead of an empty
@@ -253,7 +253,7 @@ and open <http://127.0.0.1:5089>.
 
   Beside every live **Re-roll** sits **Set…**, for when you know what you want
   rather than wanting another draw. It opens a list of the values that trait
-  could take *on this NPC*, which is not the whole table: the roller gates most
+  could take _on this NPC_, which is not the whole table: the roller gates most
   tables on what the NPC already is, so a civilian's Outfit list comes back as
   105 bullets of which 56 are on offer and 49 — every military uniform and
   plate carrier — are ruled out by the Role's `civ` flag. That answer is
@@ -262,8 +262,8 @@ and open <http://127.0.0.1:5089>.
   of that filter chain would drift from the real one silently and the list
   would simply stop being true.
   The dialog separates two things that are easy to confuse. A value can be
-  *ruled out* — the traits above it mean the roller would never have drawn it —
-  or it can be legal in itself but *leave something below it contradicting*,
+  _ruled out_ — the traits above it mean the roller would never have drawn it —
+  or it can be legal in itself but _leave something below it contradicting_,
   like a `notac` kimono under a hard-tech visor. Both are greyed, both stay
   pickable (you are allowed to overrule the tables; `--set-trait` always has),
   and each says which trait it clashes with and what that trait currently is.
@@ -275,6 +275,7 @@ and open <http://127.0.0.1:5089>.
   Leave it unticked and nothing but the trait you set changes. Set… appears
   wherever Re-roll is live and nowhere else — an NPC without raw bullets has
   nothing to pin the rest of itself to, and the greyed Re-roll already says so.
+
 - **Trait Imports** — lists reference-image trait candidates staged by the
   `npc-trait-import` skill, sortable and dated, and appends the ones you approve
   as new bullets in `npc-generator-tables.md`. Clicking a candidate opens its
@@ -292,13 +293,37 @@ and open <http://127.0.0.1:5089>.
   of those falls into a trailing Other rather than disappearing), with
   per-pronoun variants like `Hair (she) +` nested under the `Hair` heading
   they extend. The generator's own documentation sections — `How the script
-  reads this file` and `Prompt templates` — read like tables (they use `- `
+reads this file` and `Prompt templates` — read like tables (they use `- `
   bullets to explain the format) but aren't served as ones, so a stray click
   can't comment out a paragraph of prose or prefix it with a roll weight.
   Disable bullets you don't want rolled without deleting them, set per-bullet
   roll weights, and save the whole selection as a named preset. Download a
   preset, hand it to another GM, and they can import it, preview exactly what
   it would change, and apply it.
+
+  Under each bullet is a row of **flag checkboxes** — the `|| updo`, `||
+helmet`, `|| notac` segment, editable without opening the tables file. Only
+  the flags a given table actually reads are offered, so `updo` appears under
+  Hair and `crown` under Headgear and neither appears under Eyes, which reads
+  no flags at all and would ship the literal text `|| updo` to the image model.
+  That restriction is the point: `generate-npc.py` matches flags literally and
+  ignores an unrecognized one rather than reporting it, so a typo fails quietly
+  in the render rather than loudly at the console, and a checkbox cannot be
+  misspelled. Hover a flag for what it does.
+
+  Two things the strip deliberately does not do. It leaves `@theme` tags alone
+  — they are an open set the tables file grows freely, so there is nothing to
+  enumerate; they are shown beside the checkboxes and preserved untouched
+  through every edit. And on `Backdrop`, `Hair colour` and `Faction`, whose
+  bullets carry _two_ prose segments and keep flags in a third, it writes to
+  the third — a flag editor that assumed one prose segment would overwrite a
+  Backdrop's scene sentence.
+
+  A flag edit changes a bullet's text, which is the id presets match on. They
+  match on the flag-stripped prose for that reason, so flagging a bullet does
+  not orphan it in presets saved earlier — see
+  [known-issues.md](docs/known-issues.md) for the one case that can still
+  collide.
 
   Beside each weight is **how often that bullet actually gets rolled**, which
   is not what the weight says: a weight compares a bullet to its neighbour,
@@ -344,7 +369,7 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test "test/*.test.js"
 ```
 
-Expect `pass 367`, `fail 0`. No install step; the suite spawns real `server.js`
+Expect `pass 377`, `fail 0`. No install step; the suite spawns real `server.js`
 child processes against synthetic fixture directories, never your real
 `config.json` or tables. Each test file binds a **fixed, distinct** port because
 `node --test` runs files concurrently — a new test file needs a port no other
@@ -379,7 +404,7 @@ to lose. Let one run finish before starting another.
 
 CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs bare
 `node --test` instead, which also picks up `test/helpers/testServer.js` as a
-file with no tests in it — so expect one more there, `pass 368`, for a helper
+file with no tests in it — so expect one more there, `pass 378`, for a helper
 that declares no tests and therefore cannot fail. Both numbers move whenever a
 test is added; they are worth updating together.
 

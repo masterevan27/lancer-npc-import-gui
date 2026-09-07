@@ -4057,6 +4057,7 @@ const tablesState = {
   selectedTable: null,
   presets: [],
   pendingPreset: null, // the parsed preset object currently shown in the preview, or null
+  flags: {},           // { [table]: { [flag]: gloss } } - the vocabulary the server sends
   odds: null,          // the last settled /api/table-odds report, or null
   oddsStale: false,    // an edit has landed that the settled odds predate
   oddsReason: null,    // why the last run failed, or null
@@ -4103,8 +4104,15 @@ elTables.kindSelect.addEventListener('change', () => {
 });
 
 async function loadTables() {
+<<<<<<< HEAD
   const { groups } = await api(`/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`);
+=======
+  const { groups, flags } = await api('/api/table-bullets');
+>>>>>>> worktree-table-flag-editor
   tablesState.groups = groups;
+  // Sent with the tables rather than fetched separately, so the checkboxes
+  // can never render against a table list they do not match.
+  tablesState.flags = flags || {};
   // The server sends only the grouped shape - groups[].rows[].table are the
   // same table objects as a flat list would contain, but that object
   // identity does not survive JSON.parse. Deriving tables from groups here
@@ -4199,11 +4207,119 @@ function renderTableBullets() {
 
     const text = document.createElement('span');
     text.className = 'table-bullet-text';
-    text.textContent = bullet.text;
+    // The prose only. The '|| flags' half is now shown as checkboxes below,
+    // and printing it here as well would say the same thing twice - and
+    // disagree with the boxes for the moment between a click and its write.
+    text.textContent = bulletBody(table.name, bullet.text);
     row.appendChild(text);
     elTables.bulletList.appendChild(row);
+
+    const flags = renderBulletFlags(table, bullet);
+    if (flags) elTables.bulletList.appendChild(flags);
   }
   renderChances();
+}
+
+/**
+ * A bullet's prose, without its '|| flags' segment.
+ *
+ * Mirrors lib/tableFlags.js's splitBulletFlags(), including the part that
+ * matters most: Backdrop, Hair colour and Faction carry TWO prose segments
+ * and keep flags in a third, so slicing at the first '||' would hide a
+ * Backdrop's scene sentence from the list.
+ */
+const THREE_SEGMENT_TABLES = new Set(['Backdrop', 'Hair colour', 'Faction']);
+
+/* 'Hair colour (she) +' is three segments exactly as 'Hair colour' is, so the
+   arity follows the base heading - the same rule lib/tableGroups.js already
+   uses to nest a variant under the table it extends. */
+function proseSegmentsOf(tableName) {
+  const paren = String(tableName).indexOf(' (');
+  const base = paren === -1 ? String(tableName) : String(tableName).slice(0, paren);
+  return THREE_SEGMENT_TABLES.has(base) ? 2 : 1;
+}
+
+function bulletBody(tableName, text) {
+  const prose = proseSegmentsOf(tableName);
+  return String(text).split('||').map((p) => p.trim()).slice(0, prose).join(' || ');
+}
+
+function bulletFlagsOf(tableName, text) {
+  const prose = proseSegmentsOf(tableName);
+  const parts = String(text).split('||').map((p) => p.trim());
+  if (parts.length <= prose) return [];
+  return parts.slice(prose).join(' ').split(/\s+/).filter(Boolean);
+}
+
+/**
+ * The flag checkbox strip under one bullet, or null for a table with no
+ * vocabulary.
+ *
+ * A separate row rather than more cells in the bullet's own: the bullet row is
+ * a <label>, so a checkbox inside it would toggle the enable box rather than
+ * itself. Theme tags (@neosamurai) are shown as static text - they are an open
+ * set the tables file grows freely, so there is nothing to enumerate - but
+ * they are preserved through every edit by lib/tableFlags.js.
+ */
+function renderBulletFlags(table, bullet) {
+  const vocabulary = tablesState.flags[table.name];
+  if (!vocabulary) return null;
+
+  const strip = document.createElement('div');
+  strip.className = 'table-bullet-flags';
+
+  const current = new Set(bulletFlagsOf(table.name, bullet.text));
+  for (const [flag, gloss] of Object.entries(vocabulary)) {
+    const label = document.createElement('label');
+    label.className = 'flag-toggle';
+    label.title = gloss;
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = current.has(flag);
+    box.addEventListener('change', () => setBulletFlag(table.name, bullet, flag, box));
+    label.appendChild(box);
+    label.appendChild(document.createTextNode(flag));
+    strip.appendChild(label);
+  }
+
+  for (const theme of current) {
+    if (!theme.startsWith('@')) continue;
+    const tag = document.createElement('span');
+    tag.className = 'flag-theme';
+    tag.textContent = theme;
+    tag.title = 'A theme tag. Preserved through flag edits; edit it in the tables file.';
+    strip.appendChild(tag);
+  }
+  return strip;
+}
+
+/**
+ * Write one flag on or off.
+ *
+ * The response carries the bullet's NEW text, which this has to store: a
+ * bullet's text is its id everywhere else in this tab, and a flag edit has
+ * just changed it. Keeping the stale string would break the row's own
+ * enable checkbox and weight box on their very next use.
+ */
+async function setBulletFlag(tableName, bullet, flag, boxEl) {
+  const on = boxEl.checked;
+  boxEl.disabled = true;
+  try {
+    const { text } = await api('/api/table-bullets/set-flag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ table: tableName, text: bullet.text, flag, on }),
+    });
+    bullet.text = text;
+    // Not queueOdds(): a flag changes which rolls a bullet is REACHABLE in,
+    // which the sampled odds do measure - so they are now stale.
+    queueOdds();
+  } catch (err) {
+    boxEl.checked = !on; // revert - the write failed
+    alert(`Couldn't update that flag: ${err.message}`);
+  } finally {
+    boxEl.disabled = false;
+  }
 }
 
 /* ==================================================================== */

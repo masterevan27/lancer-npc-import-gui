@@ -28,6 +28,14 @@
 >   `selected`") by import and apply, and reported as `count: 0` by `listPresets`.
 > - Bullet **roll weights** (`- xN text`) are editable from the Tables tab, which
 >   this spec does not describe at all.
+> - So are a bullet's **`|| flags`**, as a row of per-table checkboxes under
+>   each bullet - see `lib/tableFlags.js`. That makes the "Editing bullet
+>   *text*" non-goal below only half true: the prose is still read-only, but
+>   the flag segment is not, and a flag edit rewrites the bullet's line. It
+>   also breaks the "Weight and flags are part of 'the text' for matching
+>   purposes - toggling never changes them" rule stated further down. Presets
+>   consequently match on the flag-stripped prose rather than the full text,
+>   or flagging a bullet would orphan it in every preset saved beforehand.
 >
 > Read `lib/presets.js` and its tests for the format that is
 > actually implemented. Remaining parked issues live in

@@ -51,6 +51,7 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const tableBullets = require('./lib/tableBullets');
 const tableGroups = require('./lib/tableGroups');
+const tableFlags = require('./lib/tableFlags');
 const presets = require('./lib/presets');
 const createPresets = require('./lib/createPresets');
 const { derivePaths } = require('./lib/paths');
@@ -2751,7 +2752,26 @@ async function handleApi(req, res, url) {
         // survive JSON.parse on the client, so a flat `tables` field would
         // give the client two independent copies of every table and silently
         // desync whichever one it doesn't mutate.
-        return sendJson(res, 200, { groups: tableGroups.groupTables(tables) });
+        // The flag vocabulary rides along with the tables rather than living
+        // at its own endpoint: the client needs both to draw a single row, and
+        // two fetches would let the checkboxes render against a table list
+        // they do not match. It is a constant, so it costs one serialisation
+        // and no disk read.
+        // Keyed by the ACTUAL heading names being served, not by base table,
+        // so a pronoun variant carries its base's vocabulary and the client
+        // can look one up by the name it already has. 'Headgear (she) +' is
+        // where the wide woven hat that prompted the 'crown' flag lives, so
+        // a client that could not resolve a variant would have left exactly
+        // that bullet without checkboxes.
+        const flags = {};
+        for (const table of tables) {
+            const vocabulary = tableFlags.flagsFor(table.name);
+            if (vocabulary) flags[table.name] = vocabulary;
+        }
+        return sendJson(res, 200, {
+            groups: tableGroups.groupTables(tables),
+            flags,
+        });
     }
 
     if (url.pathname === '/api/table-odds' && req.method === 'GET') {
@@ -2805,6 +2825,27 @@ async function handleApi(req, res, url) {
         const result = tableBullets.setBulletWeightOnDisk(kind.tables, table, text, weight);
         if (!result.ok) return sendJson(res, 400, { error: result.error });
         return sendJson(res, 200, { ok: true });
+    }
+
+    if (url.pathname === '/api/table-bullets/set-flag' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const { table, text, flag, on } = body;
+        if (typeof table !== 'string' || !table || typeof text !== 'string'
+            || typeof flag !== 'string' || !flag || typeof on !== 'boolean') {
+            return sendJson(res, 400, { error: 'table (string), text (string), flag (string), and on (boolean) are required' });
+        }
+        const result = tableBullets.setBulletFlagOnDisk(NPC_TABLES_PATH, table, text, flag, on);
+        if (!result.ok) return sendJson(res, 400, { error: result.error });
+        // The new text goes back because a flag edit CHANGES the bullet's id.
+        // A client still holding the old string would fail its next toggle or
+        // reweight against a bullet that no longer answers to that name.
+        return sendJson(res, 200, { ok: true, text: result.text });
     }
 
     if (url.pathname === '/api/presets' && req.method === 'GET') {
