@@ -1,0 +1,1342 @@
+<title>Lancer Roll Pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+/* ---------------------------------------------------------------------------
+   Tokens. Dark is the base, not the override: this page documents a tool whose
+   own interface is dark, and the palette below is that tool's - #14161b ground,
+   #262a33 raised, #363b47 rule, the #9aa1ad secondary grey - so the two read as
+   one system. Light is therefore the guarded override, in both directions.
+
+   Three semantic hues, and they are the page's main carrier of information
+   rather than decoration: every box in every diagram is coloured by WHICH REPO
+   OWNS IT, which is the question the reader came with.
+   --------------------------------------------------------------------------- */
+:root {
+  --ground:  #14161b;
+  --surface: #1a1d24;
+  --raised:  #22262f;
+  --line:    #363b47;
+  --line-soft: #2a2e38;
+  --text:    #e4e7ec;
+  --muted:   #99a1ae;
+  --faint:   #6e7684;
+
+  --gen:  #e0912f;   /* lancer-art-generator — Python */
+  --gui:  #6c9bff;   /* lancer-npc-import-gui — Node */
+  --data: #45b394;   /* state on disk: tables file, manifest */
+  --warn: #d98a6a;   /* a drift risk, or a trap */
+
+  --gen-wash:  #2a2015;
+  --gui-wash:  #171d2e;
+  --data-wash: #14251f;
+  --warn-wash: #2a1c17;
+
+  --measure: 70ch;
+  --radius: 5px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --ground:  #f5f6f8;
+    --surface: #ffffff;
+    --raised:  #eceef3;
+    --line:    #ccd2dc;
+    --line-soft: #e0e4ea;
+    --text:    #171a20;
+    --muted:   #59616f;
+    --faint:   #838b98;
+
+    --gen:  #9a5b06;
+    --gui:  #2b52c4;
+    --data: #16705a;
+    --warn: #a34a22;
+
+    --gen-wash:  #fdf3e5;
+    --gui-wash:  #eef2fd;
+    --data-wash: #e8f5f0;
+    --warn-wash: #fdeee7;
+  }
+}
+:root[data-theme="light"] {
+  --ground:  #f5f6f8;
+  --surface: #ffffff;
+  --raised:  #eceef3;
+  --line:    #ccd2dc;
+  --line-soft: #e0e4ea;
+  --text:    #171a20;
+  --muted:   #59616f;
+  --faint:   #838b98;
+
+  --gen:  #9a5b06;
+  --gui:  #2b52c4;
+  --data: #16705a;
+  --warn: #a34a22;
+
+  --gen-wash:  #fdf3e5;
+  --gui-wash:  #eef2fd;
+  --data-wash: #e8f5f0;
+  --warn-wash: #fdeee7;
+}
+
+/* --------------------------------------------------------------------------- */
+
+body {
+  background: var(--ground);
+  color: var(--text);
+  font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 24px 96px;
+}
+
+/* Prose holds a reading measure; figures and tables are free to use the full
+   column. The two are separate classes rather than one rule with exceptions,
+   because an exception list is how a new block silently gets the wrong width. */
+.prose { max-width: var(--measure); }
+
+h1, h2, h3 {
+  font-family: "IBM Plex Sans Condensed", "IBM Plex Sans", sans-serif;
+  font-weight: 700;
+  text-wrap: balance;
+  margin: 0;
+}
+
+/* ---- masthead ---- */
+
+header.masthead {
+  padding: 56px 0 32px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 44px;
+}
+.eyebrow {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 0 0 14px;
+}
+h1 { font-size: clamp(2.1rem, 5vw, 3.1rem); line-height: 1.06; letter-spacing: -0.02em; }
+.standfirst {
+  max-width: var(--measure);
+  margin: 18px 0 0;
+  font-size: 1.06rem;
+  color: var(--muted);
+}
+
+/* The key is the page's legend, and it is stated once, at the top, because
+   every diagram below encodes the same three things the same way. */
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin-top: 30px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line-soft);
+}
+.key-item {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.swatch {
+  width: 11px; height: 11px; flex: 0 0 auto;
+  border-radius: 2px;
+  transform: translateY(1px);
+}
+.swatch.gen  { background: var(--gen); }
+.swatch.gui  { background: var(--gui); }
+.swatch.data { background: var(--data); }
+.swatch.warn { background: var(--warn); }
+.key-item code { color: var(--text); }
+
+/* ---- sections ---- */
+
+section { margin: 0 0 64px; }
+h2 {
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+/* The section number is real information: the roll IS a sequence, and these
+   are the stages of it in the order they run. Numbering anything on this page
+   that is not ordered would be decoration. */
+h2 .n {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--faint);
+  letter-spacing: 0.1em;
+}
+h3 {
+  font-size: 1.06rem;
+  margin: 34px 0 8px;
+  letter-spacing: -0.005em;
+}
+h2 + .lede {
+  max-width: var(--measure);
+  color: var(--muted);
+  margin: 0 0 26px;
+}
+p { margin: 0 0 15px; }
+.prose > p:last-child { margin-bottom: 0; }
+
+code, kbd {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 0.855em;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  padding: 0.08em 0.34em;
+  overflow-wrap: anywhere;
+}
+a { color: var(--gui); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--gui);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ---- figures ---- */
+
+figure {
+  margin: 30px 0;
+  padding: 22px 22px 18px;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+figure svg { display: block; width: 100%; min-width: 620px; height: auto; }
+figcaption {
+  max-width: var(--measure);
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 13px;
+  color: var(--muted);
+}
+figcaption b { color: var(--text); font-weight: 600; }
+
+/* SVG primitives. Classes rather than presentation attributes so both themes
+   are served from the same tokens as the prose around them. */
+.d-box  { fill: var(--raised); stroke: var(--line); stroke-width: 1.25; }
+.d-box.gen  { fill: var(--gen-wash);  stroke: var(--gen); }
+.d-box.gui  { fill: var(--gui-wash);  stroke: var(--gui); }
+.d-box.data { fill: var(--data-wash); stroke: var(--data); }
+.d-box.warn { fill: var(--warn-wash); stroke: var(--warn); }
+.d-band { fill: none; stroke: var(--line); stroke-width: 1; stroke-dasharray: 5 4; }
+.d-band.gui { stroke: var(--gui); }
+.d-band.gen { stroke: var(--gen); }
+
+.d-t {
+  fill: var(--text);
+  font-family: "IBM Plex Sans Condensed", sans-serif;
+  font-size: 13px; font-weight: 600;
+}
+.d-t.sm { font-size: 11.5px; }
+.d-m {
+  fill: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+}
+.d-lab {
+  fill: var(--faint);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.d-n { fill: var(--faint); font-family: "IBM Plex Mono", monospace; font-size: 10px; }
+.d-hot   { fill: var(--gen); }
+.d-cool  { fill: var(--gui); }
+.d-store { fill: var(--data); }
+.d-bad   { fill: var(--warn); }
+
+.d-a { stroke: var(--muted); stroke-width: 1.4; fill: none; marker-end: url(#ah); }
+.d-a.hot { stroke: var(--gen); stroke-width: 1.7; marker-end: url(#ah-hot); }
+.d-a.cool { stroke: var(--gui); marker-end: url(#ah-cool); }
+.ah      { fill: var(--muted); }
+.ah-hot  { fill: var(--gen); }
+.ah-cool { fill: var(--gui); }
+.d-bar { stroke: none; }
+.d-bar.full { fill: var(--line); }
+.d-bar.narrow { fill: var(--gen); }
+.d-bar.blown { fill: var(--warn); }
+
+/* ---- stage list ---- */
+
+/* One object, repeated: a rule down the left, the ordinal in the gutter, the
+   anchor line in mono under the claim. Same edges and baselines every time. */
+.stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.stage {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 0 4px;
+  padding: 16px 0 16px 4px;
+  border-top: 1px solid var(--line-soft);
+}
+.stage:last-child { border-bottom: 1px solid var(--line-soft); }
+.stage-n {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--faint);
+  padding-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.stage-b { min-width: 0; }
+.stage h4 {
+  margin: 0 0 3px;
+  font-family: "IBM Plex Sans Condensed", sans-serif;
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+.stage p { margin: 0 0 8px; max-width: var(--measure); color: var(--muted); }
+.stage p:last-child { margin-bottom: 0; }
+.anchor {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11.5px;
+  color: var(--text);
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: var(--raised);
+  border-left: 2px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.anchor.gen  { border-left-color: var(--gen); }
+.anchor.gui  { border-left-color: var(--gui); }
+.anchor.data { border-left-color: var(--data); }
+.anchors { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+
+/* ---- tables ---- */
+
+.tbl-scroll { overflow-x: auto; margin: 26px 0; }
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 640px;
+  font-size: 13.5px;
+}
+caption {
+  text-align: left;
+  font-family: "IBM Plex Sans Condensed", sans-serif;
+  font-weight: 700;
+  font-size: 1.06rem;
+  padding-bottom: 10px;
+}
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: 9px 16px 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+thead th {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 500;
+  border-bottom-color: var(--line);
+}
+td code, th code { background: none; border: none; padding: 0; color: var(--text); }
+td:first-child { color: var(--text); }
+tbody tr:hover { background: var(--surface); }
+
+/* ---- callouts ---- */
+
+/* Border, fill and a left rule are spent only here - on the handful of things
+   that are actively load-bearing or actively dangerous. Everything else on the
+   page is plain text on the ground, so these read as raised. */
+.note {
+  margin: 24px 0;
+  padding: 15px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--line);
+  background: var(--surface);
+  max-width: var(--measure);
+  font-size: 14px;
+}
+.note.trap { border-left-color: var(--warn); }
+.note.gen  { border-left-color: var(--gen); }
+.note.gui  { border-left-color: var(--gui); }
+.note.data { border-left-color: var(--data); }
+.note > :last-child { margin-bottom: 0; }
+.note-h {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  display: block;
+  margin-bottom: 7px;
+}
+
+/* ---- the table-order strip ---- */
+
+/* REQUIRED_TABLES rendered as what it is: an ordered list whose order is the
+   mechanism. Cheap to scan, and the two drawn-outside-the-loop entries are
+   marked in place rather than explained afterwards. */
+.order {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 22px 0 8px;
+  padding: 0;
+  list-style: none;
+  counter-reset: t;
+}
+.order li {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11.5px;
+  padding: 4px 9px 4px 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.order li::before {
+  counter-increment: t;
+  content: counter(t) " ";
+  color: var(--faint);
+  font-size: 9.5px;
+  margin-right: 4px;
+}
+.order li.out { border-color: var(--gen); color: var(--text); background: var(--gen-wash); }
+.order li.late { border-color: var(--data); color: var(--text); background: var(--data-wash); }
+.order-key { font-size: 12px; color: var(--muted); margin: 0; }
+
+/* ---- ship deltas ---- */
+
+.delta { display: grid; gap: 0; margin: 24px 0; }
+.delta-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 20px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: 13.5px;
+}
+.delta-row:last-child { border-bottom: 1px solid var(--line-soft); }
+.delta-row.head {
+  border-top: none;
+  border-bottom: 1px solid var(--line);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding-bottom: 8px;
+}
+.delta-row > :first-child { color: var(--text); font-weight: 500; }
+.delta-row span { color: var(--muted); min-width: 0; }
+
+footer {
+  border-top: 1px solid var(--line);
+  padding-top: 26px;
+  margin-top: 20px;
+  font-size: 13px;
+  color: var(--faint);
+  max-width: var(--measure);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+@media (max-width: 620px) {
+  .wrap { padding: 0 16px 64px; }
+  .stage { grid-template-columns: 34px minmax(0, 1fr); }
+  .delta-row { grid-template-columns: 1fr; gap: 3px; }
+  .delta-row.head { display: none; }
+}
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">lancer-art-generator &nbsp;·&nbsp; lancer-npc-import-gui</p>
+  <h1>Lancer Roll Pipeline</h1>
+  <p class="standfirst">
+    What happens between clicking <b>Generate</b> and a token landing in Foundry — the
+    twenty-five draws, the flags that gate them, the one random stream that makes them
+    reproducible, and the round trip the GUI makes back through all of it to change a
+    single trait. Every box below is coloured by the repo that owns it, so the picture
+    answers <em>which file do I open</em> as well as <em>what happens next</em>.
+  </p>
+  <div class="key">
+    <span class="key-item"><span class="swatch gen"></span> <code>lancer-art-generator</code> — Python: rolls, prompts, renders</span>
+    <span class="key-item"><span class="swatch gui"></span> <code>lancer-npc-import-gui</code> — Node: forms, routes, argv</span>
+    <span class="key-item"><span class="swatch data"></span> state on disk — tables file, manifest</span>
+    <span class="key-item"><span class="swatch warn"></span> a trap, or two things that must agree</span>
+  </div>
+</header>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="n">SUMMARY</span> What "rolling" actually is</h2>
+
+  <div class="prose">
+    <p>
+      An NPC is twenty-five draws from twenty-five markdown tables, taken in a fixed
+      order, from a single random stream. Nothing about that is unusual. The three
+      things worth knowing before reading any of the code are:
+    </p>
+    <p>
+      <b>Earlier draws gate later ones, through flags carried on the bullet itself.</b>
+      A Role bullet reads <code>a Union marine soldier || mil</code>. The text before the
+      <code>||</code> goes into the prompt; the flags after it are stripped off and turned
+      into plain Python booleans, which the next twenty tables' filters read. There is no
+      rules engine — every gate is an <code>if name == "Weapon"</code> block matching flag
+      strings literally. That is why the order of <code>REQUIRED_TABLES</code> is
+      load-bearing, and why an unrecognised flag fails silently rather than loudly.
+    </p>
+    <p>
+      <b>A single-trait re-roll is a whole fresh roll with everything else pinned.</b>
+      There is no code path that patches one value. Re-rolling a Hair runs
+      <code>roll_npc()</code> again with the other twenty-four bullets forced in as
+      overrides — which is the only way the filters can run at all, since a pinned trait
+      is never drawn and therefore never filtered.
+    </p>
+    <p>
+      <b>The manifest entry is the accumulator.</b> There is no pending-edit map anywhere
+      in the GUI. Each edit reads what the last edit wrote, so a run of changes composes
+      by construction, and the flag <code>artStale</code> is what records that the stored
+      traits and the stored image have parted company.
+    </p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 1000 408" role="img" aria-label="End-to-end flow: the GUI builds an argv and spawns the Python generator, which parses the tables, rolls the NPC, builds two prompts, renders through ComfyUI, and writes one manifest entry that the GUI reads back.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path class="ah" d="M 0 0 L 10 5 L 0 10 z"></path>
+        </marker>
+        <marker id="ah-hot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path class="ah-hot" d="M 0 0 L 10 5 L 0 10 z"></path>
+        </marker>
+        <marker id="ah-cool" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path class="ah-cool" d="M 0 0 L 10 5 L 0 10 z"></path>
+        </marker>
+      </defs>
+
+      <!-- GUI band -->
+      <rect class="d-band gui" x="16" y="14" width="968" height="84" rx="5"></rect>
+      <text class="d-lab d-cool" x="30" y="33">lancer-npc-import-gui · Node</text>
+      <rect class="d-box gui" x="30" y="42" width="250" height="44" rx="4"></rect>
+      <text class="d-t sm" x="44" y="62">Create form · Set… · Re-roll</text>
+      <text class="d-m" x="44" y="77">server.js:handleApi</text>
+
+      <rect class="d-box gui" x="706" y="42" width="262" height="44" rx="4"></rect>
+      <text class="d-t sm" x="720" y="62">Library, detail sheet, Import</text>
+      <text class="d-m" x="720" y="77">server.js:manifestItemsFrom</text>
+
+      <!-- Generator band label, centred: the two arrows that cross this row
+           descend at x=87 and x=907, so the middle is the only clear span. -->
+      <text class="d-lab d-hot" x="500" y="140" text-anchor="middle">lancer-art-generator · Python</text>
+
+      <!-- spine -->
+      <rect class="d-box gen" x="16"  y="152" width="142" height="88" rx="4"></rect>
+      <text class="d-t sm" x="30" y="176">parse_args</text>
+      <text class="d-m" x="30" y="196">argv becomes</text>
+      <text class="d-m" x="30" y="209">intent: seed,</text>
+      <text class="d-m" x="30" y="222">count, overrides</text>
+
+      <rect class="d-box data" x="180" y="152" width="142" height="88" rx="4"></rect>
+      <text class="d-t sm" x="194" y="176">parse_tables</text>
+      <text class="d-m" x="194" y="196">markdown becomes</text>
+      <text class="d-m" x="194" y="209">pools; x30 is</text>
+      <text class="d-m" x="194" y="222">30 list entries</text>
+
+      <rect class="d-box gen" x="344" y="152" width="142" height="88" rx="4"></rect>
+      <text class="d-t sm" x="358" y="176">roll_npc</text>
+      <text class="d-m" x="358" y="196">25 draws, one</text>
+      <text class="d-m" x="358" y="209">RNG, flags gate</text>
+      <text class="d-m" x="358" y="222">as they accrue</text>
+
+      <rect class="d-box gen" x="508" y="152" width="142" height="88" rx="4"></rect>
+      <text class="d-t sm" x="522" y="176">build_prompts</text>
+      <text class="d-m" x="522" y="196">traits become</text>
+      <text class="d-m" x="522" y="209">two prompts,</text>
+      <text class="d-m" x="522" y="222">≤512 tokens</text>
+
+      <rect class="d-box gen" x="672" y="152" width="142" height="88" rx="4"></rect>
+      <text class="d-t sm" x="686" y="176">render</text>
+      <text class="d-m" x="686" y="196">ComfyUI: portrait,</text>
+      <text class="d-m" x="686" y="209">token, then a</text>
+      <text class="d-m" x="686" y="222">second RMBG job</text>
+
+      <rect class="d-box data" x="836" y="152" width="142" height="88" rx="4"></rect>
+      <text class="d-t sm" x="850" y="176">save_manifest</text>
+      <text class="d-m" x="850" y="196">traits, rawTraits,</text>
+      <text class="d-m" x="850" y="209">seed, 8 registers,</text>
+      <text class="d-m" x="850" y="222">file paths</text>
+
+      <!-- spine arrows -->
+      <path class="d-a" d="M 158 196 H 174"></path>
+      <path class="d-a" d="M 322 196 H 338"></path>
+      <path class="d-a" d="M 486 196 H 502"></path>
+      <path class="d-a" d="M 650 196 H 666"></path>
+      <path class="d-a" d="M 814 196 H 830"></path>
+
+      <!-- hand-off down, read-back up -->
+      <path class="d-a cool" d="M 100 86 V 120 H 87 V 148"></path>
+      <text class="d-m d-cool" x="112" y="118">spawn: python + argv</text>
+      <path class="d-a cool" d="M 907 152 V 120 H 837 V 90"></path>
+      <text class="d-m d-cool" x="700" y="118" text-anchor="end">one JSON file, both kinds</text>
+
+      <!-- per-NPC loop -->
+      <path class="d-a" d="M 415 240 V 268 H 87 V 244"></path>
+      <text class="d-m" x="252" y="284" text-anchor="middle">once per NPC — seed = base_seed + n</text>
+
+      <!-- note strip -->
+      <line x1="16" y1="316" x2="984" y2="316" stroke="var(--line-soft)" stroke-width="1"></line>
+      <text class="d-lab" x="16" y="340">the two things that cross the boundary</text>
+      <text class="d-m" x="16" y="362">argv in — every flag is built by a pure function in lib/ so a test can assert it without spawning</text>
+      <text class="d-m" x="16" y="380">.generated-npcs.json out — keyed by folder path, discriminated by entry.kind, shared by NPCs and ships</text>
+      <text class="d-m" x="16" y="398">stdout is the answer, stderr is the diagnostics; --apply-only depends on that split staying clean</text>
+    </svg>
+    <figcaption>
+      <b>One roll, end to end.</b> The GUI never rolls anything — it builds an argv, spawns
+      the generator, and reads back one JSON file. Every legality question it can answer,
+      it answers by asking the generator, which is why no filter logic exists in
+      JavaScript anywhere in the second repo.
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="n">STAGE 01</span> Getting in</h2>
+  <p class="lede">Four ways a roll starts, and they converge on the same function.</p>
+
+  <ol class="stages">
+    <li class="stage">
+      <span class="stage-n">1.1</span>
+      <div class="stage-b">
+        <h4>A fresh batch</h4>
+        <p>
+          <code>--count N</code> with an optional <code>--seed</code>. NPC <em>n</em> of the
+          batch rolls on <code>base_seed + n</code>. Absent a seed, one is drawn from
+          <code>random.randint(0, 2**32-1)</code> and recorded, so any batch is repeatable
+          after the fact.
+        </p>
+        <div class="anchors">
+          <span class="anchor gen">generate-npc.py:main</span>
+          <span class="anchor gui">POST /api/create-npc → lib/kinds.js:npc.createArgs</span>
+        </div>
+      </div>
+    </li>
+    <li class="stage">
+      <span class="stage-n">1.2</span>
+      <div class="stage-b">
+        <h4>A forced trait</h4>
+        <p>
+          <code>--set-trait Table=value</code>, repeatable once per table. The value is taken
+          <b>verbatim, flags and all</b> — <code>a field medic || civ</code>, not
+          <code>a field medic</code>. Drop the flags and the twenty tables downstream stop
+          seeing the constraint, which is why the Create form's dropdown puts the raw bullet
+          in the option's value and prettifies only its label.
+        </p>
+        <div class="anchors">
+          <span class="anchor gen">generate-npc.py:parse_args</span>
+          <span class="anchor gui">public/app.js:renderOverrideRows</span>
+        </div>
+      </div>
+    </li>
+    <li class="stage">
+      <span class="stage-n">1.3</span>
+      <div class="stage-b">
+        <h4>A re-roll of one trait on an NPC that already exists</h4>
+        <p>
+          <code>--regen-manifest … --regen-id … --reroll-trait TABLE</code>. Loads the stored
+          entry, frees the target and its cascade, pins the rest, and rolls again. See stage 05.
+        </p>
+        <div class="anchors">
+          <span class="anchor gen">generate-npc.py:reroll_from_raw</span>
+          <span class="anchor gui">POST /api/stage-trait → lib/applyTrait.js:applyArgs</span>
+        </div>
+      </div>
+    </li>
+    <li class="stage">
+      <span class="stage-n">1.4</span>
+      <div class="stage-b">
+        <h4>A read-only question</h4>
+        <p>
+          <code>--trait-choices TABLE</code> asks what one trait <em>could</em> be on this
+          NPC and what each option would cost; <code>--trait-odds N</code> samples the real
+          roller N times (default 20 000) to report per-bullet frequency. Both print JSON and
+          exit without rendering. Both are cached on the GUI side.
+        </p>
+        <div class="anchors">
+          <span class="anchor gen">generate-npc.py:print_trait_choices</span>
+          <span class="anchor gen">generate-npc.py:trait_odds</span>
+          <span class="anchor gui">lib/traitChoices.js · lib/traitOdds.js</span>
+        </div>
+      </div>
+    </li>
+  </ol>
+
+  <div class="note gui">
+    <span class="note-h">where the GUI learns its vocabulary</span>
+    <p>
+      At startup the Node server reads each generator script <b>as text</b> and regex-parses
+      <code>REQUIRED_TABLES</code>, <code>REROLLABLE_TRAITS</code> and
+      <code>TRAIT_DEPENDENTS</code> out of the Python source
+      (<code>lib/overrideTables.js</code>, into <code>server.js:OVERRIDE_DATA_BY_KIND</code>).
+      That is deliberate — the alternative is a hand-maintained copy, and the hand-maintained
+      copy is exactly what drifted before: it was missing Weapon, Theme, Height and Hair colour,
+      and still called <code>Glow colour</code> by its old name <code>Accent</code>. Every value
+      it fails to parse degrades to an empty list rather than throwing, so a reformatted Python
+      constant costs you buttons, not a crash.
+    </p>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="n">STAGE 02</span> The tables</h2>
+  <p class="lede">A markdown file, two regexes, and one convention per column count.</p>
+
+  <div class="prose">
+    <p>
+      <code>## Heading</code> starts a table, <code>- text</code> is one option, and a leading
+      <code>x30</code> means the option is appended thirty times. There is no weights column:
+      a weight <em>is</em> list repetition, and <code>rng.choice</code> does the rest. Repeating
+      a heading merges the two tables and warns.
+    </p>
+    <p>
+      The <code>||</code> separator means different things in different tables, and getting it
+      wrong destroys prose rather than failing. Three tables carry <b>three</b> segments —
+      Backdrop is <code>shot || scene || flags</code>, Hair colour is
+      <code>base || tail || flags</code>, Faction is <code>name || visual || flags</code> —
+      and everything else carries two. <code>flags_for(name, bullet)</code> is the one correct
+      way to ask a bullet for its flags; calling <code>split_flags</code> on a Backdrop returns
+      the scene sentence and thinks it is a flag list.
+    </p>
+  </div>
+
+  <h3>Per-pronoun variants, and the two forms they take</h3>
+  <div class="prose">
+    <p>
+      A heading ending in <code>+</code> is <b>additive</b>: <code>## Outfit (she) +</code> is
+      appended to <code>## Outfit</code>, so a woman rolls from both pools. A heading without
+      it <b>replaces</b>: <code>## Build (she)</code> is used <em>instead of</em>
+      <code>## Build</code>, so with pronouns on "she" every plain Build bullet becomes
+      unrollable. <code>heading_for()</code> is written as the deliberate inverse of
+      <code>variant_table()</code>, in the same order, so a bullet is always attributed back
+      to the heading it would actually have been drawn from.
+    </p>
+  </div>
+
+  <div class="note data">
+    <span class="note-h">a convention only the Node side knows</span>
+    <p>
+      A bullet disabled on the GUI's Tables tab is written back as
+      <code>&lt;!-- - text --&gt;</code>. Python's bullet regex requires a line to start with
+      <code>-</code>, so a disabled bullet is invisible to the roller by construction rather
+      than by agreement. Both regexes have to keep that shape for it to hold.
+    </p>
+  </div>
+
+  <h3>The order, which is the mechanism</h3>
+  <ol class="order">
+    <li>Given names</li><li>Family names</li><li>Callsigns</li>
+    <li class="out">Pronouns</li><li class="out">Theme</li>
+    <li>Age</li><li>Build</li><li>Height</li><li>Skin</li><li>Hair</li>
+    <li>Hair colour</li><li>Eyes</li><li>Feature</li><li>Demeanor</li><li>Role</li>
+    <li>Faction</li><li>Outfit</li><li>Headgear</li><li>Weapon</li><li>Gear</li>
+    <li>Backdrop</li><li>Glow colour</li><li>Glow placement</li><li>Weather</li>
+    <li class="late">Stance</li>
+  </ol>
+  <p class="order-key">
+    Amber: drawn before the loop, because each selects <em>between</em> pools rather than
+    from one. Green: drawn last, because it is filtered against both Weapon and Gear.
+    The order is load-bearing in five places — Age before Build, Age before Hair colour,
+    Role before Faction/Outfit/Weapon, Outfit before Weapon/Gear, Weapon before Gear/Stance —
+    and each is explained at its own use site, not in the list.
+  </p>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="n">STAGE 03</span> Inside <code style="background:none;border:none;padding:0;font-size:0.85em">roll_npc()</code></h2>
+  <p class="lede">One loop, one RNG, and an accumulator of booleans that grows as it goes.</p>
+
+  <figure>
+    <svg viewBox="0 0 880 632" role="img" aria-label="Inside roll_npc: Pronouns and Theme are drawn before the loop, then each required table runs through variant selection, theme filters, per-table filters, a probe, a draw, an override substitution and a flag strip, with the stripped flags feeding an accumulator that gates the following tables.">
+      <!-- pre-loop -->
+      <text class="d-lab" x="16" y="20">before the loop</text>
+      <rect class="d-box gen" x="16" y="30" width="330" height="42" rx="4"></rect>
+      <text class="d-t sm" x="30" y="49">Pronouns — drawn first, unfiltered</text>
+      <text class="d-m" x="30" y="64">subject selects every variant table below</text>
+
+      <rect class="d-box gen" x="16" y="84" width="330" height="42" rx="4"></rect>
+      <text class="d-t sm" x="30" y="103">Theme — drawn second</text>
+      <text class="d-m" x="30" y="118">selects between pools, so not drawn inside one</text>
+
+      <rect class="d-box" x="16" y="138" width="330" height="42" rx="4"></rect>
+      <text class="d-t sm" x="30" y="157">five reverse gates precomputed</text>
+      <text class="d-m" x="30" y="172">a pinned Build narrows Age — the pairing runs backwards</text>
+
+      <path class="d-a" d="M 181 72 V 80"></path>
+      <path class="d-a" d="M 181 126 V 134"></path>
+      <path class="d-a" d="M 181 180 V 196"></path>
+
+      <!-- loop container -->
+      <rect class="d-band gen" x="16" y="200" width="828" height="334" rx="6"></rect>
+      <text class="d-lab d-hot" x="30" y="220">for name in REQUIRED_TABLES — Pronouns, Theme and Stance skipped</text>
+
+      <rect class="d-box" x="36" y="230" width="380" height="30" rx="3"></rect>
+      <text class="d-m" x="48" y="249">variant_table(tables, name, subject)</text>
+
+      <rect class="d-box" x="36" y="270" width="380" height="30" rx="3"></rect>
+      <text class="d-m" x="48" y="289">filter_by_theme → apply_theme_share</text>
+
+      <rect class="d-box warn" x="36" y="310" width="380" height="30" rx="3"></rect>
+      <text class="d-m" x="48" y="329">the per-table `if name == …` filter blocks</text>
+
+      <rect class="d-box data" x="36" y="350" width="380" height="30" rx="3"></rect>
+      <text class="d-m" x="48" y="369">probe[name] = list(options) — the honest pool</text>
+
+      <rect class="d-box gen" x="36" y="390" width="380" height="30" rx="3"></rect>
+      <text class="d-m" x="48" y="409">value = rng.choice(options)</text>
+
+      <rect class="d-box" x="36" y="430" width="380" height="30" rx="3"></rect>
+      <text class="d-m" x="48" y="449">a forced value replaces the draw, here</text>
+
+      <rect class="d-box" x="36" y="470" width="380" height="30" rx="3"></rect>
+      <text class="d-m" x="48" y="489">raw[name] = value → then strip the flags</text>
+
+      <path class="d-a" d="M 226 260 V 266"></path>
+      <path class="d-a" d="M 226 300 V 306"></path>
+      <path class="d-a" d="M 226 340 V 346"></path>
+      <path class="d-a" d="M 226 380 V 386"></path>
+      <path class="d-a" d="M 226 420 V 426"></path>
+      <path class="d-a" d="M 226 460 V 466"></path>
+
+      <!-- accumulator -->
+      <rect class="d-box gen" x="556" y="300" width="280" height="150" rx="4"></rect>
+      <text class="d-t sm" x="572" y="324">the accumulator</text>
+      <text class="d-m" x="572" y="344">role_mil        outfit_notac</text>
+      <text class="d-m" x="572" y="360">role_dress      weapon_hands</text>
+      <text class="d-m" x="572" y="376">young           weapon_flags</text>
+      <text class="d-m" x="572" y="392">hair_updo       hair_covered</text>
+      <text class="d-m" x="572" y="408">headgear_helmet headgear_crown</text>
+      <text class="d-n" x="572" y="432">plain booleans — no rules engine</text>
+
+      <path class="d-a" d="M 416 485 H 500 V 425 H 552"></path>
+      <text class="d-n" x="440" y="478">sets</text>
+      <!-- Straight, at the filter step's own centre line: a bent path here put
+           its own corner through the label that names it. -->
+      <path class="d-a hot" d="M 556 325 H 420"></path>
+      <text class="d-m d-hot" x="488" y="317" text-anchor="middle">gates what follows</text>
+
+      <!-- post-loop -->
+      <text class="d-lab" x="16" y="562">after the loop</text>
+      <rect class="d-box" x="16" y="572" width="400" height="46" rx="4"></rect>
+      <text class="d-t sm" x="30" y="591">Stance, then the one backwards correction</text>
+      <text class="d-m" x="30" y="606">a `nogear` Backdrop re-rolls a `hands` Gear</text>
+
+      <rect class="d-box data" x="444" y="572" width="400" height="46" rx="4"></rect>
+      <text class="d-t sm" x="458" y="591">_raw, plus eight derived registers</text>
+      <text class="d-m" x="458" y="606">traits lose their flags; the booleans carry them instead</text>
+    </svg>
+    <figcaption>
+      <b>The loop-carried dependency is the whole design.</b> Flags come off a bullet the
+      moment it is drawn, become booleans, and those booleans are what the next table's
+      filter reads. Nothing declares this relationship — it exists only because Role is
+      earlier in <code>REQUIRED_TABLES</code> than Weapon.
+    </figcaption>
+  </figure>
+
+  <h3>Soft filters and hard filters</h3>
+  <div class="prose">
+    <p>
+      Almost every filter ends <code>options = kept or options</code>: narrow if you can,
+      hand back the original if narrowing emptied the pool. That fallback is what keeps a
+      badly-tagged table from crashing a run, and it is also the source of the trap below.
+    </p>
+    <p>
+      Four filters deliberately have <b>no</b> fallback —
+      <code>filter_by_role_lock</code>, <code>filter_by_backdrop_role</code>,
+      <code>filter_by_affiliation</code>, and the ship side's <code>filter_by_size</code> —
+      because for those the fallback would hand back precisely what was excluded: gear locked
+      to another job, a scene asserting a job the NPC does not hold, a kilometre-long spinal
+      lance on a one-hex patrol boat.
+    </p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 900 384" role="img" aria-label="Two orderings of the Weapon filters. Running the weapon policy before the notac strip narrows the pool to sidearms and keeps them. Running notac first empties the pool of every sidearm, so the policy's fallback hands back the entire table including its weighted empty entries.">
+      <text class="d-lab" x="16" y="22">the order the code uses — policy first</text>
+
+      <text class="d-m" x="188" y="60" text-anchor="end">after theme</text>
+      <rect class="d-bar full" x="200" y="44" width="560" height="22" rx="2"></rect>
+      <text class="d-n" x="772" y="60">the theme's pool</text>
+
+      <text class="d-m" x="188" y="98" text-anchor="end">weapon policy</text>
+      <rect class="d-bar narrow" x="200" y="82" width="180" height="22" rx="2"></rect>
+      <text class="d-n" x="392" y="98">narrowed to the sidearms a mil Role guarantees</text>
+
+      <text class="d-m" x="188" y="136" text-anchor="end">notac strip</text>
+      <rect class="d-bar narrow" x="200" y="120" width="180" height="22" rx="2"></rect>
+      <text class="d-n" x="392" y="136">nothing non-mil left to keep → `or options` re-admits them</text>
+
+      <text class="d-t sm d-hot" x="200" y="168">the NPC is armed, as the Role promised</text>
+
+      <line x1="16" y1="188" x2="884" y2="188" stroke="var(--line-soft)" stroke-width="1"></line>
+
+      <text class="d-lab d-bad" x="16" y="216">the order that broke it — notac first</text>
+
+      <text class="d-m" x="188" y="254" text-anchor="end">after theme</text>
+      <rect class="d-bar full" x="200" y="238" width="560" height="22" rx="2"></rect>
+      <text class="d-n" x="772" y="254">the same pool</text>
+
+      <text class="d-m" x="188" y="292" text-anchor="end">notac strip</text>
+      <rect class="d-bar blown" x="200" y="276" width="14" height="22" rx="2"></rect>
+      <text class="d-n" x="226" y="292">every sidearm is also flagged `mil`, so the pool empties</text>
+
+      <text class="d-m" x="188" y="330" text-anchor="end">weapon policy</text>
+      <rect class="d-bar blown" x="200" y="314" width="640" height="22" rx="2"></rect>
+      <text class="d-n" x="200" y="356">its own `or options` fallback hands back the WHOLE table, weighted empties included — unarmed on 7 rolls in 10</text>
+    </svg>
+    <figcaption>
+      <b>Two soft filters in the wrong order.</b> Being armed is a <em>guarantee</em>;
+      <code>notac</code> is only a <em>preference</em>, so the guarantee picks the pool first
+      and the preference falls back into it. Reversed, both fallbacks fire and the guarantee
+      loses. Nothing enforces this ordering but the comment at the site.
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="n">STAGE 04</span> Determinism</h2>
+  <p class="lede">One stream per NPC. Not one per trait — and that has consequences.</p>
+
+  <div class="prose">
+    <p>
+      Every table consumes exactly one <code>rng.choice</code>, from the same
+      <code>random.Random(base_seed + n)</code>, in <code>REQUIRED_TABLES</code> order. The
+      same integer is then handed to ComfyUI as the sampler seed for both images. So the value
+      of trait N depends on how many draws preceded it: <b>adding a table, or changing a
+      pool's length, changes every subsequent trait at the same seed.</b>
+    </p>
+    <p>
+      A forced trait is still drawn and the draw discarded, precisely so that forcing one
+      trait does not shift the stream and change every NPC after it in the batch. The
+      exception is unavoidable — a forced trait that <em>filters</em> a later pool changes
+      that pool's length, and a shorter pool draws differently.
+    </p>
+  </div>
+
+  <figure>
+    <svg viewBox="0 0 880 268" role="img" aria-label="A single-trait re-roll pins every trait except the target and its cascade as overrides, then runs a complete fresh roll_npc, which rewrites the whole NPC including its raw traits and derived registers.">
+      <text class="d-lab" x="16" y="22">the stored entry’s rawTraits — 25 bullets</text>
+
+      <rect class="d-box" x="16" y="34" width="288" height="60" rx="4"></rect>
+      <text class="d-t sm" x="30" y="56">pinned — 14 traits</text>
+      <text class="d-m" x="30" y="74">passed in as overrides; never drawn,</text>
+      <text class="d-m" x="30" y="87">so no filter ever runs on them</text>
+
+      <rect class="d-box gen" x="16" y="106" width="288" height="60" rx="4"></rect>
+      <text class="d-t sm" x="30" y="128">freed — Role + trait_cascade("Role")</text>
+      <text class="d-m" x="30" y="146">Faction, Outfit, Weapon, Gear, Headgear,</text>
+      <text class="d-m" x="30" y="159">Backdrop, Stance, Weather, both Glow tables</text>
+
+      <path class="d-a" d="M 304 64 H 330 V 132"></path>
+      <path class="d-a" d="M 304 136 H 356"></path>
+
+      <rect class="d-box gen" x="360" y="106" width="212" height="60" rx="4"></rect>
+      <text class="d-t sm" x="374" y="128">roll_npc — run again, whole</text>
+      <text class="d-m" x="374" y="146">Random(new_seed or entry.seed)</text>
+      <text class="d-m" x="374" y="159">no patch-one-value path exists</text>
+
+      <path class="d-a" d="M 572 136 H 604"></path>
+
+      <rect class="d-box data" x="608" y="106" width="256" height="60" rx="4"></rect>
+      <text class="d-t sm" x="622" y="128">a complete NPC replaces the old</text>
+      <text class="d-m" x="622" y="146">_raw, the eight registers and the</text>
+      <text class="d-m" x="622" y="159">{colour} fills all recompute</text>
+
+      <line x1="16" y1="196" x2="864" y2="196" stroke="var(--line-soft)" stroke-width="1"></line>
+      <text class="d-m" x="16" y="220">Same entry + same --new-seed + same tables file ⇒ byte-identical re-roll. That is what makes a CLI re-roll repeatable.</text>
+      <text class="d-m" x="16" y="238">The GUI always sends a fresh crypto.randomInt seed instead, because clicking Re-roll twice must not return the same haircut.</text>
+      <text class="d-m" x="16" y="256">--apply-only never writes that seed back: entry.seed keeps describing the noise of the image already on disk.</text>
+    </svg>
+    <figcaption>
+      <b>Why freeing the cascade is not optional.</b> Pinning filters in one direction only.
+      Free the Role alone and the kept Faction landed on the wrong side of the civ/mil split
+      <b>138 times in 400</b> on the live tables — a colonial administrator under a marine
+      corps banner, arriving through the one path that skips <code>filter_by_mil</code>.
+    </figcaption>
+  </figure>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="n">STAGE 05</span> The GUI round trip</h2>
+  <p class="lede">Every edit is: ask the generator, show the answer, send the choice back, re-read the entry.</p>
+
+  <ol class="stages">
+    <li class="stage">
+      <span class="stage-n">5.1</span>
+      <div class="stage-b">
+        <h4>Ask what the trait could be</h4>
+        <p>
+          <code>GET /api/trait-choices</code> spawns <code>--trait-choices TABLE</code>. The
+          generator answers <em>legality</em> by reading back <code>probe[name]</code> — the
+          pool the roller actually built — rather than recomputing it, so there is nothing for
+          it to drift from. It answers <em>cost</em> by re-rolling with each candidate forced
+          and checking whether each dependent's stored bullet survives.
+        </p>
+        <div class="anchors">
+          <span class="anchor gen">generate-npc.py:trait_choices</span>
+          <span class="anchor gui">lib/traitChoices.js:parseChoicesOutput</span>
+        </div>
+      </div>
+    </li>
+    <li class="stage">
+      <span class="stage-n">5.2</span>
+      <div class="stage-b">
+        <h4>Draw the offer behind the same gates that accept it</h4>
+        <p>
+          The Set… button is drawn behind <code>rerollableFor(item)</code> and
+          <code>hasRawTraits(item)</code> — the identical test the route uses to accept or
+          refuse. A button that answers 400 is worse than no button.
+        </p>
+        <div class="anchors">
+          <span class="anchor gui">public/app.js:openSetTrait</span>
+          <span class="anchor gui">server.js:rerollableFor</span>
+        </div>
+      </div>
+    </li>
+    <li class="stage">
+      <span class="stage-n">5.3</span>
+      <div class="stage-b">
+        <h4>Name the cascade before spending it</h4>
+        <p>
+          <code>rerollNeedsConfirm</code> asks the <b>dependents map</b>, not either
+          re-rollable list — asked of the lists, Faction, Weather and Stance would open a
+          dialog announcing a cascade that does not exist and be unable to name a single
+          trait. <code>traitCascade()</code> in <code>app.js</code> is a worklist mirror of the
+          Python closure, ordered by <code>overrideTables</code> so it reads the same as the
+          CLI's own report.
+        </p>
+        <div class="anchors">
+          <span class="anchor gui">public/app.js:traitCascade</span>
+          <span class="anchor gen">generate-npc.py:trait_cascade</span>
+        </div>
+      </div>
+    </li>
+    <li class="stage">
+      <span class="stage-n">5.4</span>
+      <div class="stage-b">
+        <h4>Apply without rendering</h4>
+        <p>
+          <code>POST /api/stage-trait</code> spawns <code>--apply-only</code>: the re-roll
+          runs, the manifest is rewritten, <code>artStale</code> is set, and the new traits
+          are printed on <b>stdout</b> as JSON while every diagnostic goes to
+          <b>stderr</b>. The server keeps that stderr and returns it as the log, from which
+          the client regexes out the "…with Hair colour: 'x' → 'y'" lines to say what else
+          moved. Rendering stays on the separate Regenerate button.
+        </p>
+        <div class="anchors">
+          <span class="anchor gui">server.js:runApplyTrait</span>
+          <span class="anchor gen">generate-npc.py:regenerate_one</span>
+        </div>
+      </div>
+    </li>
+    <li class="stage">
+      <span class="stage-n">5.5</span>
+      <div class="stage-b">
+        <h4>Re-read rather than echo</h4>
+        <p>
+          The server re-reads the manifest entry instead of forwarding the generator's stdout:
+          the generator's stdout says what it <em>rolled</em>, and the entry says what is
+          <em>stored</em>. Those are different claims, and only the second is what the next
+          click will read.
+        </p>
+        <div class="anchors">
+          <span class="anchor data">.generated-npcs.json</span>
+        </div>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="n">STAGE 06</span> Spaceships</h2>
+  <p class="lede">The same roller with the pronoun axis swapped for a size axis.</p>
+
+  <div class="prose">
+    <p>
+      <code>generate-spaceship.py</code> imports <code>generate-npc.py</code> by path and binds
+      nineteen names to module-level aliases — <code>parse_tables</code>,
+      <code>variant_table</code>, every splitter, the theme filters,
+      <code>filter_by_mil</code>, the glow machinery — so that an NPC-side rename fails in
+      <code>test/test_shared_surface.py</code> rather than at render time. The single cleverest
+      reuse is <code>variant_table()</code>: it takes a caller-supplied string and does not care
+      what it means, so <code>## Hull (huge)</code> and <code>## Outfit (she) +</code> work
+      through identical code with zero change on the NPC side.
+    </p>
+  </div>
+
+  <div class="delta">
+    <div class="delta-row head"><span>axis</span><span>NPC</span><span>Spaceship</span></div>
+    <div class="delta-row"><span>Variant key</span><span>the pronoun subject — <code>she</code></span><span>the size band — <code>huge</code></span></div>
+    <div class="delta-row"><span>Drawn before the loop</span><span>Pronouns and Theme</span><span>Theme only — a ship has no pronouns</span></div>
+    <div class="delta-row"><span>Tables</span><span>25</span><span>18</span></div>
+    <div class="delta-row"><span>Primary gate</span><span>Role's <code>mil</code> flag and its category</span><span>Ship type slug plus the size band</span></div>
+    <div class="delta-row"><span>Filter temperament</span><span>mostly soft — <code>kept or options</code></span><span>size and policy are <b>hard</b>: "does this physically fit" has no sensible fallback</span></div>
+    <div class="delta-row"><span>Empty pool</span><span>falls back to the whole table</span><span><code>SystemExit</code> naming the missing bullet</span></div>
+    <div class="delta-row"><span>Derived registers stored</span><span>eight booleans</span><span>none — every pairing is rebuildable from <code>rawTraits</code></span></div>
+    <div class="delta-row"><span>Token size</span><span>fixed 1024×1280</span><span>per band, with hex counts <em>and</em> pixels in the manifest</span></div>
+    <div class="delta-row"><span>3D</span><span>supported</span><span><code>supports.model3d: false</code></span></div>
+    <div class="delta-row"><span>Manifest</span><span>the same <code>.generated-npcs.json</code></span><span>the same file again — discriminated by <code>entry.kind</code>, not by a second file</span></div>
+  </div>
+
+  <div class="note trap">
+    <span class="note-h">a table name identifies nothing</span>
+    <p>
+      Both tables files carry a <code>## Backdrop</code> — and <code>Weather</code>,
+      <code>Glow colour</code>, <code>Glow placement</code>, <code>Theme</code>,
+      <code>Faction</code> and <code>Weapon</code> besides. Table identity is therefore
+      <code>(kind, table)</code> on the wire: every route that names a table also carries a
+      kind and resolves the file through <code>kind.tables</code> off the registry. It is also
+      why the two staged-imports directories are <b>siblings rather than nested</b> —
+      <code>listStagedFiles</code> reads <code>*.json</code> at the top level, so a ship
+      directory under the NPC one would sweep ship runs into the NPC listing and append a
+      ship's Backdrop to the NPC tables file <em>reporting success</em>. Do not tidy it into a
+      subdirectory.
+    </p>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="n">REFERENCE</span> Where to modify what</h2>
+  <p class="lede">The question this page exists to answer at a glance.</p>
+
+  <div class="tbl-scroll">
+    <table aria-label="Where to change each part of the roll">
+      <thead>
+        <tr><th scope="col">To change…</th><th scope="col">Open</th><th scope="col">And know that</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>An option's wording, weight or on/off state</td>
+          <td><code>prompts/npc-generator-tables.md</code></td>
+          <td>No code change. The GUI's Tables tab edits this file in place.</td>
+        </tr>
+        <tr>
+          <td>Add a whole new table</td>
+          <td><code>generate-npc.py:REQUIRED_TABLES</code></td>
+          <td>Read the five ordering comments above the list first. It cascades automatically into the GUI's dropdown, the re-rollable list and <code>trait_cascade</code>'s ordering — but it shifts the RNG stream, so every existing seed now produces a different NPC.</td>
+        </tr>
+        <tr>
+          <td>What a flag <em>means</em></td>
+          <td>the <code>if name == …</code> blocks in <code>roll_npc</code></td>
+          <td>Plus <code>lib/tableFlags.js:TABLE_FLAGS</code> for a checkbox in the editor, plus the <code>||</code> conventions section of the tables file.</td>
+        </tr>
+        <tr>
+          <td>Add a flag on Backdrop, Hair colour or Faction</td>
+          <td><code>generate-npc.py:flags_for</code> and its splitter</td>
+          <td><b>And</b> <code>lib/tableFlags.js:THREE_SEGMENT_TABLES</code>. Writing a flag into segment 2 of one of these overwrites a scene sentence, a colour tail or a faction visual — all of which reach the prompt.</td>
+        </tr>
+        <tr>
+          <td>Which traits a re-roll drags along</td>
+          <td><code>generate-npc.py:TRAIT_DEPENDENTS</code></td>
+          <td>Write the justification paragraph; the map's whole value is that a later reader can re-check it. The GUI picks the change up through <code>traitDependentsFrom</code> with no client edit.</td>
+        </tr>
+        <tr>
+          <td>Which traits are re-rollable at all</td>
+          <td><code>RAW_REROLLABLE_TRAITS</code>, <code>REROLLABLE_TRAITS</code>, <code>UNREROLLABLE_REASONS</code></td>
+          <td>The first is derived by exclusion, which is why the Node parser reads the exclusion and redoes the subtraction rather than reading a list of names.</td>
+        </tr>
+        <tr>
+          <td>Role → folder, weapon policy, dress policy, role locks</td>
+          <td><code>ROLE_CATEGORIES</code>, <code>WEAPON_POLICY</code>, <code>DRESS_POLICY</code>, <code>ROLE_LOCKS</code>, <code>WEAPON_ROLES</code>, <code>BACKDROP_ROLES</code></td>
+          <td>An unmapped Role warns once and files the NPC under <code>Other</code>.</td>
+        </tr>
+        <tr>
+          <td>Prompt text</td>
+          <td><code>PORTRAIT_TEMPLATE</code>, <code>TOKEN_TEMPLATE</code>, <code>build_prompts</code></td>
+          <td>Watch the 512-token estimate. Krea silently truncates the tail, which is where the palette and background live.</td>
+        </tr>
+        <tr>
+          <td>What lands in the manifest</td>
+          <td>the dict at the end of <code>main</code>, plus <code>persist_traits</code>, <code>persist_flags</code>, <code>npc_from_entry</code></td>
+          <td>All four must agree, or a re-roll reads back a shape the roll never wrote.</td>
+        </tr>
+        <tr>
+          <td>A CLI flag</td>
+          <td><code>parse_args</code></td>
+          <td><b>And</b> the matching pure builder in <code>lib/kinds.js</code>, <code>lib/applyTrait.js</code>, <code>lib/traitChoices.js</code> or <code>lib/traitOdds.js</code>.</td>
+        </tr>
+        <tr>
+          <td>A GUI route</td>
+          <td><code>server.js:handleApi</code></td>
+          <td>Put the pure half in <code>lib/</code> so a test can reach it without spawning a process. Every existing argv builder exists for exactly that reason.</td>
+        </tr>
+        <tr>
+          <td>Ship type, size band or equipment rules</td>
+          <td><code>ship_policy.py</code></td>
+          <td><code>SHIP_TYPES</code>, <code>SIZE_BANDS</code>, <code>EQUIPMENT_POLICY</code>, <code>EQUIPMENT_GATES</code>, <code>filter_by_size</code>, <code>filter_by_gates</code>.</td>
+        </tr>
+        <tr>
+          <td>Add a whole new kind</td>
+          <td><code>lib/kinds.js:buildKinds</code>, <code>lib/paths.js:derivePaths</code>, <code>lib/tableGroups.js</code>, <code>config.example.json</code></td>
+          <td>Do <b>not</b> bump <code>SEEN_VERSION</code> — a mismatch reseeds the whole library as seen and wipes every New badge irrecoverably. Do not nest the staged-imports directory.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="n">REFERENCE</span> Where two implementations must agree</h2>
+  <p class="lede">Ranked by how quietly each one fails.</p>
+
+  <ol class="stages">
+    <li class="stage">
+      <span class="stage-n">01</span>
+      <div class="stage-b">
+        <h4>A Node process regex-parsing a Python file</h4>
+        <p>
+          <code>lib/overrideTables.js</code> reads <code>REQUIRED_TABLES</code>,
+          <code>REROLLABLE_TRAITS</code>, <code>RAW_REROLLABLE_TRAITS</code> and
+          <code>TRAIT_DEPENDENTS</code> out of the generator's source text. Reformatting a
+          constant empties a list, silently. Three mitigations are load-bearing: every parse
+          degrades to empty rather than throwing; the <code>^</code> anchor is the only thing
+          separating <code>REROLLABLE_TRAITS</code> from <code>RAW_REROLLABLE_TRAITS</code>,
+          which contains it as a substring; and the empty-exclusion check in
+          <code>rawRerollableTraitsFrom</code> exists because without it an unreadable
+          <code>not in (…)</code> returns the <em>whole</em> of <code>REQUIRED_TABLES</code> —
+          the one wrong answer with a plausible shape.
+        </p>
+      </div>
+    </li>
+    <li class="stage">
+      <span class="stage-n">02</span>
+      <div class="stage-b">
+        <h4>The flag vocabulary against the tables themselves</h4>
+        <p>
+          The generator matches flags literally and ignores anything it does not recognise, so
+          <code>|| Figure</code> or <code>|| hand</code> fails only in the finished image.
+          That is the entire argument for a checkbox per known flag rather than a text box.
+          <b>This is currently drifted and the suite says so</b> — <code>tableFlags.test.js</code>'s
+          "every flag the live tables use has a checkbox" reports six without one. It skips
+          entirely when no generator sits beside the repo, so a green run elsewhere does not
+          mean the drift is gone.
+        </p>
+      </div>
+    </li>
+    <li class="stage">
+      <span class="stage-n">03</span>
+      <div class="stage-b">
+        <h4><code>THREE_SEGMENT_TABLES</code> against <code>flags_for</code></h4>
+        <p>
+          Both must list Backdrop, Hair colour and Faction. If <code>flags_for</code>'s branch
+          list grows, this grows with it, or the editor writes a flag over a scene sentence.
+        </p>
+      </div>
+    </li>
+    <li class="stage">
+      <span class="stage-n">04</span>
+      <div class="stage-b">
+        <h4><code>TRAIT_DEPENDENTS</code> against the filters it describes</h4>
+        <p>
+          The map asserts constraints; nothing checks that the filter it names still exists or
+          still reads that flag. This is why every edge carries its own prose justification —
+          the justification is the only re-checkable artefact.
+        </p>
+      </div>
+    </li>
+    <li class="stage">
+      <span class="stage-n">05</span>
+      <div class="stage-b">
+        <h4><code>rawTraits</code> against <code>traits</code></h4>
+        <p>
+          <code>reroll_from_raw</code> replaces the NPC wholesale, <code>_raw</code> included,
+          precisely so the two cannot disagree. There was a real bug here: gating persistence
+          only on <code>rerolled</code> left <code>--set-trait</code> entries holding new flag
+          registers over old bullets, which is corruption rather than staleness.
+        </p>
+      </div>
+    </li>
+    <li class="stage">
+      <span class="stage-n">06</span>
+      <div class="stage-b">
+        <h4>Two things deliberately <em>not</em> reimplemented</h4>
+        <p>
+          Worth naming because they are the drift risks the design avoided. Odds are sampled
+          through the real roller rather than derived analytically — sampling cannot disagree
+          with the generator because it <em>is</em> the generator. Legality is read out of
+          <code>probe[name]</code>, the pool <code>roll_npc</code> already built, so there is
+          nothing for it to drift from. Both <code>lib/traitOdds.js</code> and
+          <code>lib/traitChoices.js</code> open with a paragraph saying that computing either
+          in JavaScript is not negotiable.
+        </p>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="n">UPKEEP</span> Keeping this page true</h2>
+
+  <div class="note">
+    <span class="note-h">what invalidates this document</span>
+    <p>
+      This page is a picture of code, so it goes stale the way code does. The specific things
+      that make a claim above wrong:
+    </p>
+    <p>
+      <b>The order strip in stage 02</b> is <code>REQUIRED_TABLES</code> verbatim — reorder or
+      extend that list and the strip is wrong, as is the "twenty-five draws" figure repeated
+      in the summary and stage 04. <b>The loop diagram in stage 03</b> is the seven steps
+      between <code>variant_table()</code> and the flag strip; a new step, or a filter that
+      moves across the probe line, changes it. <b>The trap diagram</b> is one comment in the
+      Weapon block; if that block is rewritten, check whether the comment still describes it.
+      <b>The cascade example in stage 04</b> is <code>trait_cascade("Role")</code> — recompute
+      it rather than trusting the list drawn there. <b>The delta table in stage 06</b> counts
+      nineteen borrowed names, which <code>test/test_shared_surface.py</code> pins.
+    </p>
+    <p>
+      The source of this page is <code>docs/rolling-pipeline.html</code> in
+      <code>lancer-npc-import-gui</code>. It is a single self-contained file with no build
+      step — edit it and republish.
+    </p>
+  </div>
+</section>
+
+<footer>
+  Drawn from <code>generate-npc.py</code>, <code>generate-spaceship.py</code> and
+  <code>ship_policy.py</code> in <code>lancer-art-generator</code>, and from
+  <code>server.js</code>, <code>public/app.js</code> and <code>lib/*.js</code> in
+  <code>lancer-npc-import-gui</code>. Line-level anchors are deliberately omitted: function
+  names survive edits that line numbers do not.
+</footer>
+
+</div>

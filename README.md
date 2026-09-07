@@ -553,6 +553,16 @@ Parked technical debt is in [docs/known-issues.md](docs/known-issues.md). The
 design behind the Tables and Presets features is in
 [docs/tables-editor-and-presets-design.md](docs/tables-editor-and-presets-design.md).
 
+**How a roll actually happens**, across this repo and the generator beside it, is
+drawn in [docs/rolling-pipeline.html](docs/rolling-pipeline.html) — the twenty-five
+draws and their order, the flags an earlier draw leaves behind to gate a later one,
+the single random stream, the round trip a Set… or Re-roll makes, and a
+where-to-change-what table covering both repos. Open it in a browser; it is one
+self-contained file with no build step and no dependencies. It is a picture of
+code and goes stale the way code does, so it closes with a list of the specific
+things that make a claim in it wrong — read that before trusting it after a change
+to `REQUIRED_TABLES`, `TRAIT_DEPENDENTS` or the filter blocks in `roll_npc`.
+
 ## License
 
 GPL-3.0-or-later — see [LICENSE](LICENSE).
