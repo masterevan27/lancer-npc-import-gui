@@ -4304,7 +4304,7 @@ async function setBulletFlag(tableName, bullet, flag, boxEl) {
     const { text } = await api('/api/table-bullets/set-flag', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ table: tableName, text: bullet.text, flag, on }),
+      body: JSON.stringify({ kind: tablesState.kind, table: tableName, text: bullet.text, flag, on }),
     });
     bullet.text = text;
     // Not queueOdds(): a flag changes which rolls a bullet is REACHABLE in,

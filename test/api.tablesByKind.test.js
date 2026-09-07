@@ -161,6 +161,33 @@ test('POST /api/table-bullets/set-weight for a ship rewrites ONLY the ship file'
     assert.equal(bullet.weight, 5);
 });
 
+test('POST /api/table-bullets/set-flag for a ship rewrites ONLY the ship file', async (t) => {
+    const server = await withServer(t);
+    const npcBefore = fs.readFileSync(server.tablesPath, 'utf8');
+
+    // Reachable from the Spaceships tab, not a hypothetical: lib/tableFlags.js
+    // keys its vocabulary on the heading name alone, so the ship file's own
+    // '## Backdrop' is served the NPC Backdrop checkboxes - 'nogear' among
+    // them - and a GM clicking one sends exactly this request.
+    const res = await fetch(`${server.baseUrl}/api/table-bullets/set-flag`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            kind: 'spaceship', table: 'Backdrop',
+            text: 'a smuggler run gone straight', flag: 'nogear', on: true,
+        }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).text, 'a smuggler run gone straight || nogear');
+
+    const npcAfter = fs.readFileSync(server.tablesPath, 'utf8');
+    assert.equal(npcAfter, npcBefore, 'a ship-kind write touched the NPC tables file');
+
+    const { groups } = await getTableBullets(server, '?kind=spaceship');
+    const backdrop = flatten(groups).find((tbl) => tbl.name === 'Backdrop');
+    assert.ok(backdrop.bullets.some((b) => b.text === 'a smuggler run gone straight || nogear'),
+        'the flag edit never reached the ship tables file at all');
+});
+
 /* ---- GET /api/trait-options ---- */
 
 test('GET /api/trait-options?kind=spaceship keys on the ship tables', async (t) => {

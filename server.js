@@ -2835,12 +2835,19 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
+        const kind = resolveKind(url, body);
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
         const { table, text, flag, on } = body;
         if (typeof table !== 'string' || !table || typeof text !== 'string'
             || typeof flag !== 'string' || !flag || typeof on !== 'boolean') {
             return sendJson(res, 400, { error: 'table (string), text (string), flag (string), and on (boolean) are required' });
         }
-        const result = tableBullets.setBulletFlagOnDisk(NPC_TABLES_PATH, table, text, flag, on);
+        // kind.tables for the same reason toggle above uses it: the flag
+        // vocabulary is keyed on heading name alone, so the ship file's own
+        // '## Backdrop' draws the NPC Backdrop checkboxes, and a hardcoded
+        // NPC_TABLES_PATH here would land a Spaceships-tab edit in
+        // npc-generator-tables.md.
+        const result = tableBullets.setBulletFlagOnDisk(kind.tables, table, text, flag, on);
         if (!result.ok) return sendJson(res, 400, { error: result.error });
         // The new text goes back because a flag edit CHANGES the bullet's id.
         // A client still holding the old string would fail its next toggle or
