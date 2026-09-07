@@ -4104,11 +4104,7 @@ elTables.kindSelect.addEventListener('change', () => {
 });
 
 async function loadTables() {
-<<<<<<< HEAD
-  const { groups } = await api(`/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`);
-=======
-  const { groups, flags } = await api('/api/table-bullets');
->>>>>>> worktree-table-flag-editor
+  const { groups, flags } = await api(`/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`);
   tablesState.groups = groups;
   // Sent with the tables rather than fetched separately, so the checkboxes
   // can never render against a table list they do not match.
