@@ -12,6 +12,7 @@
   <nav class="tabs" id="tabs">
     <button type="button" data-tab="import" class="active">Import Generated Art</button>
     <button type="button" data-tab="create">Create NPC</button>
+    <button type="button" data-tab="shipcreate">Create Spaceship</button>
     <button type="button" data-tab="traits">Trait Imports</button>
     <button type="button" data-tab="tables">Tables</button>
   </nav>
@@ -74,7 +75,7 @@
   </div>
 
   <div class="grid" id="grid"></div>
-  <p class="empty" id="empty" hidden>Nothing here yet — run generate-npc.py, then reload.</p>
+  <p class="empty" id="empty" hidden>Nothing here yet — run the generator, then reload.</p>
 </section>
 
 <section class="tab-panel" id="tab-create" hidden>
@@ -148,6 +149,88 @@
   </div>
 </section>
 
+<!--
+  Deliberately a second form rather than the Create NPC one parameterised by
+  kind - see the block comment above shipCreateState in app.js. No Pronouns
+  (ships have none) and no Unarmed run (a person-only concept); Ship type,
+  Size and Theme are new, first-class selects instead, with Size gated by
+  whichever Ship type is chosen (sizeBlockReason in app.js).
+-->
+<section class="tab-panel" id="tab-shipcreate" hidden>
+  <div class="create-form">
+    <div class="form-grid">
+      <label class="form-field">
+        Count
+        <input type="number" id="create-ship-count" min="1" value="1" />
+      </label>
+      <label class="form-field">
+        Seed <span class="hint">(blank = random)</span>
+        <input type="number" id="create-ship-seed" min="0" />
+      </label>
+      <label class="form-field">
+        Name <span class="hint">(single ship only)</span>
+        <input type="text" id="create-ship-name" placeholder="rolled if blank" />
+      </label>
+      <label class="form-field">
+        Ship type
+        <select id="create-ship-type">
+          <option value="">— let the roller choose —</option>
+        </select>
+      </label>
+      <label class="form-field">
+        Size <span class="hint">(gated by Ship type)</span>
+        <select id="create-ship-size">
+          <option value="">— let the roller choose —</option>
+        </select>
+      </label>
+      <label class="form-field">
+        Theme
+        <select id="create-ship-theme">
+          <option value="">— let the roller choose —</option>
+        </select>
+      </label>
+      <label class="form-field">
+        ComfyUI server <span class="hint">(blank = auto-detect)</span>
+        <input type="text" id="create-ship-server" placeholder="127.0.0.1:8000" />
+      </label>
+    </div>
+
+    <div class="form-row">
+      <label><input type="checkbox" id="create-ship-portrait" checked /> Generate portrait</label>
+      <label><input type="checkbox" id="create-ship-token" checked /> Generate token</label>
+      <label><input type="checkbox" id="create-ship-keep-raw" /> Keep raw (pre-background-removal) token</label>
+    </div>
+
+    <h3>Trait overrides <span class="hint">(force specific rolled traits, e.g. Hull = a scorched patchwork hull)</span></h3>
+    <div class="filter-rows" id="ship-override-rows"></div>
+    <button id="add-ship-override" type="button">+ Add trait override</button>
+
+    <div class="create-presets">
+      <div class="create-presets-row">
+        <label for="create-ship-preset-select">Presets</label>
+        <select id="create-ship-preset-select"></select>
+        <button id="create-ship-preset-load" type="button" disabled>Load</button>
+        <button id="create-ship-preset-save" type="button">Save current as preset&hellip;</button>
+        <button id="create-ship-preset-download" type="button" disabled>Download</button>
+        <label class="preset-import-label">
+          Import preset&hellip;
+          <input type="file" id="create-ship-preset-import" accept="application/json" hidden />
+        </label>
+        <button id="create-ship-preset-delete" type="button" disabled>Delete</button>
+      </div>
+      <p class="create-preset-status" id="create-ship-preset-status"></p>
+    </div>
+
+    <div class="form-row create-actions">
+      <button id="create-ship-dry-run-btn" type="button">Preview (dry run)</button>
+      <button id="create-ship-generate-btn" type="button">Generate</button>
+    </div>
+
+    <p class="regen-status" id="create-ship-status"></p>
+    <pre class="job-log" id="create-ship-log" hidden></pre>
+  </div>
+</section>
+
 <section class="tab-panel" id="tab-traits" hidden>
   <div class="toolbar">
     <label class="select-all">
@@ -178,6 +261,13 @@
 </section>
 
 <section class="tab-panel" id="tab-tables" hidden>
+  <label class="tables-kind-select">
+    Kind
+    <select id="tables-kind">
+      <option value="npc">NPCs</option>
+      <option value="spaceship">Spaceships</option>
+    </select>
+  </label>
   <div class="tables-layout">
     <div class="table-heading-list" id="table-heading-list"></div>
     <div class="table-bullet-panel">

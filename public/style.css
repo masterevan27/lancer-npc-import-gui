@@ -322,6 +322,24 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
    default newest-first clustering doesn't help, without hunting for pills. */
 .card.is-new { border-color: #3b7fc4; }
 
+/* A spaceship's portrait is a wide hull shot, not a headshot - a square crop
+   of one loses more of the subject than the same crop does on an NPC
+   portrait. More specific than the plain `.card img` rule above it, so it
+   overrides the aspect-ratio for a spaceship card's thumbnail alone. */
+.card--spaceship .thumb { aspect-ratio: 16 / 9; }
+
+/* The hex-footprint pill (1◇/2◇/3◇/5◇, from item.tokenHexes) - its own
+   corner, bottom-left, so it never collides with the top corners' status and
+   New badges. Grey rather than any of their four colours: a footprint is a
+   fact about the ship, not a status. */
+.card .badge.hex-badge {
+  top: auto;
+  right: auto;
+  bottom: 0.4rem;
+  left: 0.4rem;
+  background: #384357;
+}
+
 .empty { color: #9aa1ad; margin-top: 2rem; }
 
 .detail-overlay {
@@ -1022,6 +1040,23 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   cursor: zoom-in;
 }
 .trait-detail-image[hidden] { display: none; }
+
+/* The kind switch above the Tables layout, styled like .sort-by's own label
+   + select pairing rather than invented fresh. */
+.tables-kind-select {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+}
+.tables-kind-select select {
+  background: #1c1f26;
+  color: #e6e8ec;
+  border: 1px solid #363b47;
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+}
 
 .tables-layout {
   display: flex;

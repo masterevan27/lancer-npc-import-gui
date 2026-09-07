@@ -2,6 +2,11 @@
 
 const CATEGORY_LABELS = { npc: 'NPCs', mech: 'Mechs', spaceship: 'Spaceships' };
 
+// Which generator script the empty-grid message names, per category - so
+// "run generate-npc.py, then reload" does not point a GM browsing an empty
+// Spaceships tab at the wrong script.
+const KIND_SCRIPTS = { npc: 'generate-npc.py', spaceship: 'generate-spaceship.py' };
+
 // Synthetic filter/trait key for the category folder generate-npc.py sorts each
 // NPC into (server.js derives it from the folder path; it isn't a real trait).
 const ROLE_CATEGORY_KEY = 'Role Category';
@@ -692,16 +697,18 @@ function render() {
   state.visibleItems = sortItems(state.items.filter(itemMatchesFilters));
   el.empty.textContent = state.items.length && !state.visibleItems.length
     ? 'No items match the current filters.'
-    : 'Nothing here yet — run generate-npc.py, then reload.';
+    : `Nothing here yet — run ${KIND_SCRIPTS[state.category] || 'the generator'}, then reload.`;
   el.empty.hidden = state.visibleItems.length > 0;
 
   for (const item of state.visibleItems) {
     const card = document.createElement('div');
     card.className = 'card'
       + (item.imported ? ' imported' : '')
-      + (item.isNew && !item.imported ? ' is-new' : '');
+      + (item.isNew && !item.imported ? ' is-new' : '')
+      + (state.category === 'spaceship' ? ' card--spaceship' : '');
 
     const img = document.createElement('img');
+    img.className = 'thumb';
     img.src = item.portraitUrl || item.tokenUrl || '';
     img.alt = item.name;
     card.appendChild(img);
@@ -787,12 +794,27 @@ function render() {
       card.appendChild(tag);
     }
 
+    // A third, independent badge for the same reason the New tag is its own
+    // `if` rather than another arm of the status chain above: a ship's
+    // footprint is a fact about the ship, not a status, and is worth showing
+    // whatever else the card is announcing. tokenHexes is null for an NPC (no
+    // grid footprint of its own), so this never appears outside Spaceships.
+    if (item.tokenHexes) {
+      const hex = document.createElement('span');
+      hex.className = 'badge hex-badge';
+      hex.textContent = `${Math.max(item.tokenHexes.w, item.tokenHexes.h)}◇`;
+      hex.title = `${item.tokenHexes.w}×${item.tokenHexes.h} hex footprint on the Foundry grid`;
+      card.appendChild(hex);
+    }
+
     const body = document.createElement('div');
     body.className = 'body';
     body.innerHTML = `<div class="name">${escapeHtml(item.name)}</div>
       <div class="sub">${escapeHtml(item.callsign || '')}</div>
       ${item.traits?.Role ? `<div class="role">${escapeHtml(item.traits.Role)}</div>` : ''}
-      ${item.roleCategory ? `<div class="role-category">${escapeHtml(item.roleCategory)}</div>` : ''}`;
+      ${item.roleCategory ? `<div class="role-category">${escapeHtml(item.roleCategory)}</div>` : ''}
+      ${item.traits?.['Ship type'] ? `<div class="role">${escapeHtml(item.traits['Ship type'])}</div>` : ''}
+      ${item.traits?.Size ? `<div class="role-category">${escapeHtml(item.traits.Size)}</div>` : ''}`;
     card.appendChild(body);
 
     card.addEventListener('click', () => openDetail(item));
@@ -1791,11 +1813,15 @@ function switchTab(tab) {
     panel.hidden = panel.id !== `tab-${tab}`;
   }
   if (tab === 'create' && !createState.tablesLoaded) loadOverrideTables();
-  // The spaceship Create tab does not exist yet - this task only cuts the
-  // seam a later one hangs it off - but the vocabulary it will need loads the
-  // same lazy way a ship's detail sheet does, so the call is wired up ahead
-  // of the tab rather than the tab arriving with its own copy of it.
-  if (tab === 'shipcreate') ensureVocab('spaceship');
+  // ensureShipCreateForm() calls ensureVocab('spaceship') itself first - the
+  // one part of this the detail sheet also needs - before loading the form's
+  // own trait options and ship catalogue.
+  if (tab === 'shipcreate') {
+    ensureShipCreateForm().catch((err) => {
+      elShipCreate.status.textContent = `Failed to load: ${err.message}`;
+    });
+    refreshShipCreatePresets().catch(() => { /* the list stays empty */ });
+  }
   // Re-listed on every visit rather than once, the way the Tables tab's own
   // presets are: a preset saved in another browser tab should be there when
   // this one comes back to the form, not after a reload.
@@ -2144,6 +2170,20 @@ const shipCreateState = {
   rawRerollableTraits: [],
   traitDependents: {},
   tablesLoaded: false,
+  // Task 6 onward: the rest of the Create Spaceship form's own state, added
+  // here the same way createState above doubles as both the reroll
+  // vocabulary the detail sheet reads and the Create form's own state -
+  // rather than a second object, which would leave two places to look for
+  // "everything the ship side of this page knows".
+  traitOptions: {},  // /api/trait-options?kind=spaceship - shaped like createState.traitOptions
+  // /api/ship-catalogue's {types, sizes, themes}, or null before it loads or
+  // if the route fails - see sizeBlockReason, which degrades to no gating.
+  catalogue: null,
+  formLoaded: false, // whether traitOptions/catalogue have been fetched yet
+  pinned: { 'Ship type': '', Size: '', Theme: '' },
+  overrides: [], // further overrides, same shape as createState.overrides
+  presets: [],
+  pollTimer: null,
 };
 
 /** Which vocabulary each kind's detail sheet reads its trait lists from. */
@@ -2725,28 +2765,38 @@ async function startCreateJob(dryRun) {
   }
 }
 
-function pollCreateJob(jobId, dryRun, jobCount) {
-  if (createState.pollTimer) clearInterval(createState.pollTimer);
+/**
+ * Shared by both Create forms - `state`/`el` default to the NPC form's own,
+ * so every existing call site (one argument short of the full list) keeps
+ * meaning exactly what it meant before `subject` existed, the same
+ * optional-trailing-parameter seam Task 5 cut for rerollableForItem() and its
+ * neighbours. `subject` only feeds the finished-run sentences below -
+ * 'NPC(s)'/'NPCs' for the default, 'spaceship(s)'/'spaceships' for the ship
+ * form - since everything else here (the log, the running/timeout messages)
+ * is already kind-neutral.
+ */
+function pollCreateJob(jobId, dryRun, jobCount, state = createState, el = elCreate, subject = 'NPC') {
+  if (state.pollTimer) clearInterval(state.pollTimer);
   let ticks = 0;
-  createState.pollTimer = setInterval(async () => {
+  state.pollTimer = setInterval(async () => {
     ticks += 1;
     let job;
     try {
       job = await api(`/api/create-status?jobId=${encodeURIComponent(jobId)}`);
     } catch (err) {
-      clearInterval(createState.pollTimer);
-      createState.pollTimer = null;
-      elCreate.status.textContent = `Lost track of the job: ${err.message}`;
-      elCreate.dryRunBtn.disabled = false;
-      elCreate.generateBtn.disabled = false;
+      clearInterval(state.pollTimer);
+      state.pollTimer = null;
+      el.status.textContent = `Lost track of the job: ${err.message}`;
+      el.dryRunBtn.disabled = false;
+      el.generateBtn.disabled = false;
       return;
     }
 
-    elCreate.log.hidden = !job.log;
-    elCreate.log.textContent = job.log || '';
+    el.log.hidden = !job.log;
+    el.log.textContent = job.log || '';
 
     if (job.status === 'running') {
-      elCreate.status.textContent = dryRun
+      el.status.textContent = dryRun
         ? 'Rolling and building prompts…'
         : 'Generating… this can take a few minutes per image (ComfyUI must be running).';
       // 600 ticks (20 min) safety net, same as the import/regen poller. Giving
@@ -2755,20 +2805,20 @@ function pollCreateJob(jobId, dryRun, jobCount) {
       // disabled and the status line still claiming the run was in progress,
       // with no way out but a reload.
       if (ticks > 600) {
-        clearInterval(createState.pollTimer);
-        createState.pollTimer = null;
-        elCreate.dryRunBtn.disabled = false;
-        elCreate.generateBtn.disabled = false;
-        elCreate.status.textContent =
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+        el.dryRunBtn.disabled = false;
+        el.generateBtn.disabled = false;
+        el.status.textContent =
           'Stopped watching this run after 20 minutes — it may still be going; reload to check.';
       }
       return;
     }
 
-    clearInterval(createState.pollTimer);
-    createState.pollTimer = null;
-    elCreate.dryRunBtn.disabled = false;
-    elCreate.generateBtn.disabled = false;
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+    el.dryRunBtn.disabled = false;
+    el.generateBtn.disabled = false;
 
     if (job.status === 'done') {
       // job.produced is what the server measured against the manifest; jobCount
@@ -2783,18 +2833,18 @@ function pollCreateJob(jobId, dryRun, jobCount) {
       // land an NPC the count misses, most sharply when it reuses a name and
       // seed. Hence "no new NPCs were detected", and a pointer at both of the
       // places that can settle it.
-      elCreate.status.textContent = dryRun
-        ? 'Preview complete — see the rolled NPC(s) and prompts below.'
+      el.status.textContent = dryRun
+        ? `Preview complete — see the rolled ${subject}(s) and prompts below.`
         : made === 0
-          ? 'Finished, but no new NPCs were detected — check the log below and the '
+          ? `Finished, but no new ${subject}s were detected — check the log below and the `
             + '"Import Generated Art" tab.'
-          : 'Done — see the "Import Generated Art" tab for the new NPC(s).';
+          : `Done — see the "Import Generated Art" tab for the new ${subject}(s).`;
       // producedIds rides along with the count and comes from the same
       // measurement: the banner's dismiss button clears the New tag, and the
       // only tags it may clear are the ones this run put there.
       if (!dryRun) announceBatchComplete(made, job.producedIds, job.kind);
     } else {
-      elCreate.status.textContent = `Failed: ${job.error || 'unknown error'}`;
+      el.status.textContent = `Failed: ${job.error || 'unknown error'}`;
     }
   }, 2000);
 }
@@ -2879,9 +2929,11 @@ function applyCreateSettings(settings) {
   renderOverrideRows();
 }
 
-function setPresetStatus(text, isError) {
-  elCreate.presetStatus.textContent = text || '';
-  elCreate.presetStatus.classList.toggle('is-error', !!isError);
+/** Shared by both Create forms' preset rows - `el` defaults to the NPC
+ * form's own, the same optional-trailing-parameter seam pollCreateJob uses. */
+function setPresetStatus(text, isError, el = elCreate) {
+  el.presetStatus.textContent = text || '';
+  el.presetStatus.classList.toggle('is-error', !!isError);
 }
 
 async function refreshCreatePresets(selectSlug) {
@@ -3016,6 +3068,587 @@ elCreate.presetImport.addEventListener('change', async () => {
     setPresetStatus(`Loaded “${name}” from file. Save it if you want to keep it.`);
   } catch (err) {
     setPresetStatus(err.message, true);
+  }
+});
+
+/* ==================================================================== */
+/* Create Spaceship                                                      */
+/* ==================================================================== */
+
+/**
+ * Deliberately a second, parallel implementation of the Create form rather
+ * than the NPC one made generic - see the module docstring above
+ * shipCreateState for why, and REMAINING-WORK.md Task 7 for the line-count
+ * argument. Every PURE decision the NPC form's row machinery makes -
+ * filterTraitOptions() narrowing a search, populateOverrideValues() building
+ * a table's <select>, traitScopeNote() naming a portrait-only/token-only
+ * table, pollCreateJob() polling a job to completion, setPresetStatus()
+ * writing the status line - is called from here unchanged rather than
+ * re-implemented. Only the DOM wiring is ship-shaped: no Pronouns, no
+ * Unarmed, and two closed-vocabulary fields (Ship type, Size) no NPC form has
+ * ever needed.
+ */
+const elShipCreate = {
+  count: document.getElementById('create-ship-count'),
+  seed: document.getElementById('create-ship-seed'),
+  name: document.getElementById('create-ship-name'),
+  type: document.getElementById('create-ship-type'),
+  size: document.getElementById('create-ship-size'),
+  theme: document.getElementById('create-ship-theme'),
+  server: document.getElementById('create-ship-server'),
+  portrait: document.getElementById('create-ship-portrait'),
+  token: document.getElementById('create-ship-token'),
+  keepRaw: document.getElementById('create-ship-keep-raw'),
+  overrideRows: document.getElementById('ship-override-rows'),
+  addOverrideBtn: document.getElementById('add-ship-override'),
+  presetSelect: document.getElementById('create-ship-preset-select'),
+  presetLoad: document.getElementById('create-ship-preset-load'),
+  presetSave: document.getElementById('create-ship-preset-save'),
+  presetDownload: document.getElementById('create-ship-preset-download'),
+  presetDelete: document.getElementById('create-ship-preset-delete'),
+  presetImport: document.getElementById('create-ship-preset-import'),
+  presetStatus: document.getElementById('create-ship-preset-status'),
+  dryRunBtn: document.getElementById('create-ship-dry-run-btn'),
+  generateBtn: document.getElementById('create-ship-generate-btn'),
+  status: document.getElementById('create-ship-status'),
+  log: document.getElementById('create-ship-log'),
+};
+
+/**
+ * Loads the Create Spaceship form's own vocabulary the first time the tab is
+ * opened: the trait-option bullets (for the three pinned selects and the
+ * add-a-row picker) and the ship catalogue (for Type -> Size gating).
+ * ensureVocab('spaceship') is called first and separately, because it is the
+ * one part of this the detail sheet ALSO needs (rerollableTraits,
+ * traitDependents, ...) and must not fetch twice - see its own docs.
+ */
+async function ensureShipCreateForm() {
+  await ensureVocab('spaceship');
+  if (!shipCreateState.formLoaded) {
+    shipCreateState.formLoaded = true;
+    try {
+      const { options } = await api('/api/trait-options?kind=spaceship');
+      shipCreateState.traitOptions = options;
+    } catch {
+      shipCreateState.traitOptions = {}; // every row falls back to free text
+    }
+    try {
+      shipCreateState.catalogue = await api('/api/ship-catalogue');
+    } catch {
+      shipCreateState.catalogue = null; // Type -> Size gating degrades to none
+    }
+  }
+  renderShipPinnedSelects();
+  renderShipOverrideRows();
+}
+
+/**
+ * Which catalogue type's slug a chosen "Ship type" bullet's prose names, by
+ * case-insensitive substring match of the type's own display name - the only
+ * link the generator hands the client between a --set-trait bullet (free
+ * prose, no slug of its own) and the catalogue's slugs. Confirmed against a
+ * real fixture pair: /api/ship-catalogue's `{slug:'patrol', name:'Patrol
+ * boat', ...}` and the "Ship type" tables-file bullet "a rust-streaked patrol
+ * boat" (test/api.tablesByKind.test.js, test/api.createKind.test.js) - the
+ * lowercased type name is a substring of the bullet either way.
+ *
+ * Null when nothing in the catalogue matches (including a catalogue that
+ * never loaded), which sizeBlockReason already treats as "do not gate".
+ */
+function shipTypeSlugFor(bullet, catalogue) {
+  if (!catalogue || !bullet) return null;
+  const text = String(bullet).toLowerCase();
+  const type = catalogue.types.find((t) => text.includes(String(t.name || '').toLowerCase()));
+  return type ? type.slug : null;
+}
+
+/**
+ * Why `sizeBullet` cannot be picked under the currently chosen Ship type, or
+ * null when it can - the ship analogue of pronounBlockReason(). Reads
+ * shipCreateState.catalogue, closed over rather than taken as a third
+ * parameter so the signature matches what the design calls for exactly:
+ * `sizeBlockReason(sizeBullet, shipTypeSlug)`.
+ *
+ * G4: the catalogue's real shape has `sizes` as an ARRAY of objects keyed by
+ * `sizeBand`, not the map an earlier design predicted (see
+ * readShipCatalogue()'s own docs in server.js) - so it is indexed here
+ * exactly the way the design note for this finding prescribes:
+ *
+ *   const bandInfo = Object.fromEntries(catalogue.sizes.map((s) => [s.sizeBand, s]));
+ *
+ * A "Size" bullet's own band is read the same way shipTypeSlugFor reads a
+ * Ship type's slug: by matching the band name (and, failing that, the
+ * catalogue's own prose `gloss` for that band) as a case-insensitive
+ * substring of the bullet. Without a catalogue, or before one has finished
+ * loading, this always answers null and the Size select goes ungated -
+ * degraded, not broken, exactly as the design's own phase-6 note says.
+ */
+function sizeBlockReason(sizeBullet, shipTypeSlug) {
+  const catalogue = shipCreateState.catalogue;
+  if (!catalogue || !shipTypeSlug || !sizeBullet) return null;
+  const type = catalogue.types.find((t) => t.slug === shipTypeSlug);
+  if (!type) return null;
+
+  const bandInfo = Object.fromEntries(catalogue.sizes.map((s) => [s.sizeBand, s]));
+  const text = String(sizeBullet).toLowerCase();
+  let band = catalogue.sizes.find((s) => text.includes(String(s.sizeBand).toLowerCase()))?.sizeBand;
+  if (!band) {
+    band = catalogue.sizes.find((s) => s.gloss && text.includes(String(s.gloss).toLowerCase()))?.sizeBand;
+  }
+  if (!band || type.sizes.includes(band)) return null;
+
+  const allowed = type.sizes.map((b) => bandInfo[b]?.sizeBand || b).join(', ') || 'no';
+  return `${type.name} only rolls ${allowed} hull size(s) - this Size is “${band}”, `
+    + 'which that type never rolls.';
+}
+
+/**
+ * A plain, ungrouped <select> for a closed-vocabulary pinned field - unlike
+ * the free-form override rows' picker (renderShipOverrideRows, below), Ship
+ * type/Size/Theme have no search box and no free-text escape hatch, the same
+ * shape as the Create NPC form's own Pronouns select: a short list the
+ * generator's own policy module enumerates, not something worth filtering or
+ * overriding with typed-in prose that has never been rolled.
+ */
+function populateShipPinnedSelect(selectEl, options, chosenValue) {
+  if (!selectEl) return;
+  selectEl.innerHTML = '';
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = options.length ? '— let the roller choose —' : '— no values loaded —';
+  selectEl.appendChild(blank);
+  for (const option of options) {
+    const opt = document.createElement('option');
+    opt.value = option.value;
+    opt.textContent = option.label;
+    opt.selected = option.value === chosenValue;
+    selectEl.appendChild(opt);
+  }
+}
+
+/** Re-applies Type -> Size gating to the Size select's own options, and
+ * drops the pinned Size choice if the Ship type just picked rules it out -
+ * the ship analogue of clearOverridesBlockedByPronouns(). */
+function applyShipSizeGating() {
+  const slug = shipTypeSlugFor(shipCreateState.pinned['Ship type'], shipCreateState.catalogue);
+  let cleared = false;
+  for (const opt of elShipCreate.size.options) {
+    if (!opt.value) continue;
+    const reason = sizeBlockReason(opt.value, slug);
+    opt.disabled = !!reason;
+    opt.title = reason || '';
+    if (reason && opt.value === shipCreateState.pinned.Size) cleared = true;
+  }
+  if (cleared) {
+    shipCreateState.pinned.Size = '';
+    elShipCreate.size.value = '';
+  }
+}
+
+function renderShipPinnedSelects() {
+  populateShipPinnedSelect(elShipCreate.type, shipCreateState.traitOptions['Ship type'] || [],
+    shipCreateState.pinned['Ship type']);
+  populateShipPinnedSelect(elShipCreate.size, shipCreateState.traitOptions.Size || [],
+    shipCreateState.pinned.Size);
+  populateShipPinnedSelect(elShipCreate.theme, shipCreateState.traitOptions.Theme || [],
+    shipCreateState.pinned.Theme);
+  applyShipSizeGating();
+}
+
+elShipCreate.type.addEventListener('change', () => {
+  shipCreateState.pinned['Ship type'] = elShipCreate.type.value;
+  applyShipSizeGating();
+});
+elShipCreate.size.addEventListener('change', () => {
+  shipCreateState.pinned.Size = elShipCreate.size.value;
+});
+elShipCreate.theme.addEventListener('change', () => {
+  shipCreateState.pinned.Theme = elShipCreate.theme.value;
+});
+
+elShipCreate.count.addEventListener('input', () => {
+  const single = Number(elShipCreate.count.value) === 1;
+  elShipCreate.name.disabled = !single;
+  if (!single) elShipCreate.name.value = '';
+});
+
+// The tables Ship type/Size/Theme already own as pinned selects, above -
+// offering them again in the free-form row would let a second, conflicting
+// --set-trait for the same table reach the generator.
+const SHIP_PINNED_TABLES = ['Ship type', 'Size', 'Theme'];
+
+/**
+ * The free-form "further overrides" rows, the ship analogue of
+ * renderOverrideRows() - same row shape (a table <select>, a search box, a
+ * value <select> with a custom-text fallback), built from
+ * shipCreateState.overrides/traitOptions instead of createState's, and with
+ * `subject` fixed to '' throughout: a ship has no Pronouns, so
+ * populateOverrideValues()'s pronoun-gating branch (pronounBlockReason) never
+ * has anything to greet out here - it is called for the search-filtering and
+ * option-grouping it also does, not for that branch.
+ */
+function renderShipOverrideRows() {
+  elShipCreate.overrideRows.innerHTML = '';
+  const tableChoices = shipCreateState.overrideTables.filter((t) => !SHIP_PINNED_TABLES.includes(t));
+
+  shipCreateState.overrides.forEach((override, index) => {
+    if (!override.table) override.table = tableChoices[0] || '';
+    if (typeof override.search !== 'string') override.search = '';
+
+    const row = document.createElement('div');
+    row.className = 'filter-row';
+
+    const tableSelect = document.createElement('select');
+    for (const t of tableChoices) {
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t;
+      opt.selected = t === override.table;
+      tableSelect.appendChild(opt);
+    }
+    row.appendChild(tableSelect);
+
+    const cell = document.createElement('div');
+    cell.className = 'override-cell';
+    row.appendChild(cell);
+
+    const options = shipCreateState.traitOptions[override.table] || [];
+
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.className = 'override-search';
+    search.value = override.search;
+    search.placeholder = options.length
+      ? `Search ${override.table}… (${options.length} values)`
+      : `Search ${override.table}…`;
+    search.hidden = !options.length;
+    cell.appendChild(search);
+
+    const valueSelect = document.createElement('select');
+    valueSelect.className = 'filter-value';
+    cell.appendChild(valueSelect);
+
+    const valueInput = document.createElement('input');
+    valueInput.type = 'text';
+    valueInput.className = 'filter-value';
+    valueInput.placeholder = 'value, e.g. "a hull scorched from an old boarding action"';
+    valueInput.value = override.value;
+    valueInput.hidden = !override.custom && options.length > 0;
+    cell.appendChild(valueInput);
+
+    const full = document.createElement('div');
+    full.className = 'override-full';
+    cell.appendChild(full);
+
+    const note = document.createElement('div');
+    note.className = 'override-note';
+    cell.appendChild(note);
+
+    const showNotes = () => {
+      const scope = traitScopeNote(override.table);
+      note.textContent = scope || '';
+      note.hidden = !scope;
+    };
+    populateOverrideValues(valueSelect, options, override, '');
+    showNotes();
+
+    const showFull = () => {
+      full.textContent = override.value;
+      full.hidden = !override.value;
+    };
+    showFull();
+
+    search.addEventListener('input', () => {
+      override.search = search.value;
+      populateOverrideValues(valueSelect, options, override, '');
+    });
+
+    valueInput.addEventListener('input', () => {
+      override.value = valueInput.value;
+      showFull();
+    });
+
+    valueSelect.addEventListener('change', () => {
+      if (valueSelect.value === CUSTOM_OVERRIDE) {
+        override.custom = true;
+        valueInput.hidden = false;
+        valueInput.focus();
+        return;
+      }
+      override.custom = false;
+      override.value = valueSelect.value;
+      valueInput.value = valueSelect.value;
+      valueInput.hidden = true;
+      showFull();
+    });
+
+    tableSelect.addEventListener('change', () => {
+      override.table = tableSelect.value;
+      override.value = '';
+      override.custom = false;
+      override.search = '';
+      renderShipOverrideRows();
+    });
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'filter-remove';
+    remove.textContent = '×';
+    remove.title = 'Remove override';
+    remove.addEventListener('click', () => {
+      shipCreateState.overrides.splice(index, 1);
+      renderShipOverrideRows();
+    });
+    row.appendChild(remove);
+
+    elShipCreate.overrideRows.appendChild(row);
+  });
+}
+
+elShipCreate.addOverrideBtn.addEventListener('click', () => {
+  shipCreateState.overrides.push({ table: '', value: '' });
+  renderShipOverrideRows();
+});
+
+/**
+ * The ship analogue of createRequestBody(dryRun): same idea (count, seed,
+ * name, server, the three checkboxes, overrides, dryRun), minus pronouns and
+ * unarmed - person-only concepts /api/create's own validation refuses on a
+ * non-npc kind - and with kind:'spaceship' so POST /api/create routes it at
+ * the ship generator. The three pinned fields ride in `overrides` exactly
+ * like a free-form row: handleCreateRequest (server.js) does not, and must
+ * not, distinguish a pinned override from a typed one - both are a verbatim
+ * bullet reaching --set-trait the same way.
+ */
+function shipCreateRequestBody(dryRun) {
+  const count = Number(elShipCreate.count.value) || 1;
+  const seed = elShipCreate.seed.value.trim() === '' ? null : Number(elShipCreate.seed.value);
+  const pinnedOverrides = SHIP_PINNED_TABLES
+    .map((table) => ({ table, value: shipCreateState.pinned[table] || '' }))
+    .filter((o) => o.value.trim());
+  const freeOverrides = shipCreateState.overrides.filter((o) => o.table && o.value.trim());
+  return {
+    kind: 'spaceship',
+    count,
+    seed,
+    name: elShipCreate.name.value.trim(),
+    server: elShipCreate.server.value.trim(),
+    noPortrait: !elShipCreate.portrait.checked,
+    noToken: !elShipCreate.token.checked,
+    keepRawToken: elShipCreate.keepRaw.checked,
+    overrides: [...pinnedOverrides, ...freeOverrides],
+    dryRun,
+  };
+}
+
+async function startShipCreateJob(dryRun) {
+  if (elShipCreate.portrait.checked === false && elShipCreate.token.checked === false) {
+    elShipCreate.status.textContent = "Can't uncheck both portrait and token — nothing would be generated.";
+    return;
+  }
+  elShipCreate.dryRunBtn.disabled = true;
+  elShipCreate.generateBtn.disabled = true;
+  elShipCreate.status.textContent = dryRun ? 'Rolling and building prompts…' : 'Starting…';
+  elShipCreate.log.hidden = true;
+  elShipCreate.log.textContent = '';
+
+  const body = shipCreateRequestBody(dryRun);
+  try {
+    const res = await fetch('/api/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      elShipCreate.status.textContent = `Couldn't start: ${result.reason || result.error || res.status}`;
+      elShipCreate.dryRunBtn.disabled = false;
+      elShipCreate.generateBtn.disabled = false;
+      return;
+    }
+    pollCreateJob(result.jobId, dryRun, body.count, shipCreateState, elShipCreate, 'spaceship');
+  } catch (err) {
+    elShipCreate.status.textContent = `Couldn't start: ${err.message}`;
+    elShipCreate.dryRunBtn.disabled = false;
+    elShipCreate.generateBtn.disabled = false;
+  }
+}
+
+elShipCreate.dryRunBtn.addEventListener('click', () => startShipCreateJob(true));
+elShipCreate.generateBtn.addEventListener('click', () => startShipCreateJob(false));
+
+/* -------------------------------------------------------------------- */
+/* Create-ship-form presets                                              */
+/* -------------------------------------------------------------------- */
+
+/** The ship analogue of createFormSettings() - see its own docs for why
+ * `name` and `dryRun` are excluded. Ship-shaped: no pronouns, no unarmed. */
+function shipFormSettings() {
+  return {
+    count: Number(elShipCreate.count.value) || 1,
+    seed: elShipCreate.seed.value.trim() === '' ? null : Number(elShipCreate.seed.value),
+    server: elShipCreate.server.value.trim(),
+    portrait: elShipCreate.portrait.checked,
+    token: elShipCreate.token.checked,
+    keepRawToken: elShipCreate.keepRaw.checked,
+    overrides: [
+      ...SHIP_PINNED_TABLES
+        .map((table) => ({ table, value: shipCreateState.pinned[table] || '', custom: false }))
+        .filter((o) => o.value.trim()),
+      ...shipCreateState.overrides
+        .filter((o) => o.table && String(o.value).trim())
+        .map((o) => ({ table: o.table, value: o.value, custom: !!o.custom })),
+    ],
+  };
+}
+
+/** The ship analogue of applyCreateSettings() - splits the loaded overrides
+ * back into the three pinned selects and the free-form rows, since the
+ * preset file (lib/createPresets.js) stores them as one flat array. The
+ * first pinned-table entry wins if a hand-edited file somehow carries two. */
+function applyShipSettings(settings) {
+  const s = settings || {};
+  elShipCreate.count.value = String(s.count || 1);
+  elShipCreate.seed.value = s.seed === null || s.seed === undefined ? '' : String(s.seed);
+  elShipCreate.server.value = s.server || '';
+  elShipCreate.portrait.checked = s.portrait !== false;
+  elShipCreate.token.checked = s.token !== false;
+  elShipCreate.keepRaw.checked = !!s.keepRawToken;
+
+  const overrides = Array.isArray(s.overrides) ? s.overrides : [];
+  shipCreateState.pinned = { 'Ship type': '', Size: '', Theme: '' };
+  for (const o of overrides) {
+    if (SHIP_PINNED_TABLES.includes(o.table) && !shipCreateState.pinned[o.table]) {
+      shipCreateState.pinned[o.table] = String(o.value || '');
+    }
+  }
+  shipCreateState.overrides = overrides
+    .filter((o) => !SHIP_PINNED_TABLES.includes(o.table))
+    .map((o) => ({
+      table: String(o.table || ''), value: String(o.value || ''), custom: !!o.custom, search: '',
+    }));
+
+  elShipCreate.name.disabled = Number(elShipCreate.count.value) !== 1;
+  if (elShipCreate.name.disabled) elShipCreate.name.value = '';
+  renderShipPinnedSelects();
+  renderShipOverrideRows();
+}
+
+async function refreshShipCreatePresets(selectSlug) {
+  try {
+    const { presets } = await api('/api/create-presets?kind=spaceship');
+    shipCreateState.presets = presets || [];
+  } catch (err) {
+    shipCreateState.presets = [];
+    setPresetStatus(`Could not list presets: ${err.message}`, true, elShipCreate);
+    return;
+  }
+  const wanted = selectSlug || elShipCreate.presetSelect.value;
+  elShipCreate.presetSelect.innerHTML = '';
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = shipCreateState.presets.length ? '— pick a preset —' : '— no presets saved —';
+  elShipCreate.presetSelect.appendChild(blank);
+  for (const preset of shipCreateState.presets) {
+    const opt = document.createElement('option');
+    opt.value = preset.slug;
+    const n = preset.overrideCount;
+    opt.textContent = typeof n === 'number'
+      ? `${preset.name} (${n} override${n === 1 ? '' : 's'})`
+      : preset.name;
+    opt.selected = preset.slug === wanted;
+    elShipCreate.presetSelect.appendChild(opt);
+  }
+  const chosen = !!elShipCreate.presetSelect.value;
+  elShipCreate.presetLoad.disabled = !chosen;
+  elShipCreate.presetDownload.disabled = !chosen;
+  elShipCreate.presetDelete.disabled = !chosen;
+}
+
+elShipCreate.presetSelect.addEventListener('change', () => {
+  const chosen = !!elShipCreate.presetSelect.value;
+  elShipCreate.presetLoad.disabled = !chosen;
+  elShipCreate.presetDownload.disabled = !chosen;
+  elShipCreate.presetDelete.disabled = !chosen;
+  setPresetStatus('', false, elShipCreate);
+});
+
+elShipCreate.presetLoad.addEventListener('click', () => {
+  const preset = shipCreateState.presets.find((p) => p.slug === elShipCreate.presetSelect.value);
+  if (!preset) return;
+  api(`/api/create-presets/export?kind=spaceship&slug=${encodeURIComponent(preset.slug)}`)
+    .then((full) => {
+      applyShipSettings(full.settings);
+      setPresetStatus(`Loaded “${full.name || preset.name}”.`, false, elShipCreate);
+    })
+    .catch((err) => setPresetStatus(`Could not load that preset: ${err.message}`, true, elShipCreate));
+});
+
+elShipCreate.presetSave.addEventListener('click', async () => {
+  const name = window.prompt('Name this preset');
+  if (name === null) return;
+  try {
+    const { slug } = await api('/api/create-presets?kind=spaceship', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, settings: shipFormSettings() }),
+    });
+    await refreshShipCreatePresets(slug);
+    setPresetStatus(`Saved “${name.trim()}”.`, false, elShipCreate);
+  } catch (err) {
+    setPresetStatus(err.message, true, elShipCreate);
+  }
+});
+
+elShipCreate.presetDownload.addEventListener('click', () => {
+  const slug = elShipCreate.presetSelect.value;
+  if (!slug) return;
+  const link = document.createElement('a');
+  link.href = `/api/create-presets/export?kind=spaceship&slug=${encodeURIComponent(slug)}`;
+  link.download = `${slug}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+});
+
+elShipCreate.presetDelete.addEventListener('click', async () => {
+  const preset = shipCreateState.presets.find((p) => p.slug === elShipCreate.presetSelect.value);
+  if (!preset) return;
+  if (!window.confirm(`Delete the preset “${preset.name}”? The form itself is not changed.`)) return;
+  try {
+    await api('/api/create-presets/delete?kind=spaceship', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: preset.slug }),
+    });
+    await refreshShipCreatePresets('');
+    setPresetStatus(`Deleted “${preset.name}”.`, false, elShipCreate);
+  } catch (err) {
+    setPresetStatus(err.message, true, elShipCreate);
+  }
+});
+
+elShipCreate.presetImport.addEventListener('change', async () => {
+  const file = elShipCreate.presetImport.files && elShipCreate.presetImport.files[0];
+  elShipCreate.presetImport.value = '';
+  if (!file) return;
+  let parsed;
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch (err) {
+    setPresetStatus(`That file is not valid JSON: ${err.message}`, true, elShipCreate);
+    return;
+  }
+  try {
+    const { name, settings } = await api('/api/create-presets/import?kind=spaceship', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(parsed),
+    });
+    applyShipSettings(settings);
+    setPresetStatus(`Loaded “${name}” from file. Save it if you want to keep it.`, false, elShipCreate);
+  } catch (err) {
+    setPresetStatus(err.message, true, elShipCreate);
   }
 });
 
@@ -3379,6 +4012,7 @@ api('/api/npc-tables')
 /* ==================================================================== */
 
 const tablesState = {
+  kind: 'npc', // which registry entry's tables file this tab is editing
   tables: [],
   groups: [],
   selectedTable: null,
@@ -3390,6 +4024,7 @@ const tablesState = {
 };
 
 const elTables = {
+  kindSelect: document.getElementById('tables-kind'),
   headingList: document.getElementById('table-heading-list'),
   bulletHeading: document.getElementById('table-bullet-heading'),
   bulletList: document.getElementById('table-bullet-list'),
@@ -3405,8 +4040,31 @@ const elTables = {
   chanceNote: document.getElementById('chance-note'),
 };
 
+/**
+ * Switching kind clears everything the previous kind's tables file implied -
+ * the selected table, the settled odds and any preset preview mid-review -
+ * and reloads from the newly chosen kind's own file. lib/tableBullets.js,
+ * lib/tableGroups.js, lib/presets.js and lib/traitOptions.js need no change
+ * at all for this: every route below already reads `?kind=` and resolves its
+ * own tables file server-side, so the client only has to ask again.
+ */
+elTables.kindSelect.addEventListener('change', () => {
+  if (!elTables.preview.hidden) cancelPresetPreview();
+  tablesState.kind = elTables.kindSelect.value;
+  tablesState.selectedTable = null;
+  tablesState.odds = null;
+  tablesState.oddsStale = false;
+  tablesState.oddsReason = null;
+  tablesState.pendingPreset = null;
+  loadTables().catch((err) => {
+    elTables.empty.hidden = false;
+    elTables.empty.textContent = `Failed to load: ${err.message}`;
+  });
+  loadPresets().catch(() => { /* the preset list just stays empty on failure */ });
+});
+
 async function loadTables() {
-  const { groups } = await api('/api/table-bullets');
+  const { groups } = await api(`/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`);
   tablesState.groups = groups;
   // The server sends only the grouped shape - groups[].rows[].table are the
   // same table objects as a flat list would contain, but that object
@@ -3653,7 +4311,7 @@ async function refreshOdds() {
   const mine = ++oddsRequest;
   let result;
   try {
-    result = await api('/api/table-odds');
+    result = await api(`/api/table-odds?kind=${encodeURIComponent(tablesState.kind)}`);
   } catch (err) {
     result = { ok: false, reason: err.message };
   }
@@ -3677,7 +4335,7 @@ async function toggleBullet(tableName, bullet, checkboxEl) {
     await api('/api/table-bullets/toggle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ table: tableName, text: bullet.text, enabled: nextEnabled }),
+      body: JSON.stringify({ kind: tablesState.kind, table: tableName, text: bullet.text, enabled: nextEnabled }),
     });
     bullet.enabled = nextEnabled;
     // Only this row's badge changed. Rebuilding the whole list -- thirty-odd
@@ -3750,7 +4408,7 @@ async function setBulletWeight(tableName, bullet, inputEl) {
     await api('/api/table-bullets/set-weight', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ table: tableName, text: bullet.text, weight: nextWeight }),
+      body: JSON.stringify({ kind: tablesState.kind, table: tableName, text: bullet.text, weight: nextWeight }),
     });
     bullet.weight = nextWeight;
     queueOdds();
@@ -3769,7 +4427,7 @@ async function setBulletWeight(tableName, bullet, inputEl) {
 /* ==================================================================== */
 
 async function loadPresets() {
-  const { presets } = await api('/api/presets');
+  const { presets } = await api(`/api/presets?kind=${encodeURIComponent(tablesState.kind)}`);
   tablesState.presets = presets;
   renderPresetList();
 }
@@ -3800,7 +4458,8 @@ function renderPresetList() {
 
     const download = document.createElement('a');
     download.className = 'preset-download';
-    download.href = `/api/presets/export?slug=${encodeURIComponent(preset.slug)}`;
+    download.href = `/api/presets/export?kind=${encodeURIComponent(tablesState.kind)}`
+      + `&slug=${encodeURIComponent(preset.slug)}`;
     download.textContent = 'Download';
     download.download = `${preset.slug}.json`;
     row.appendChild(download);
@@ -3821,7 +4480,7 @@ async function deletePresetRow(slug) {
   await api('/api/presets/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug }),
+    body: JSON.stringify({ kind: tablesState.kind, slug }),
   });
   await loadPresets();
 }
@@ -3833,7 +4492,7 @@ elTables.saveBtn.addEventListener('click', async () => {
     await api('/api/presets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim() }),
+      body: JSON.stringify({ kind: tablesState.kind, name: name.trim() }),
     });
     await loadPresets();
   } catch (err) {
@@ -3854,7 +4513,7 @@ elTables.importInput.addEventListener('change', async () => {
   }
   let diff;
   try {
-    diff = await api('/api/presets/import', {
+    diff = await api(`/api/presets/import?kind=${encodeURIComponent(tablesState.kind)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(parsed),
@@ -3902,7 +4561,7 @@ elTables.applyBtn.addEventListener('click', async () => {
   if (!tablesState.pendingPreset) return;
   let result;
   try {
-    result = await api('/api/presets/apply', {
+    result = await api(`/api/presets/apply?kind=${encodeURIComponent(tablesState.kind)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(tablesState.pendingPreset),
