@@ -3125,13 +3125,27 @@ const elShipCreate = {
 async function ensureShipCreateForm() {
   await ensureVocab('spaceship');
   if (!shipCreateState.formLoaded) {
-    shipCreateState.formLoaded = true;
+    // Own try/catch, and formLoaded only flips on success: the three pinned
+    // selects and the override picker are built entirely from this fetch, so
+    // a transient failure here must not latch "loaded" forever - the NPC
+    // form's loadOverrideTables (app.js:2255) is the model this mirrors. A
+    // caught error is reported on the status line and the function returns
+    // without rendering, so the next tab visit (formLoaded still false)
+    // retries instead of leaving three permanent "— no values loaded —"
+    // selects with no message and no way back in.
     try {
       const { options } = await api('/api/trait-options?kind=spaceship');
       shipCreateState.traitOptions = options;
-    } catch {
-      shipCreateState.traitOptions = {}; // every row falls back to free text
+      shipCreateState.formLoaded = true;
+    } catch (err) {
+      elShipCreate.status.textContent = `Failed to load ship trait options: ${err.message}`;
+      return;
     }
+    // Own try/catch: the trait-options fetch above already succeeded, so a
+    // catalogue failure must not be blamed on "trait options" or stop
+    // formLoaded from being true - Type -> Size gating degrades to none,
+    // exactly as the design's own phase-6 note says, but the rest of the
+    // form still works.
     try {
       shipCreateState.catalogue = await api('/api/ship-catalogue');
     } catch {
@@ -3143,23 +3157,60 @@ async function ensureShipCreateForm() {
 }
 
 /**
- * Which catalogue type's slug a chosen "Ship type" bullet's prose names, by
- * case-insensitive substring match of the type's own display name - the only
- * link the generator hands the client between a --set-trait bullet (free
- * prose, no slug of its own) and the catalogue's slugs. Confirmed against a
- * real fixture pair: /api/ship-catalogue's `{slug:'patrol', name:'Patrol
- * boat', ...}` and the "Ship type" tables-file bullet "a rust-streaked patrol
- * boat" (test/api.tablesByKind.test.js, test/api.createKind.test.js) - the
- * lowercased type name is a substring of the bullet either way.
+ * Which catalogue type's slug a chosen "Ship type" bullet names, read off the
+ * bullet's own trailing flag segment rather than guessed from its prose.
+ * Option values are the raw bullet text with flags included
+ * (lib/traitOptions.js:7-13), and the first token after the bullet's `||` is
+ * the TYPE flag ship_policy.ship_type_of() reads server-side - e.g.
+ * "a patrol cutter, ... || patrol small mil" carries `patrol` right there.
  *
- * Null when nothing in the catalogue matches (including a catalogue that
- * never loaded), which sizeBlockReason already treats as "do not gate".
+ * A prior version matched a catalogue type's display NAME as a
+ * case-insensitive substring of the bullet instead, which only works for
+ * bullets that happen to spell that name. Seven of the twenty live "Ship
+ * type" bullets never do - "a patrol cutter" (patrol), "a container hauler"
+ * (cargo), "a yard tender" (support), "a survey ship" (recon), "a
+ * low-observable hull" (stealth), "a smuggler's ship" and "a runner"
+ * (both smuggler) - so that approach silently disabled gating for them.
+ * The flag segment is authoritative and needs no guessing.
+ *
+ * Null when the bullet carries no `||` flag segment, or its first flag token
+ * names no slug the catalogue knows - including a catalogue that never
+ * loaded - which sizeBlockReason already treats as "do not gate".
  */
 function shipTypeSlugFor(bullet, catalogue) {
   if (!catalogue || !bullet) return null;
-  const text = String(bullet).toLowerCase();
-  const type = catalogue.types.find((t) => text.includes(String(t.name || '').toLowerCase()));
-  return type ? type.slug : null;
+  const flags = String(bullet).split('||')[1];
+  if (!flags) return null;
+  const slug = flags.trim().split(/\s+/)[0];
+  return catalogue.types.some((t) => t.slug === slug) ? slug : null;
+}
+
+/**
+ * Which catalogue size band a "Size" bullet names, read off its own trailing
+ * flag segment the same way shipTypeSlugFor reads a Ship type's slug: every
+ * "Size" bullet carries its BAND flag as the first token after the bullet's
+ * `||` - "four kilometres end to end, ... || huge hex5" carries `huge` right
+ * there - which is the same field size_of() reads server-side.
+ *
+ * A prior version matched a band's own NAME (or, failing that, the
+ * catalogue's prose `gloss` for that band) as a case-insensitive substring of
+ * the bullet, tried in catalogue order small -> medium -> large -> huge. That
+ * misclassifies real bullets whose prose happens to contain an earlier
+ * band's word: the real 4-km bullet above reads "...too small along the
+ * flank to pick out singly" and matched `small` before `huge` was ever
+ * tried, so a legal `huge` pairing was wrongly disabled (and, under a type
+ * that rolls only `small`, wrongly permitted). The flag segment is
+ * authoritative and needs no guessing.
+ *
+ * Null when the bullet carries no flag segment, or its first flag token
+ * names no band the catalogue knows.
+ */
+function sizeBandFor(sizeBullet, catalogue) {
+  if (!catalogue || !sizeBullet) return null;
+  const flags = String(sizeBullet).split('||')[1];
+  if (!flags) return null;
+  const band = flags.trim().split(/\s+/)[0];
+  return catalogue.sizes.some((s) => s.sizeBand === band) ? band : null;
 }
 
 /**
@@ -3171,17 +3222,10 @@ function shipTypeSlugFor(bullet, catalogue) {
  *
  * G4: the catalogue's real shape has `sizes` as an ARRAY of objects keyed by
  * `sizeBand`, not the map an earlier design predicted (see
- * readShipCatalogue()'s own docs in server.js) - so it is indexed here
- * exactly the way the design note for this finding prescribes:
- *
- *   const bandInfo = Object.fromEntries(catalogue.sizes.map((s) => [s.sizeBand, s]));
- *
- * A "Size" bullet's own band is read the same way shipTypeSlugFor reads a
- * Ship type's slug: by matching the band name (and, failing that, the
- * catalogue's own prose `gloss` for that band) as a case-insensitive
- * substring of the bullet. Without a catalogue, or before one has finished
- * loading, this always answers null and the Size select goes ungated -
- * degraded, not broken, exactly as the design's own phase-6 note says.
+ * readShipCatalogue()'s own docs in server.js). Without a catalogue, or
+ * before one has finished loading, this always answers null and the Size
+ * select goes ungated - degraded, not broken, exactly as the design's own
+ * phase-6 note says.
  */
 function sizeBlockReason(sizeBullet, shipTypeSlug) {
   const catalogue = shipCreateState.catalogue;
@@ -3189,15 +3233,10 @@ function sizeBlockReason(sizeBullet, shipTypeSlug) {
   const type = catalogue.types.find((t) => t.slug === shipTypeSlug);
   if (!type) return null;
 
-  const bandInfo = Object.fromEntries(catalogue.sizes.map((s) => [s.sizeBand, s]));
-  const text = String(sizeBullet).toLowerCase();
-  let band = catalogue.sizes.find((s) => text.includes(String(s.sizeBand).toLowerCase()))?.sizeBand;
-  if (!band) {
-    band = catalogue.sizes.find((s) => s.gloss && text.includes(String(s.gloss).toLowerCase()))?.sizeBand;
-  }
+  const band = sizeBandFor(sizeBullet, catalogue);
   if (!band || type.sizes.includes(band)) return null;
 
-  const allowed = type.sizes.map((b) => bandInfo[b]?.sizeBand || b).join(', ') || 'no';
+  const allowed = type.sizes.join(', ') || 'no';
   return `${type.name} only rolls ${allowed} hull size(s) - this Size is “${band}”, `
     + 'which that type never rolls.';
 }

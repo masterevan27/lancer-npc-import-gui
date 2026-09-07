@@ -42,6 +42,21 @@ function liftFunction(js, name, helpers = {}) {
         ...names.map((k) => helpers[k]));
 }
 
+/**
+ * sizeBlockReason calls sizeBandFor as a plain top-level function, not a
+ * closed-over free variable, so lifting sizeBlockReason alone leaves
+ * `sizeBandFor` undefined. Lift both real implementations out of the served
+ * source and wire sizeBandFor in as sizeBlockReason's one free variable,
+ * alongside the shipCreateState closure liftFunction already supports.
+ */
+function liftSizeBlockReason(js, catalogue) {
+    const sizeBandFor = liftFunction(js, 'sizeBandFor');
+    return liftFunction(js, 'sizeBlockReason', {
+        shipCreateState: { catalogue },
+        sizeBandFor,
+    });
+}
+
 /* ---- the form itself ---- */
 
 test('index.html carries the fifth tab and the Create Spaceship form', async (t) => {
@@ -204,53 +219,103 @@ test('the ship submit posts /api/create, not /api/create-npc', async (t) => {
         'the ship Create form posts to the NPC-only alias, which always forces kind:npc');
 });
 
-/* ---- sizeBlockReason / Type -> Size gating ---- */
+/* ---- shipTypeSlugFor / sizeBlockReason / Type -> Size gating ---- */
 
-// The catalogue fixture, shaped exactly as G4 pins it: `sizes` is an ARRAY of
-// objects keyed by sizeBand, not the map an earlier design predicted (see
-// readShipCatalogue()'s own docs in server.js and
-// test/api.tablesByKind.test.js's CATALOGUE_V1).
+// The real catalogue (generate-spaceship.py --ship-catalogue, in the sibling
+// lancer-art-generator worktree), not a slimmed-down fixture: `sizes` is an
+// ARRAY of objects keyed by sizeBand, not the map an earlier design
+// predicted (see readShipCatalogue()'s own docs in server.js), and `types`
+// carries all ten real slugs so the gating tests below exercise the real
+// matrix rather than a shape a fixture happened to make convenient.
 const CATALOGUE = {
-    types: [{ slug: 'patrol', name: 'Patrol boat', sizes: ['small'], folder: 'Patrol boats' }],
+    types: [
+        { slug: 'carrier', name: 'Carrier', sizes: ['large', 'huge'], folder: 'Carriers' },
+        { slug: 'battleship', name: 'Battleship', sizes: ['large', 'huge'], folder: 'Battleships' },
+        { slug: 'cruiser', name: 'Cruiser', sizes: ['medium', 'large', 'huge'], folder: 'Cruisers' },
+        { slug: 'destroyer', name: 'Destroyer', sizes: ['small', 'medium'], folder: 'Destroyers' },
+        { slug: 'patrol', name: 'Patrol boat', sizes: ['small'], folder: 'Patrol boats' },
+        { slug: 'stealth', name: 'Stealth ship', sizes: ['small', 'medium'], folder: 'Stealth ships' },
+        { slug: 'recon', name: 'Reconnaissance ship', sizes: ['small', 'medium'], folder: 'Reconnaissance ships' },
+        { slug: 'smuggler', name: 'Smuggler ship', sizes: ['small', 'medium'], folder: 'Smuggler ships' },
+        { slug: 'cargo', name: 'Cargo ship', sizes: ['medium', 'large', 'huge'], folder: 'Cargo ships' },
+        { slug: 'support', name: 'Support ship', sizes: ['medium', 'large'], folder: 'Support ships' },
+    ],
     sizes: [
         {
             sizeBand: 'small', hexes: 1, gridWidth: 1, gridHeight: 1,
-            tokenWidth: 1024, tokenHeight: 1024, gloss: 'one hex - light and fast',
+            tokenWidth: 1024, tokenHeight: 1024, gloss: 'one hex - a patrol boat, a courier, a single-crew hull',
+        },
+        {
+            sizeBand: 'medium', hexes: 2, gridWidth: 2, gridHeight: 1,
+            tokenWidth: 1536, tokenHeight: 768, gloss: 'two hexes - a destroyer, a working freighter, a corvette',
+        },
+        {
+            sizeBand: 'large', hexes: 3, gridWidth: 3, gridHeight: 2,
+            tokenWidth: 1728, tokenHeight: 1152, gloss: 'three hexes - a cruiser, a light carrier, a bulk hauler',
         },
         {
             sizeBand: 'huge', hexes: 5, gridWidth: 5, gridHeight: 3,
-            tokenWidth: 2048, tokenHeight: 1280, gloss: 'five hexes - a leviathan',
+            tokenWidth: 1920, tokenHeight: 1152, gloss: 'five hexes - a fleet carrier, a battleship, a cathedral hull',
         },
     ],
-    themes: ['salvage', 'piracy'],
+    themes: ['corporate', 'cyberpunk', 'grimdark', 'gundam', 'neogothic', 'neosamurai', 'scav', 'tactical'],
 };
-const hugeBullet = 'a leviathan-huge superstructure, five hexes across';
-const smallBullet = 'a small, one-hex runabout';
+
+// Real "Size" bullets, flag segment included, from
+// prompts/spaceship-generator-tables.md:857-872 in the lancer-art-generator
+// worktree. `hugeBullet` and `smallBullet` are the fixture's own former
+// invented prose ("a leviathan-huge superstructure..." / "a small, one-hex
+// runabout") replaced with real ones, since the invented bullets carried no
+// `||` flag segment at all - unlike every real option value - and so could
+// never exercise the flag-reading gating this file tests.
+const hugeBullet = 'two and a half kilometres bow to stern, lifeboat pods ranked in dozens || huge hex5';
+const smallBullet = 'about forty metres bow to stern, a two-crew hull || small hex1';
+// The bullet Finding 2 is about: its prose contains the substring "small"
+// even though its flag - and its true band - is huge. A prose-substring
+// scan (tried in band order small -> medium -> large -> huge) misclassifies
+// this as `small` before `huge` is ever tested; the flag segment does not.
+const fourKmHugeBullet = 'four kilometres end to end, crew hatches too small along the flank '
+    + 'to pick out singly || huge hex5';
 
 test('sizeBlockReason greys a size the chosen Ship type may not roll', async (t) => {
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());
 
     const js = await fetchText(server, '/app.js');
-    const sizeBlockReason = liftFunction(js, 'sizeBlockReason', {
-        shipCreateState: { catalogue: CATALOGUE },
-    });
+    const sizeBlockReason = liftSizeBlockReason(js, CATALOGUE);
 
-    // A patrol boat rolls `small` only (CATALOGUE.types[0].sizes), so `huge`
-    // is refused and `small` is not.
+    // A patrol boat rolls `small` only, so `huge` is refused and `small` is not.
     assert.ok(sizeBlockReason(hugeBullet, 'patrol'), 'a patrol boat rolling huge was not blocked');
     assert.equal(sizeBlockReason(smallBullet, 'patrol'), null,
         'a patrol boat rolling its own only legal size was blocked');
 });
+
+test('sizeBlockReason reads the band off the flag, not off prose that mentions another band\'s word',
+    async (t) => {
+        const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+        t.after(() => server.stop());
+
+        const js = await fetchText(server, '/app.js');
+        const sizeBlockReason = liftSizeBlockReason(js, CATALOGUE);
+
+        // Regression for Finding 2: this real bullet's prose contains "small",
+        // but its flag says `huge`. Under a type that DOES roll huge (a
+        // carrier), it must NOT be disabled.
+        assert.equal(sizeBlockReason(fourKmHugeBullet, 'carrier'), null,
+            'the 4km hull, band huge by its flag, was wrongly blocked under a type that rolls huge');
+
+        // Under a type that does NOT roll huge (a patrol boat, small only), it
+        // must still be blocked - on the real `huge` band, not a false `small`.
+        assert.ok(sizeBlockReason(fourKmHugeBullet, 'patrol'),
+            'the 4km hull, band huge by its flag, was wrongly permitted under a type that rolls only small');
+    });
 
 test('sizeBlockReason degrades to no gating without a catalogue', async (t) => {
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());
 
     const js = await fetchText(server, '/app.js');
-    const sizeBlockReason = liftFunction(js, 'sizeBlockReason', {
-        shipCreateState: { catalogue: null },
-    });
+    const sizeBlockReason = liftSizeBlockReason(js, null);
 
     // Still loading, or the /api/ship-catalogue route failed - either way the
     // form must not lock the user out of Generate over a fact it never
@@ -265,4 +330,70 @@ test('the seam signature is pinned: sizeBlockReason takes exactly two arguments'
     const js = await fetchText(server, '/app.js');
     assert.match(js, /function sizeBlockReason\(sizeBullet, shipTypeSlug\)/,
         'sizeBlockReason no longer matches the two-argument shape the design calls for');
+});
+
+/* ---- shipTypeSlugFor ---- */
+
+// Real "Ship type" bullets, flag segment included, from
+// prompts/spaceship-generator-tables.md:739-758 in the lancer-art-generator
+// worktree. These seven are exactly Finding 1's table: bullets whose prose
+// never spells their type's catalogue display name, so a display-name
+// substring match returns null for every one of them.
+const TYPE_BULLETS_NEVER_SPELLING_THEIR_NAME = [
+    ['a patrol cutter, a single-deck hull with a stencilled registry down the flank, a boarding ramp '
+        + 'and endurance measured in days || patrol small mil', 'patrol'],
+    ['a container hauler, a long open spine of stacked freight boxes with the crew and the drives '
+        + 'bunched at either end || cargo medium large huge civ', 'cargo'],
+    ['a yard tender, a squat working hull hung with handling arms, hose reels and spare plate racked '
+        + 'along the flank || support medium large civ', 'support'],
+    ['a survey ship, a light hull carrying more antenna than armour, optics blistered in a row along '
+        + 'its dorsal line || recon small medium civ', 'recon'],
+    ['a low-observable hull, faceted flat across every surface with every fitting recessed flush into '
+        + 'the plating || stealth small medium mil', 'stealth'],
+    ["a smuggler's ship, an honest freighter hull with concealed holds and far more engine than a hull "
+        + 'that size should need || smuggler small medium civ', 'smuggler'],
+    ['a runner, a plain freighter hull with oversized drive bells and a run of flank panels that do not '
+        + 'match the plating around them || smuggler small medium civ', 'smuggler'],
+];
+
+test('shipTypeSlugFor resolves bullets whose prose never spells their type\'s display name', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    const shipTypeSlugFor = liftFunction(js, 'shipTypeSlugFor');
+
+    for (const [bullet, expectedSlug] of TYPE_BULLETS_NEVER_SPELLING_THEIR_NAME) {
+        assert.equal(shipTypeSlugFor(bullet, CATALOGUE), expectedSlug,
+            `expected "${bullet}" to resolve to slug "${expectedSlug}"`);
+    }
+});
+
+test('shipTypeSlugFor resolves a bullet that does spell its type\'s display name', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    const shipTypeSlugFor = liftFunction(js, 'shipTypeSlugFor');
+
+    assert.equal(
+        shipTypeSlugFor(
+            'a patrol boat, a short-endurance picket, all engine and hull codes, its stores racks '
+                + 'stripped back to the frames || patrol small mil',
+            CATALOGUE,
+        ),
+        'patrol',
+    );
+});
+
+test('shipTypeSlugFor is null for a bullet with no flag segment, or without a catalogue', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    const shipTypeSlugFor = liftFunction(js, 'shipTypeSlugFor');
+
+    assert.equal(shipTypeSlugFor('a patrol boat with no flags at all', CATALOGUE), null);
+    assert.equal(shipTypeSlugFor('a patrol boat, ... || patrol small mil', null), null);
+    assert.equal(shipTypeSlugFor('', CATALOGUE), null);
 });
