@@ -13,7 +13,10 @@ const SERVER_JS = path.join(__dirname, '..', '..', 'server.js');
  * concurrently, and every server in this suite binds a fixed port rather
  * than an OS-assigned one, so two files sharing a port would collide.
  */
-async function startTestServer({ tablesText, port, generatorSource, extraConfig, manifest }) {
+async function startTestServer({
+    tablesText, port, generatorSource, spaceshipGeneratorSource, spaceshipTablesText,
+    extraConfig, manifest,
+}) {
     if (!port) throw new Error('startTestServer requires an explicit port');
     const host = '127.0.0.1';
     const baseUrl = `http://${host}:${port}`;
@@ -57,6 +60,24 @@ async function startTestServer({ tablesText, port, generatorSource, extraConfig,
         fs.writeFileSync(generateNpcScript, generatorSource);
     }
 
+    // The ship generator's equivalents, same trick for the same reason: a
+    // Node stub standing in for generate-spaceship.py, so a test that wants
+    // to assert on the ship script's argv - or on which tables file a
+    // ship-kind route reads and writes - never needs a Python interpreter
+    // either. Both are optional and independent of the NPC pair above: a
+    // test that only cares about the ship path can pass spaceshipTablesText
+    // without generatorSource, or vice versa.
+    let generateSpaceshipScript;
+    if (spaceshipGeneratorSource) {
+        generateSpaceshipScript = path.join(dir, 'generate-spaceship.js');
+        fs.writeFileSync(generateSpaceshipScript, spaceshipGeneratorSource);
+    }
+    let spaceshipTablesPath;
+    if (spaceshipTablesText !== undefined) {
+        spaceshipTablesPath = path.join(dir, 'spaceship-generator-tables.md');
+        fs.writeFileSync(spaceshipTablesPath, spaceshipTablesText);
+    }
+
     const configPath = path.join(dir, 'config.json');
     fs.writeFileSync(configPath, JSON.stringify({
         port,
@@ -68,6 +89,8 @@ async function startTestServer({ tablesText, port, generatorSource, extraConfig,
         stagedImportsDir: path.join(dir, 'staged-imports'),
         presetsDir,
         ...(generateNpcScript ? { generateNpcScript, pythonExecutable: process.execPath } : {}),
+        ...(generateSpaceshipScript ? { generateSpaceshipScript, pythonExecutable: process.execPath } : {}),
+        ...(spaceshipTablesPath ? { spaceshipTablesPath } : {}),
         // Last, so a test can override any of the above - written for
         // traitOddsSamples, which a test needs to see reach the generator's
         // command line, and general because the next such key would otherwise
@@ -140,6 +163,11 @@ async function startTestServer({ tablesText, port, generatorSource, extraConfig,
         baseUrl,
         dir,
         tablesPath,
+        // undefined when the caller never passed spaceshipTablesText, same
+        // as generateSpaceshipScript is never exposed at all - a test that
+        // never asked for a ship tables file has no business reading one
+        // back.
+        spaceshipTablesPath,
         manifestPath,
         presetsDir,
         stop() {

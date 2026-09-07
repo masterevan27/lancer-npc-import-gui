@@ -54,7 +54,7 @@ const tableGroups = require('./lib/tableGroups');
 const presets = require('./lib/presets');
 const createPresets = require('./lib/createPresets');
 const { derivePaths } = require('./lib/paths');
-const { buildKinds, kindFor, kindOf, DEFAULT_KIND } = require('./lib/kinds');
+const { buildKinds, kindFor, kindOf, requestKind, DEFAULT_KIND } = require('./lib/kinds');
 const pronouns = require('./lib/pronouns');
 const traitOptions = require('./lib/traitOptions');
 const traitOdds = require('./lib/traitOdds');
@@ -177,18 +177,48 @@ if (!config.npcManifestPath || !config.foundryDataRoot) {
 // comment there for how each value is derived and overridden.
 const DERIVED_PATHS = derivePaths(config);
 const {
-    generateNpcScript: GENERATE_NPC_SCRIPT,
     generate3dScript: GENERATE_3D_SCRIPT,
+    // npc-generator-tables.md alone, for the one route that is still
+    // deliberately NPC-only: insertBulletIntoTables(), behind
+    // /api/trait-candidates/import, which writes an imported trait bullet
+    // into the file the npc-trait-import skill stages against. That skill
+    // has no spaceship counterpart yet, so this constant stays a plain path
+    // rather than joining OVERRIDE_DATA_BY_KIND's per-kind map below -
+    // everything else that used to read NPC_TABLES_PATH now reads
+    // kind.tables off the registry instead.
     npcTablesPath: NPC_TABLES_PATH,
     stagedImportsDir: STAGED_IMPORTS_DIR,
     stagedRefsDir: STAGED_REFS_DIR,
-    presetsDir: PRESETS_DIR,
-    createPresetsDir: CREATE_PRESETS_DIR,
 } = DERIVED_PATHS;
 
 // The kind registry - see lib/kinds.js for what varies between an NPC and a
 // spaceship and why it is resolved here rather than as scattered constants.
 const KINDS = buildKinds(DERIVED_PATHS, config);
+
+/**
+ * Resolves a request's kind against the registry, or null if the caller named
+ * one the registry doesn't recognise.
+ *
+ * requestKind() itself does not normalise an unknown kind - '?kind=mech'
+ * comes back as the literal string 'mech' - which is right for its own
+ * tests but wrong to index KINDS with directly: KINDS.mech is undefined, and
+ * every route below reads a property off what this returns. So every route
+ * that turns a request into a kind goes through here instead of calling
+ * requestKind() and indexing KINDS itself.
+ *
+ * An unknown kind is refused with a 400 rather than folded onto npc, which is
+ * requestKind()'s own default when nothing was named at all. Falling back
+ * silently would mean a typo'd '?kind=spacehip' quietly serves NPC data - the
+ * Tables tab would edit the wrong file, a Create post would spawn the wrong
+ * generator - with nothing on the response to say a request for a specific
+ * kind was not honoured. Every route in this file that accepts a kind at all
+ * is new with this task, so there is no existing behaviour a 400 here could
+ * regress: with no kind named, requestKind() already answers DEFAULT_KIND and
+ * this resolves it exactly as before.
+ */
+function resolveKind(url, body) {
+    return kindFor(KINDS, requestKind(url, body));
+}
 
 /* ------------------------------------------------------------------ */
 /* Manifest access                                                     */
@@ -762,25 +792,30 @@ const STAGE_TIMEOUT_MS = 60000;
 function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, release }) {
     const existing = regenJobsByItemId.get(item.id);
     if (existing?.status === 'running') return { ok: false, reason: 'already regenerating' };
-    if (item.kind !== 'npc') {
+    // kindFor(), not kindOf(): kindOf() falls back an UNRECOGNISED kind onto
+    // npc, which is right for reading a legacy entry that has no `kind` at
+    // all but wrong here - a garbage kind must not silently spawn the NPC
+    // generator on someone else's data. A real, registered kind with
+    // supports.regen false (none exist yet) is refused the same way.
+    const kind = kindFor(KINDS, item.kind);
+    if (!kind || !kind.supports.regen) {
         return { ok: false, reason: `regenerating art isn't supported for kind "${item.kind}" yet` };
     }
-    if (!fs.existsSync(GENERATE_NPC_SCRIPT)) {
-        return { ok: false, reason: `generate-npc.py not found at ${GENERATE_NPC_SCRIPT}` };
+    if (!fs.existsSync(kind.script)) {
+        return { ok: false, reason: `${path.basename(kind.script)} not found at ${kind.script}` };
     }
 
     const newSeed = seedMode === 'specific' ? seed
         : seedMode === 'random' ? crypto.randomInt(0, 2 ** 32 - 1)
         : item.seed; // 'same' - exact reproduction
 
-    const args = [
-        GENERATE_NPC_SCRIPT,
-        '--regen-manifest', config.npcManifestPath,
-        '--regen-id', item.id,
-        '--new-seed', String(newSeed),
-    ];
-    if (which === 'portrait') args.push('--no-token');
-    if (which === 'token') args.push('--no-portrait');
+    // Built by the registry rather than inline here, so the NPC and
+    // spaceship generators share one implementation of "which half, which
+    // seed" instead of this function growing a second branch per kind - see
+    // buildRegenArgs in lib/kinds.js.
+    const args = kind.regenArgs({
+        manifestPath: config.npcManifestPath, id: item.id, newSeed, which,
+    });
     // The generator seeds the re-roll from --new-seed, so a reroll and its
     // render share one seed. That is what makes a reroll repeatable at the
     // command line; here it is why the route always asks for a random seed,
@@ -806,7 +841,7 @@ function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, rel
 
     let child;
     try {
-        child = spawn(config.pythonExecutable, args, { cwd: path.dirname(GENERATE_NPC_SCRIPT) });
+        child = spawn(config.pythonExecutable, args, { cwd: path.dirname(kind.script) });
     } catch (err) {
         job.status = 'error';
         job.error = err.message;
@@ -884,7 +919,12 @@ function startModel3dJob(item, { rig, overwrite }) {
     if (existing?.status === 'running') {
         return { ok: false, status: 409, error: 'a 3D build is already running for this NPC' };
     }
-    if (item.kind !== 'npc') {
+    // Same capability read the GET side of the panel uses (see
+    // /api/model-3d below) rather than a second `item.kind !== 'npc'` - the
+    // two used to be able to disagree, since a hard-coded literal here and a
+    // registry-backed check there had no way to be checked against each
+    // other. Ships are refused because spaceship.supports.model3d is false.
+    if (!kindOf(KINDS, item).supports.model3d) {
         return {
             ok: false, status: 400,
             error: `building a 3D model isn't supported for kind "${item.kind}" yet`,
@@ -1037,23 +1077,53 @@ const OVERRIDE_TABLES_FALLBACK = [
     'Backdrop', 'Weather', 'Stance',
 ];
 
-const OVERRIDE_TABLES = (() => {
-    try {
-        const source = fs.readFileSync(GENERATE_NPC_SCRIPT, 'utf8');
-        const derived = overrideTables.overrideTablesFrom(source);
-        if (derived.length) return derived;
-        console.warn(
-            `REQUIRED_TABLES in ${GENERATE_NPC_SCRIPT} parsed to zero entries - `
-            + 'falling back to the hard-coded OVERRIDE_TABLES_FALLBACK list.',
-        );
-        return OVERRIDE_TABLES_FALLBACK;
-    } catch (err) {
-        console.warn(
-            `Could not read/parse REQUIRED_TABLES from ${GENERATE_NPC_SCRIPT} (${err.message}) - `
-            + 'falling back to the hard-coded OVERRIDE_TABLES_FALLBACK list.',
-        );
-        return OVERRIDE_TABLES_FALLBACK;
+/**
+ * The four parses above (REQUIRED_TABLES minus Pronouns, REROLLABLE_TRAITS,
+ * RAW_REROLLABLE_TRAITS, TRAIT_DEPENDENTS), read off EVERY kind's own
+ * generator script rather than GENERATE_NPC_SCRIPT alone - a spaceship has
+ * its own REQUIRED_TABLES and its own reroll lists, and offering it the
+ * NPC's would name traits its script has never heard of. Built by looping
+ * the registry once at startup, the same as OVERRIDE_TABLES used to be built
+ * for npc alone.
+ *
+ * OVERRIDE_TABLES_FALLBACK applies to npc only, for the reason it always
+ * did: it is a hand-derived snapshot of the NPC script's own list, and
+ * guessing at a spaceship's REQUIRED_TABLES from it would be guessing about
+ * a script this fallback has never read. A kind whose script cannot be read
+ * or parsed gets [] for its tables and reroll lists and {} for dependents -
+ * the safe way to be wrong: no override dropdown entries and no reroll
+ * buttons, rather than offering ones the generator would refuse.
+ */
+const OVERRIDE_DATA_BY_KIND = (() => {
+    const out = {};
+    for (const [id, kindEntry] of Object.entries(KINDS)) {
+        let source = null;
+        try {
+            source = fs.readFileSync(kindEntry.script, 'utf8');
+        } catch (err) {
+            console.warn(
+                `Could not read ${kindEntry.script} (${err.message}) - `
+                + `the ${id} override dropdown and reroll buttons will be empty.`,
+            );
+        }
+        let tables = source ? overrideTables.overrideTablesFrom(source) : [];
+        if (!tables.length && id === DEFAULT_KIND) {
+            if (source) {
+                console.warn(
+                    `REQUIRED_TABLES in ${kindEntry.script} parsed to zero entries - `
+                    + 'falling back to the hard-coded OVERRIDE_TABLES_FALLBACK list.',
+                );
+            }
+            tables = OVERRIDE_TABLES_FALLBACK;
+        }
+        out[id] = {
+            tables,
+            rerollable: source ? overrideTables.rerollableTraitsFrom(source) : [],
+            rawRerollable: source ? overrideTables.rawRerollableTraitsFrom(source) : [],
+            dependents: source ? overrideTables.traitDependentsFrom(source) : {},
+        };
     }
+    return out;
 })();
 
 /**
@@ -1092,23 +1162,6 @@ const OVERRIDE_TABLES = (() => {
  * client because the client cannot read a Python file, and it degrades to an
  * empty map on a parse miss like everything else in this block.
  */
-const [REROLLABLE_TRAITS, RAW_REROLLABLE_TRAITS, TRAIT_DEPENDENTS] = (() => {
-    try {
-        const source = fs.readFileSync(GENERATE_NPC_SCRIPT, 'utf8');
-        return [
-            overrideTables.rerollableTraitsFrom(source),
-            overrideTables.rawRerollableTraitsFrom(source),
-            overrideTables.traitDependentsFrom(source),
-        ];
-    } catch (err) {
-        console.warn(
-            `Could not read REROLLABLE_TRAITS from ${GENERATE_NPC_SCRIPT} (${err.message}) - `
-            + 'the per-trait reroll button will not be offered.',
-        );
-        return [[], [], {}];
-    }
-})();
-
 /**
  * Whether this manifest entry recorded the raw bullets a wider re-roll needs.
  *
@@ -1129,9 +1182,27 @@ function hasRawTraits(item) {
     return !!(item.rawTraits && Object.keys(item.rawTraits).length);
 }
 
-/** The re-rollable list that applies to one NPC - see the pair above. */
+/**
+ * The re-rollable list that applies to one item - see the pair above.
+ *
+ * Read off OVERRIDE_DATA_BY_KIND for the item's OWN kind, not npc's alone:
+ * a spaceship has its own reroll lists, off its own script, and pairing a
+ * ship's rawTraits with the NPC generator's REROLLABLE_TRAITS would offer or
+ * refuse buttons for traits the ship script has never heard of.
+ *
+ * kindFor(), not kindOf() - same reasoning as startRegenJob's guard: an
+ * item naming a kind the registry does not recognise gets an empty list
+ * rather than npc's, which is the same "offer nothing rather than the wrong
+ * thing" answer this function already gives a kind whose script cannot be
+ * parsed. /api/reroll-trait has no capability check of its own ahead of
+ * this call (unlike /api/set-trait and /api/stage-trait), so this is the
+ * only thing standing between a garbage-kind item and the NPC's reroll list.
+ */
 function rerollableFor(item) {
-    return hasRawTraits(item) ? RAW_REROLLABLE_TRAITS : REROLLABLE_TRAITS;
+    const kind = kindFor(KINDS, item.kind);
+    if (!kind) return [];
+    const data = OVERRIDE_DATA_BY_KIND[kind.id];
+    return hasRawTraits(item) ? data.rawRerollable : data.rerollable;
 }
 
 /**
@@ -1139,10 +1210,9 @@ function rerollableFor(item) {
  * folder path and id - or null if we could not read them. Taken either side
  * of a create job so the job can report what it actually produced rather
  * than what was asked for; see `job.produced` and `job.producedIds` below.
- * Generic over kind rather than hard-coded to 'npc' because startCreateJob's
- * caller may one day create a ship the same way it creates an NPC today -
- * today it only ever passes DEFAULT_KIND, since /api/create-npc is the only
- * create route that exists. loadManifest() re-reads
+ * Generic over kind rather than hard-coded to 'npc': startCreateJob() passes
+ * whichever kind it was asked to create, npc from the /api/create-npc alias
+ * and any other registered kind from POST /api/create. loadManifest() re-reads
  * the file fresh (and treats a missing one as empty, so a first-ever run
  * snapshots nothing and still counts correctly); it only throws on a hard read
  * error, and a transient one of those inside a 'close' handler would be an
@@ -1177,40 +1247,37 @@ function entriesSnapshot(kind) {
     }
 }
 
-function startCreateJob(opts) {
-    if (!fs.existsSync(GENERATE_NPC_SCRIPT)) {
-        return { ok: false, reason: `generate-npc.py not found at ${GENERATE_NPC_SCRIPT}` };
+/**
+ * Spawns `kindEntry`'s generator to create new items of that kind. Shared by
+ * the /api/create-npc alias (which always passes KINDS.npc) and the generic
+ * POST /api/create - the two differ only in which registry entry and which
+ * `opts` they hand over; the spawn, the job bookkeeping and the produced-count
+ * snapshot are the same machinery for either kind.
+ */
+function startCreateJob(kindEntry, opts) {
+    if (!fs.existsSync(kindEntry.script)) {
+        return { ok: false, reason: `${path.basename(kindEntry.script)} not found at ${kindEntry.script}` };
     }
 
-    const args = [GENERATE_NPC_SCRIPT, '--count', String(opts.count)];
-    if (opts.seed !== null) args.push('--seed', String(opts.seed));
-    if (opts.name) args.push('--name', opts.name);
-    if (opts.pronouns) args.push('--pronouns', opts.pronouns);
-    for (const { table, value } of opts.overrides) args.push('--set-trait', `${table}=${value}`);
-    if (opts.noPortrait) args.push('--no-portrait');
-    if (opts.noToken) args.push('--no-token');
-    if (opts.keepRawToken) args.push('--keep-raw-token');
-    if (opts.unarmed) args.push('--unarmed');
-    if (opts.server) args.push('--server', opts.server);
-    if (opts.dryRun) args.push('--dry-run');
+    const args = kindEntry.createArgs(opts);
 
     // Snapshot before the child can write anything. `produced` and
     // `producedIds` stay null until the run ends and, for a dry run or an
     // unreadable manifest, forever: null means "not measured", which the client
     // tells apart from a measured zero (and from a measured empty list).
-    const entriesBefore = entriesSnapshot(DEFAULT_KIND);
+    const entriesBefore = entriesSnapshot(kindEntry.id);
     const foldersBefore = entriesBefore && new Set(entriesBefore.map((entry) => entry.folderPath));
 
     const jobId = crypto.randomUUID();
     const job = {
-        status: 'running', dryRun: !!opts.dryRun, startedAt: Date.now(), log: '',
+        status: 'running', kind: kindEntry.id, dryRun: !!opts.dryRun, startedAt: Date.now(), log: '',
         produced: null, producedIds: null,
     };
     createJobs.set(jobId, job);
 
     let child;
     try {
-        child = spawn(config.pythonExecutable, args, { cwd: path.dirname(GENERATE_NPC_SCRIPT) });
+        child = spawn(config.pythonExecutable, args, { cwd: path.dirname(kindEntry.script) });
     } catch (err) {
         job.status = 'error';
         job.error = err.message;
@@ -1225,7 +1292,9 @@ function startCreateJob(opts) {
         if (job.status === 'error') return; // already failed via the 'error' event above
         job.doneAt = Date.now();
         job.status = code === 0 ? 'done' : 'error';
-        if (code !== 0) job.error = job.log.trim() || `generate-npc.py exited with code ${code}`;
+        if (code !== 0) {
+            job.error = job.log.trim() || `${path.basename(kindEntry.script)} exited with code ${code}`;
+        }
         // Exit code 0 only means the script did not crash - it can and does
         // finish having written fewer entries than asked for, or none at all,
         // when ComfyUI drops a job or a per-NPC error is swallowed mid-batch.
@@ -1234,7 +1303,7 @@ function startCreateJob(opts) {
         // dry run: it writes no manifest entries, and the client ignores the
         // number anyway.
         if (job.status === 'done' && !job.dryRun && foldersBefore) {
-            const entriesAfter = entriesSnapshot(DEFAULT_KIND);
+            const entriesAfter = entriesSnapshot(kindEntry.id);
             const added = entriesAfter
                 && entriesAfter.filter((entry) => !foldersBefore.has(entry.folderPath));
             job.produced = added ? added.length : null;
@@ -1260,6 +1329,99 @@ function startCreateJob(opts) {
     });
 
     return { ok: true, jobId };
+}
+
+/**
+ * The validation both create routes share: /api/create-npc (which always
+ * calls this with KINDS.npc, ignoring whatever kind the body names) and the
+ * generic POST /api/create (which resolves kindEntry from the request).
+ * Every check and every message below is copied verbatim from the route
+ * that used to be the whole of /api/create-npc, so the alias stays a
+ * byte-for-byte match for what it always did; the only things new here are
+ * the kind-registry lookups and the person-only-field refusals a non-npc
+ * kind takes before ever reaching them.
+ *
+ * Returns `{ status, body }`, ready to hand straight to sendJson().
+ */
+function handleCreateRequest(kindEntry, body) {
+    if (!kindEntry.supports.create) {
+        return { status: 400, body: { error: `creating a ${kindEntry.subject} isn't supported yet` } };
+    }
+
+    const count = Number.isInteger(body.count) && body.count > 0 ? body.count : 1;
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (name && count !== 1) {
+        return { status: 400, body: { error: '--name only makes sense with a single NPC' } };
+    }
+    let seed = null;
+    if (body.seed !== null && body.seed !== undefined && body.seed !== '') {
+        seed = Number(body.seed);
+        if (!Number.isInteger(seed) || seed < 0) {
+            return { status: 400, body: { error: 'seed must be a non-negative integer' } };
+        }
+    }
+    const overrides = (Array.isArray(body.overrides) ? body.overrides : [])
+        .filter((o) => o && o.table && String(o.value ?? '').trim())
+        .map((o) => ({ table: String(o.table), value: String(o.value).trim() }));
+    const overrideTablesForKind = OVERRIDE_DATA_BY_KIND[kindEntry.id].tables;
+    const unknownTable = overrides.find((o) => !overrideTablesForKind.includes(o.table));
+    if (unknownTable) return { status: 400, body: { error: `unknown table "${unknownTable.table}"` } };
+    if (body.noPortrait && body.noToken) {
+        return {
+            status: 400,
+            body: { error: '--no-portrait and --no-token together leave nothing to generate' },
+        };
+    }
+
+    // Person-only fields. createArgs() would silently drop either on a kind
+    // that never reads it, and a dropped field is a request that appeared to
+    // work and did not - the ship path refuses them outright instead.
+    if (kindEntry.id !== DEFAULT_KIND) {
+        if (body.pronouns) {
+            return { status: 400, body: { error: `pronouns are not a ${kindEntry.subject} field` } };
+        }
+        if (body.unarmed) {
+            return { status: 400, body: { error: `unarmed is not a ${kindEntry.subject} field` } };
+        }
+    }
+
+    let requestedPronouns = null;
+    if (kindEntry.id === DEFAULT_KIND) {
+        requestedPronouns = typeof body.pronouns === 'string' && body.pronouns ? body.pronouns : null;
+        if (requestedPronouns) {
+            let known = [];
+            try {
+                known = pronouns.subjectsFrom(fs.readFileSync(kindEntry.tables, 'utf8'));
+            } catch { /* fall through - an unreadable tables file is its own error later */ }
+            if (known.length && !known.includes(requestedPronouns)) {
+                return {
+                    status: 400,
+                    body: { error: `unknown pronoun "${requestedPronouns}". Available: ${known.join(', ')}` },
+                };
+            }
+        }
+    }
+
+    const result = startCreateJob(kindEntry, {
+        count,
+        seed,
+        name: name || null,
+        pronouns: requestedPronouns,
+        overrides,
+        noPortrait: !!body.noPortrait,
+        noToken: !!body.noToken,
+        keepRawToken: !!body.keepRawToken,
+        unarmed: kindEntry.id === DEFAULT_KIND ? !!body.unarmed : false,
+        server: typeof body.server === 'string' && body.server ? body.server : null,
+        dryRun: !!body.dryRun,
+        // Always passed, kind-independent: npc's createArgs never reads
+        // either field (see lib/kinds.js), so supplying them here changes
+        // nothing about the alias's argv - only the ship path's createArgs
+        // uses them, for --manifest and --out-root.
+        manifestPath: config.npcManifestPath,
+        outputRoot: config.spaceshipOutputRoot || null,
+    });
+    return { status: result.ok ? 202 : 409, body: result };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1356,21 +1518,25 @@ function allTraitCandidates() {
 /* ------------------------------------------------------------------ */
 
 /**
- * The one cached odds run: { key, promise }, or null before the first request.
+ * The cached odds run per kind: kind id -> { key, promise }. Each kind has
+ * its own tables file, its own script and its own run, so a single shared
+ * slot would have an NPC page load and a ship page load evict each other's
+ * cache every time the two are opened alternately - a Map keyed by kind id
+ * is what keeps the two independent, the way readTraitChoices' cache already
+ * keys wider than a single slot for the same reason.
  *
- * A promise rather than a resolved value, so that concurrent callers share one
- * spawn instead of starting two six-second Python processes - a page load and
- * a weight edit landing together do exactly that.
- *
- * Only the newest key is kept. There is no use for the odds of a version of
- * the tables file that no longer exists.
+ * A promise rather than a resolved value, so that concurrent callers of the
+ * same kind share one spawn instead of starting two six-second Python
+ * processes - a page load and a weight edit landing together do exactly
+ * that. Only the newest key per kind is kept.
  */
-let oddsCache = null;
+const oddsCacheByKind = new Map();
 
 const ODDS_LOG_LIMIT = 4000; // chars of stderr kept for an error message
 
 /**
- * Roll the odds, or hand back the run already in flight or just finished.
+ * Roll the odds for one kind, or hand back the run already in flight or
+ * just finished.
  *
  * Resolves to `{ ok: true, samples, tables }` or `{ ok: false, reason }` and
  * never rejects. The percentages are advisory: someone running this GUI purely
@@ -1384,34 +1550,39 @@ const ODDS_LOG_LIMIT = 4000; // chars of stderr kept for an error message
  * import - rewrites it through this same server. So one stat() invalidates the
  * cache for all four and no write path has to remember to do anything.
  */
-function readTraitOdds() {
+function readTraitOdds(kindEntry) {
     let key;
     try {
-        key = traitOdds.cacheKeyFor(fs.statSync(NPC_TABLES_PATH));
+        key = traitOdds.cacheKeyFor(fs.statSync(kindEntry.tables), kindEntry.id);
     } catch (err) {
-        return Promise.resolve({ ok: false, reason: `cannot read ${NPC_TABLES_PATH}: ${err.message}` });
+        return Promise.resolve({ ok: false, reason: `cannot read ${kindEntry.tables}: ${err.message}` });
     }
-    if (oddsCache && oddsCache.key === key) return oddsCache.promise;
+    const cached = oddsCacheByKind.get(kindEntry.id);
+    if (cached && cached.key === key) return cached.promise;
 
-    const promise = runTraitOdds().then((result) => {
+    const promise = runTraitOdds(kindEntry).then((result) => {
         // A failed run is not worth caching: the cause is usually something
         // the user can fix (install Python, correct a path) without touching
         // the tables file, and a cached failure would survive the fix.
-        if (!result.ok && oddsCache && oddsCache.key === key) oddsCache = null;
+        if (!result.ok && oddsCacheByKind.get(kindEntry.id)?.key === key) {
+            oddsCacheByKind.delete(kindEntry.id);
+        }
         return result;
     });
-    oddsCache = { key, promise };
+    oddsCacheByKind.set(kindEntry.id, { key, promise });
     return promise;
 }
 
-function runTraitOdds() {
-    if (!fs.existsSync(GENERATE_NPC_SCRIPT)) {
-        return Promise.resolve({ ok: false, reason: `generate-npc.py not found at ${GENERATE_NPC_SCRIPT}` });
+function runTraitOdds(kindEntry) {
+    if (!fs.existsSync(kindEntry.script)) {
+        return Promise.resolve({
+            ok: false, reason: `${path.basename(kindEntry.script)} not found at ${kindEntry.script}`,
+        });
     }
 
     let args;
     try {
-        args = traitOdds.oddsArgs(GENERATE_NPC_SCRIPT, config.traitOddsSamples);
+        args = traitOdds.oddsArgs(kindEntry.script, config.traitOddsSamples);
     } catch (err) {
         return Promise.resolve({ ok: false, reason: err.message });
     }
@@ -1419,7 +1590,7 @@ function runTraitOdds() {
     return new Promise((resolve) => {
         let child;
         try {
-            child = spawn(config.pythonExecutable, args, { cwd: path.dirname(GENERATE_NPC_SCRIPT) });
+            child = spawn(config.pythonExecutable, args, { cwd: path.dirname(kindEntry.script) });
         } catch (err) {
             return resolve({ ok: false, reason: `could not run ${config.pythonExecutable}: ${err.message}` });
         }
@@ -1433,7 +1604,8 @@ function runTraitOdds() {
             if (code !== 0) {
                 return resolve({
                     ok: false,
-                    reason: errText.trim() || `generate-npc.py --trait-odds exited with code ${code}`,
+                    reason: errText.trim()
+                        || `${path.basename(kindEntry.script)} --trait-odds exited with code ${code}`,
                 });
             }
             try {
@@ -1460,11 +1632,12 @@ const CHOICES_CACHE_LIMIT = 64;
 const choicesCache = new Map();
 
 function readTraitChoices(item, trait) {
+    const kindEntry = kindOf(KINDS, item);
     let key;
     try {
-        key = traitChoices.cacheKeyFor(fs.statSync(NPC_TABLES_PATH), item, trait);
+        key = traitChoices.cacheKeyFor(fs.statSync(kindEntry.tables), item, trait);
     } catch (err) {
-        return Promise.resolve({ ok: false, reason: `cannot read ${NPC_TABLES_PATH}: ${err.message}` });
+        return Promise.resolve({ ok: false, reason: `cannot read ${kindEntry.tables}: ${err.message}` });
     }
     if (choicesCache.has(key)) return choicesCache.get(key);
 
@@ -1494,14 +1667,17 @@ function readTraitChoices(item, trait) {
  * named `ok` or `reason` collide with the envelope.
  */
 function runTraitChoices(item, trait) {
-    if (!fs.existsSync(GENERATE_NPC_SCRIPT)) {
-        return Promise.resolve({ ok: false, reason: `generate-npc.py not found at ${GENERATE_NPC_SCRIPT}` });
+    const kindEntry = kindOf(KINDS, item);
+    if (!fs.existsSync(kindEntry.script)) {
+        return Promise.resolve({
+            ok: false, reason: `${path.basename(kindEntry.script)} not found at ${kindEntry.script}`,
+        });
     }
 
     let args;
     try {
         args = traitChoices.choicesArgs(
-            GENERATE_NPC_SCRIPT, config.npcManifestPath, item.id, trait);
+            kindEntry.script, config.npcManifestPath, item.id, trait);
     } catch (err) {
         return Promise.resolve({ ok: false, reason: err.message });
     }
@@ -1509,7 +1685,7 @@ function runTraitChoices(item, trait) {
     return new Promise((resolve) => {
         let child;
         try {
-            child = spawn(config.pythonExecutable, args, { cwd: path.dirname(GENERATE_NPC_SCRIPT) });
+            child = spawn(config.pythonExecutable, args, { cwd: path.dirname(kindEntry.script) });
         } catch (err) {
             return resolve({ ok: false, reason: `could not run ${config.pythonExecutable}: ${err.message}` });
         }
@@ -1523,7 +1699,8 @@ function runTraitChoices(item, trait) {
             if (code !== 0) {
                 return resolve({
                     ok: false,
-                    reason: errText.trim() || `generate-npc.py --trait-choices exited with code ${code}`,
+                    reason: errText.trim()
+                        || `${path.basename(kindEntry.script)} --trait-choices exited with code ${code}`,
                 });
             }
             try {
@@ -1556,14 +1733,17 @@ function runTraitChoices(item, trait) {
  * only place that says what else travelled with the trait the user clicked.
  */
 function runApplyTrait(item, { op, table, value, release, seed }) {
-    if (!fs.existsSync(GENERATE_NPC_SCRIPT)) {
-        return Promise.resolve({ ok: false, reason: `generate-npc.py not found at ${GENERATE_NPC_SCRIPT}` });
+    const kindEntry = kindOf(KINDS, item);
+    if (!fs.existsSync(kindEntry.script)) {
+        return Promise.resolve({
+            ok: false, reason: `${path.basename(kindEntry.script)} not found at ${kindEntry.script}`,
+        });
     }
 
     let args;
     try {
         args = applyTrait.applyArgs(
-            GENERATE_NPC_SCRIPT, config.npcManifestPath, item.id,
+            kindEntry.script, config.npcManifestPath, item.id,
             { op, table, value, release, seed });
     } catch (err) {
         return Promise.resolve({ ok: false, reason: err.message });
@@ -1585,7 +1765,7 @@ function runApplyTrait(item, { op, table, value, release, seed }) {
 
         let child;
         try {
-            child = spawn(config.pythonExecutable, args, { cwd: path.dirname(GENERATE_NPC_SCRIPT) });
+            child = spawn(config.pythonExecutable, args, { cwd: path.dirname(kindEntry.script) });
         } catch (err) {
             return settle({ ok: false, reason: `could not run ${config.pythonExecutable}: ${err.message}` });
         }
@@ -1599,7 +1779,8 @@ function runApplyTrait(item, { op, table, value, release, seed }) {
             if (code !== 0) {
                 return settle({
                     ok: false,
-                    reason: errText.trim() || `generate-npc.py --apply-only exited with code ${code}`,
+                    reason: errText.trim()
+                        || `${path.basename(kindEntry.script)} --apply-only exited with code ${code}`,
                 });
             }
             try {
@@ -1654,6 +1835,79 @@ function insertBulletIntoTables(table, bullet) {
 
     lines.splice(insertAt, 0, `- ${bullet}`);
     fs.writeFileSync(NPC_TABLES_PATH, lines.join('\n'));
+}
+
+/* ------------------------------------------------------------------ */
+/* Ship catalogue                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * generate-spaceship.py --ship-catalogue - the ship types, size bands and
+ * themes the Create Spaceship form needs to build its own controls, printed
+ * as JSON and handed straight through (see the route below: no reshaping
+ * happens here, deliberately - `sizes` prints as an array, not the map an
+ * earlier design predicted, and passing it through unchanged lets the
+ * client index it however it needs to rather than this server guessing).
+ *
+ * Cached by the script's own mtime, not a poll interval: the catalogue is
+ * static data compiled into the generator, so nothing about it changes
+ * except a new build of the script itself, and a stat is cheap enough to
+ * check on every request.
+ */
+let shipCatalogueCache = null;
+
+function readShipCatalogue() {
+    const kind = KINDS.spaceship;
+    let mtimeMs;
+    try {
+        ({ mtimeMs } = fs.statSync(kind.script));
+    } catch (err) {
+        return Promise.resolve({
+            ok: false, reason: `${path.basename(kind.script)} not found at ${kind.script}`,
+        });
+    }
+    if (shipCatalogueCache && shipCatalogueCache.key === mtimeMs) return shipCatalogueCache.promise;
+
+    const promise = new Promise((resolve) => {
+        let child;
+        try {
+            child = spawn(config.pythonExecutable, [kind.script, '--ship-catalogue'],
+                { cwd: path.dirname(kind.script) });
+        } catch (err) {
+            return resolve({ ok: false, reason: `could not run ${config.pythonExecutable}: ${err.message}` });
+        }
+
+        let out = '';
+        let errText = '';
+        child.stdout.on('data', (chunk) => { out += chunk.toString(); });
+        child.stderr.on('data', (chunk) => { errText = (errText + chunk.toString()).slice(-ODDS_LOG_LIMIT); });
+        child.on('error', (err) => resolve({ ok: false, reason: `could not run ${config.pythonExecutable}: ${err.message}` }));
+        child.on('close', (code) => {
+            if (code !== 0) {
+                return resolve({
+                    ok: false,
+                    reason: errText.trim()
+                        || `${path.basename(kind.script)} --ship-catalogue exited with code ${code}`,
+                });
+            }
+            try {
+                return resolve({ ok: true, data: JSON.parse(out) });
+            } catch (err) {
+                return resolve({
+                    ok: false,
+                    reason: `could not parse --ship-catalogue output as JSON (${err.message})`,
+                });
+            }
+        });
+    }).then((result) => {
+        // Same reasoning as the odds cache: a failure is usually something
+        // the user can fix without a script rebuild, and a cached failure
+        // would outlive the fix.
+        if (!result.ok && shipCatalogueCache && shipCatalogueCache.key === mtimeMs) shipCatalogueCache = null;
+        return result;
+    });
+    shipCatalogueCache = { key: mtimeMs, promise };
+    return promise;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2045,7 +2299,15 @@ async function handleApi(req, res, url) {
     }
 
     if (url.pathname === '/api/npc-tables' && req.method === 'GET') {
-        // Both lists, because which one applies is a property of the NPC
+        // Route name kept as-is even though it now answers for any kind: a
+        // cached older page still calls it, and renaming buys nothing over
+        // just letting ?kind= default to npc the way every route here does.
+        const kind = resolveKind(url, null);
+        if (!kind) {
+            return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
+        }
+        const data = OVERRIDE_DATA_BY_KIND[kind.id];
+        // Both lists, because which one applies is a property of the item
         // rather than of the server - the client pairs them with each item's
         // hasRawTraits. `rerollable` keeps its name and its legacy meaning so
         // an older page served from a cache still works, just narrowly.
@@ -2057,10 +2319,10 @@ async function handleApi(req, res, url) {
         // a re-roll that reaches past its own trait, and names the traits it
         // reaches - neither of which it could do from the two lists alone.
         return sendJson(res, 200, {
-            tables: OVERRIDE_TABLES,
-            rerollable: REROLLABLE_TRAITS,
-            rawRerollable: RAW_REROLLABLE_TRAITS,
-            dependents: TRAIT_DEPENDENTS,
+            tables: data.tables,
+            rerollable: data.rerollable,
+            rawRerollable: data.rawRerollable,
+            dependents: data.dependents,
         });
     }
 
@@ -2123,7 +2385,13 @@ async function handleApi(req, res, url) {
         }
         const item = body.id && findItem(body.id);
         if (!item) return sendJson(res, 404, { error: 'unknown item' });
-        if (item.kind !== 'npc') {
+        // kindFor(), not kindOf(): an item whose kind is not in the registry
+        // at all must be refused rather than quietly treated as npc - see
+        // the matching comment on startRegenJob. A spaceship's
+        // supports.setTrait is true, so this only refuses a kind that
+        // genuinely does not offer it (or names none the registry knows).
+        const itemKind = kindFor(KINDS, item.kind);
+        if (!itemKind || !itemKind.supports.setTrait) {
             return sendJson(res, 400, {
                 error: `setting a trait isn't supported for kind "${item.kind}" yet`,
             });
@@ -2210,7 +2478,12 @@ async function handleApi(req, res, url) {
         }
         const item = body.id && findItem(body.id);
         if (!item) return sendJson(res, 404, { error: 'unknown item' });
-        if (item.kind !== 'npc') {
+        // Kind-aware from birth, per the design: resolved from the ITEM,
+        // never a hard-coded 'npc'. kindFor() rather than kindOf() for the
+        // reason startRegenJob and /api/set-trait give it - an unrecognised
+        // kind is refused rather than folded onto npc.
+        const stageKind = kindFor(KINDS, item.kind);
+        if (!stageKind || !stageKind.supports.stageTrait) {
             return sendJson(res, 400, {
                 error: `setting a trait isn't supported for kind "${item.kind}" yet`,
             });
@@ -2331,7 +2604,11 @@ async function handleApi(req, res, url) {
         const id = url.searchParams.get('id');
         const item = id && findItem(id);
         if (!item) return sendJson(res, 404, { error: 'unknown item' });
-        if (item.kind !== 'npc') {
+        // kindFor(), not kindOf() - same reasoning as /api/set-trait's guard,
+        // which this offer has to agree with: an unrecognised kind is
+        // refused rather than folded onto npc.
+        const choiceKind = kindFor(KINDS, item.kind);
+        if (!choiceKind || !choiceKind.supports.setTrait) {
             return sendJson(res, 400, {
                 error: `choosing a trait value isn't supported for kind "${item.kind}" yet`,
             });
@@ -2373,6 +2650,10 @@ async function handleApi(req, res, url) {
     }
 
     if (url.pathname === '/api/trait-options' && req.method === 'GET') {
+        const kind = resolveKind(url, null);
+        if (!kind) {
+            return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
+        }
         // Every table's bullets, keyed by base table name, for the Create
         // form's per-override value dropdown. Same source as
         // /api/table-bullets - the parsed tables file - but shaped for
@@ -2380,23 +2661,37 @@ async function handleApi(req, res, url) {
         // per-pronoun variants folded into the base table the override
         // dropdown actually names. See lib/traitOptions.js for why an
         // option's value keeps its '||' flags.
-        const parsed = tableBullets.readTables(NPC_TABLES_PATH);
+        const parsed = tableBullets.readTables(kind.tables);
         return sendJson(res, 200, { options: traitOptions.traitOptionsFrom(parsed) });
     }
 
     if (url.pathname === '/api/pronouns' && req.method === 'GET') {
+        const kind = resolveKind(url, null);
+        if (!kind) {
+            return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
+        }
         // Read per request rather than cached at startup: the Tables tab can
         // disable a Pronouns bullet while the server is running, and a stale
         // dropdown would offer a set the generator will no longer roll.
+        //
+        // A kind whose tables file has no '## Pronouns' section at all - a
+        // spaceship's - answers {subjects: []} the same as an npc tables file
+        // with every Pronouns bullet disabled, and still 200: a shared helper
+        // that 400s on "no such section" would be a trap for a kind whose
+        // form never calls this at all.
         let subjects = [];
         try {
-            subjects = pronouns.subjectsFrom(fs.readFileSync(NPC_TABLES_PATH, 'utf8'));
+            subjects = pronouns.subjectsFrom(fs.readFileSync(kind.tables, 'utf8'));
         } catch { /* no tables file - the client rebuilds the <select> with only "Any" */ }
         return sendJson(res, 200, { subjects });
     }
 
     if (url.pathname === '/api/table-bullets' && req.method === 'GET') {
-        const tables = tableBullets.readTables(NPC_TABLES_PATH);
+        const kind = resolveKind(url, null);
+        if (!kind) {
+            return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
+        }
+        const tables = tableBullets.readTables(kind.tables);
         // Grouped server-side so the ordering logic stays a testable pure
         // function in lib/ rather than becoming untestable DOM code. Only the
         // grouped shape is sent - `groups[].rows[].table` are the same table
@@ -2408,9 +2703,13 @@ async function handleApi(req, res, url) {
     }
 
     if (url.pathname === '/api/table-odds' && req.method === 'GET') {
+        const kind = resolveKind(url, null);
+        if (!kind) {
+            return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
+        }
         // 200 either way - see readTraitOdds(). A page that can still edit
         // tables without percentages is worth more than a correct status code.
-        return sendJson(res, 200, await readTraitOdds());
+        return sendJson(res, 200, await readTraitOdds(kind));
     }
 
     if (url.pathname === '/api/table-bullets/toggle' && req.method === 'POST') {
@@ -2421,11 +2720,17 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
+        const kind = resolveKind(url, body);
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
         const { table, text, enabled } = body;
         if (typeof table !== 'string' || !table || typeof text !== 'string' || typeof enabled !== 'boolean') {
             return sendJson(res, 400, { error: 'table (string), text (string), and enabled (boolean) are required' });
         }
-        const result = tableBullets.toggleBulletOnDisk(NPC_TABLES_PATH, table, text, enabled);
+        // kind.tables, never NPC_TABLES_PATH: writing an npc-shaped edit
+        // through the ship's kind and landing it in npc-generator-tables.md
+        // (or the reverse) would corrupt a 252 KB hand-authored file the GM
+        // never asked to touch.
+        const result = tableBullets.toggleBulletOnDisk(kind.tables, table, text, enabled);
         if (!result.ok) return sendJson(res, 400, { error: result.error });
         return sendJson(res, 200, { ok: true });
     }
@@ -2438,18 +2743,24 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
+        const kind = resolveKind(url, body);
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
         const { table, text, weight } = body;
         if (typeof table !== 'string' || !table || typeof text !== 'string'
             || !Number.isInteger(weight) || weight < 1) {
             return sendJson(res, 400, { error: 'table (string), text (string), and weight (integer >= 1) are required' });
         }
-        const result = tableBullets.setBulletWeightOnDisk(NPC_TABLES_PATH, table, text, weight);
+        const result = tableBullets.setBulletWeightOnDisk(kind.tables, table, text, weight);
         if (!result.ok) return sendJson(res, 400, { error: result.error });
         return sendJson(res, 200, { ok: true });
     }
 
     if (url.pathname === '/api/presets' && req.method === 'GET') {
-        return sendJson(res, 200, { presets: presets.listPresets(PRESETS_DIR) });
+        const kind = resolveKind(url, null);
+        if (!kind) {
+            return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
+        }
+        return sendJson(res, 200, { presets: presets.listPresets(kind.presetsDir) });
     }
 
     if (url.pathname === '/api/presets' && req.method === 'POST') {
@@ -2460,16 +2771,18 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
+        const kind = resolveKind(url, body);
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
         const name = typeof body.name === 'string' ? body.name.trim() : '';
         if (!name) return sendJson(res, 400, { error: 'name is required' });
         const slug = presets.slugify(name);
         if (!slug) return sendJson(res, 400, { error: 'name must contain at least one letter or digit' });
-        if (presets.presetExists(PRESETS_DIR, slug)) {
+        if (presets.presetExists(kind.presetsDir, slug)) {
             return sendJson(res, 409, { error: `a preset named "${name}" already exists` });
         }
-        const parsed = tableBullets.readTables(NPC_TABLES_PATH);
+        const parsed = tableBullets.readTables(kind.tables);
         const preset = { name, created: new Date().toISOString(), selected: presets.snapshotSelected(parsed) };
-        presets.writePreset(PRESETS_DIR, slug, preset);
+        presets.writePreset(kind.presetsDir, slug, preset);
         return sendJson(res, 200, { ok: true, slug });
     }
 
@@ -2481,6 +2794,8 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
+        const kind = resolveKind(url, body);
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
         // safeSlug rather than a bare string check. This reached
         // path.join(dir, slug + '.json') unguarded, so a slug of
         // '../../../../some/other' deleted any .json file the server process
@@ -2488,17 +2803,21 @@ async function handleApi(req, res, url) {
         // preset saved through this app can be named is refused by the guard -
         // it costs no legitimate behaviour at all. Same fix on /export below.
         const slug = safeSlug(body.slug);
-        const ok = slug && presets.deletePreset(PRESETS_DIR, slug);
+        const ok = slug && presets.deletePreset(kind.presetsDir, slug);
         return ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'unknown preset' });
     }
 
     if (url.pathname === '/api/presets/export' && req.method === 'GET') {
+        const kind = resolveKind(url, null);
+        if (!kind) {
+            return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
+        }
         // Guarded for the reason /delete above is, and for one more of its
         // own: the slug is interpolated into a Content-Disposition header
         // below, so a CR or LF in it injects response headers. safeSlug's
         // character class excludes both without having to reason about it.
         const slug = safeSlug(url.searchParams.get('slug'));
-        const preset = slug && presets.readPreset(PRESETS_DIR, slug);
+        const preset = slug && presets.readPreset(kind.presetsDir, slug);
         if (!preset) return sendJson(res, 404, { error: 'unknown preset' });
         const payload = JSON.stringify(preset, null, 2);
         res.writeHead(200, {
@@ -2517,10 +2836,12 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
+        const kind = resolveKind(url, body);
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
         if (!body || typeof body.selected !== 'object' || body.selected === null) {
             return sendJson(res, 400, { error: 'not a valid preset file - missing "selected"' });
         }
-        const parsed = tableBullets.readTables(NPC_TABLES_PATH);
+        const parsed = tableBullets.readTables(kind.tables);
         return sendJson(res, 200, presets.diffPresetAgainstTables(body.selected, parsed));
     }
 
@@ -2532,12 +2853,14 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
+        const kind = resolveKind(url, body);
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
         if (!body || typeof body.selected !== 'object' || body.selected === null) {
             return sendJson(res, 400, { error: 'not a valid preset file - missing "selected"' });
         }
         // Re-diff against the live file rather than trusting a preview the
         // client may have shown a while ago - the file could have changed.
-        const parsed = tableBullets.readTables(NPC_TABLES_PATH);
+        const parsed = tableBullets.readTables(kind.tables);
         const diff = presets.diffPresetAgainstTables(body.selected, parsed);
 
         // One batch, one read, one write. This used to be a call to
@@ -2554,7 +2877,7 @@ async function handleApi(req, res, url) {
             ...diff.willReweight.map(({ table, text, weight }) => ({ table, text, weight })),
             ...diff.willDisable.map(({ table, text }) => ({ table, text, enabled: false })),
         ];
-        const { failed } = tableBullets.applyEditsOnDisk(NPC_TABLES_PATH, edits);
+        const { failed } = tableBullets.applyEditsOnDisk(kind.tables, edits);
         return sendJson(res, 200, { ...diff, failed });
     }
 
@@ -2575,7 +2898,11 @@ async function handleApi(req, res, url) {
     // half-edited is legitimate but a run made from it is not.
 
     if (url.pathname === '/api/create-presets' && req.method === 'GET') {
-        return sendJson(res, 200, { presets: createPresets.listCreatePresets(CREATE_PRESETS_DIR) });
+        const kind = resolveKind(url, null);
+        if (!kind) {
+            return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
+        }
+        return sendJson(res, 200, { presets: createPresets.listCreatePresets(kind.createPresetsDir) });
     }
 
     if (url.pathname === '/api/create-presets' && req.method === 'POST') {
@@ -2586,6 +2913,8 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
+        const kind = resolveKind(url, body);
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
         const name = typeof body.name === 'string' ? body.name.trim() : '';
         if (!name) return sendJson(res, 400, { error: 'name is required' });
         const slug = createPresets.slugify(name);
@@ -2595,20 +2924,22 @@ async function handleApi(req, res, url) {
         // request the user made and a field-level complaint is about the form
         // they are still holding - answering the second question first would
         // have them fix a value only to be told the save was never possible.
-        if (createPresets.createPresetExists(CREATE_PRESETS_DIR, slug)) {
+        if (createPresets.createPresetExists(kind.createPresetsDir, slug)) {
             return sendJson(res, 409, { error: `a preset named "${name}" already exists` });
         }
-        const result = createPresets.normaliseSettings(body.settings);
+        // The ship schema behind the discriminator: no pronouns, no unarmed.
+        const result = createPresets.normaliseSettings(body.settings, { ship: kind.id !== DEFAULT_KIND });
         // Passed through verbatim: normaliseSettings names the field it choked
         // on, and rewording that here into a generic "invalid settings" would
         // throw away the only part of the message a user can act on.
         if (!result.ok) return sendJson(res, 400, { error: result.error });
-        // `kind` is left off on purpose so writeCreatePreset stamps it. One
-        // place decides what a Create preset file is labelled, which is what
-        // keeps a file this app wrote re-importable by this app.
-        createPresets.writeCreatePreset(CREATE_PRESETS_DIR, slug, {
+        // `kind` is the registry entry's own discriminator, not left for
+        // writeCreatePreset to default - its default is the NPC one, which
+        // would mislabel every ship preset as a Create NPC preset.
+        createPresets.writeCreatePreset(kind.createPresetsDir, slug, {
             name,
             created: new Date().toISOString(),
+            kind: kind.createPresetDiscriminator,
             settings: result.settings,
         });
         return sendJson(res, 200, { ok: true, slug });
@@ -2622,18 +2953,24 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
+        const kind = resolveKind(url, body);
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
         // A slug that fails safeSlug answers 404 rather than 400, the same as
         // one that simply is not there. Separating the two would tell anyone
         // poking at this which of their guesses were at least the right shape,
         // and the honest client never sends either.
         const slug = safeSlug(body.slug);
-        const ok = slug && createPresets.deleteCreatePreset(CREATE_PRESETS_DIR, slug);
+        const ok = slug && createPresets.deleteCreatePreset(kind.createPresetsDir, slug);
         return ok ? sendJson(res, 200, { ok: true }) : sendJson(res, 404, { error: 'unknown preset' });
     }
 
     if (url.pathname === '/api/create-presets/export' && req.method === 'GET') {
+        const kind = resolveKind(url, null);
+        if (!kind) {
+            return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
+        }
         const slug = safeSlug(url.searchParams.get('slug') || '');
-        const preset = slug && createPresets.readCreatePreset(CREATE_PRESETS_DIR, slug);
+        const preset = slug && createPresets.readCreatePreset(kind.createPresetsDir, slug);
         if (!preset) return sendJson(res, 404, { error: 'unknown preset' });
         const payload = JSON.stringify(preset, null, 2);
         res.writeHead(200, {
@@ -2652,7 +2989,16 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
-        const result = createPresets.validatePresetFile(body);
+        // Query string only, deliberately: this body IS the preset file, and
+        // its own `kind` field already means something else entirely - the
+        // preset's discriminator ('create-form' / 'create-form-spaceship'),
+        // not which tab is importing it. Reading requestKind()'s body.kind
+        // here would misread that discriminator as the route's own selector.
+        const kind = resolveKind(url, null);
+        if (!kind) {
+            return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
+        }
+        const result = createPresets.validatePresetFile(body, { kind: kind.createPresetDiscriminator });
         if (!result.ok) return sendJson(res, 400, { error: result.error });
         // The override tables are checked here even though validatePresetFile
         // cannot - it has no view of the generator's REQUIRED_TABLES. A preset
@@ -2661,13 +3007,18 @@ async function handleApi(req, res, url) {
         // exact message, at which point the user has lost the connection
         // between the file they imported and the row that is wrong.
         const unknown = result.preset.settings.overrides
-            .find((o) => !OVERRIDE_TABLES.includes(o.table));
+            .find((o) => !OVERRIDE_DATA_BY_KIND[kind.id].tables.includes(o.table));
         if (unknown) return sendJson(res, 400, { error: `unknown table "${unknown.table}"` });
         // Nothing is written: import fills the form, and the user decides
         // whether it is worth saving under a name of their own.
         return sendJson(res, 200, { ok: true, name: result.preset.name, settings: result.preset.settings });
     }
 
+    // The alias: hard-codes kind: 'npc' regardless of whatever the body
+    // names, which is what keeps test/api.createArgs.test.js green byte for
+    // byte, including its assertion that the NPC path passes no --manifest.
+    // A cached older page, or a script written against this route, keeps
+    // working exactly as it always did.
     if (url.pathname === '/api/create-npc' && req.method === 'POST') {
         const raw = await readBody(req);
         let body;
@@ -2676,56 +3027,25 @@ async function handleApi(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
+        const { status, body: respBody } = handleCreateRequest(KINDS[DEFAULT_KIND], body);
+        return sendJson(res, status, respBody);
+    }
 
-        const count = Number.isInteger(body.count) && body.count > 0 ? body.count : 1;
-        const name = typeof body.name === 'string' ? body.name.trim() : '';
-        if (name && count !== 1) {
-            return sendJson(res, 400, { error: '--name only makes sense with a single NPC' });
+    // The canonical route: `kind` in the body or `?kind=` on the URL,
+    // defaulting to npc like everything else here. An unknown kind is a 400
+    // rather than a silent fold onto npc - see resolveKind()'s own docs.
+    if (url.pathname === '/api/create' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
         }
-        let seed = null;
-        if (body.seed !== null && body.seed !== undefined && body.seed !== '') {
-            seed = Number(body.seed);
-            if (!Number.isInteger(seed) || seed < 0) {
-                return sendJson(res, 400, { error: 'seed must be a non-negative integer' });
-            }
-        }
-        const overrides = (Array.isArray(body.overrides) ? body.overrides : [])
-            .filter((o) => o && o.table && String(o.value ?? '').trim())
-            .map((o) => ({ table: String(o.table), value: String(o.value).trim() }));
-        const unknown = overrides.find((o) => !OVERRIDE_TABLES.includes(o.table));
-        if (unknown) return sendJson(res, 400, { error: `unknown table "${unknown.table}"` });
-        if (body.noPortrait && body.noToken) {
-            return sendJson(res, 400, { error: '--no-portrait and --no-token together leave nothing to generate' });
-        }
-
-        const requestedPronouns = typeof body.pronouns === 'string' && body.pronouns
-            ? body.pronouns : null;
-        if (requestedPronouns) {
-            let known = [];
-            try {
-                known = pronouns.subjectsFrom(fs.readFileSync(NPC_TABLES_PATH, 'utf8'));
-            } catch { /* fall through - an unreadable tables file is its own error later */ }
-            if (known.length && !known.includes(requestedPronouns)) {
-                return sendJson(res, 400, {
-                    error: `unknown pronoun "${requestedPronouns}". Available: ${known.join(', ')}`,
-                });
-            }
-        }
-
-        const result = startCreateJob({
-            count,
-            seed,
-            name: name || null,
-            pronouns: requestedPronouns,
-            overrides,
-            noPortrait: !!body.noPortrait,
-            noToken: !!body.noToken,
-            keepRawToken: !!body.keepRawToken,
-            unarmed: !!body.unarmed,
-            server: typeof body.server === 'string' && body.server ? body.server : null,
-            dryRun: !!body.dryRun,
-        });
-        return sendJson(res, result.ok ? 202 : 409, result);
+        const kindEntry = resolveKind(url, body);
+        if (!kindEntry) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
+        const { status, body: respBody } = handleCreateRequest(kindEntry, body);
+        return sendJson(res, status, respBody);
     }
 
     if (url.pathname === '/api/create-status' && req.method === 'GET') {
@@ -2734,6 +3054,11 @@ async function handleApi(req, res, url) {
         if (!job) return sendJson(res, 404, { error: 'unknown job' });
         return sendJson(res, 200, {
             status: job.status,
+            // Which registry entry this run created - 'npc' for every job the
+            // alias ever started, and whatever POST /api/create was asked
+            // for otherwise. Additive: existing callers that never look at
+            // it are unaffected.
+            kind: job.kind,
             dryRun: job.dryRun,
             log: job.log,
             error: job.error ?? null,
@@ -2746,6 +3071,15 @@ async function handleApi(req, res, url) {
             // cannot name the run's NPCs clears nothing rather than guessing.
             producedIds: job.producedIds ?? null,
         });
+    }
+
+    if (url.pathname === '/api/ship-catalogue' && req.method === 'GET') {
+        const result = await readShipCatalogue();
+        if (!result.ok) return sendJson(res, 502, { error: result.reason });
+        // Handed through exactly as generate-spaceship.py printed it - see
+        // readShipCatalogue()'s own docs for why `sizes` stays an array here
+        // rather than being reshaped into a map.
+        return sendJson(res, 200, result.data);
     }
 
     if (url.pathname === '/api/trait-candidates' && req.method === 'GET') {
