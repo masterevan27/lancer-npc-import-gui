@@ -1,8 +1,30 @@
 # Remaining work — spaceships
 
+> **⚠️ Superseded by two step-by-step implementation plans. Work those, not this file.**
+>
+> - [`docs/superpowers/plans/2026-09-07-spaceship-generator-completion.md`](docs/superpowers/plans/2026-09-07-spaceship-generator-completion.md) — ART, tasks 1–4 below
+> - [`docs/superpowers/plans/2026-09-07-gui-spaceship-support.md`](docs/superpowers/plans/2026-09-07-gui-spaceship-support.md) — GUI, tasks 5–8 below
+>
+> Both carry findings measured against the running code that **contradict this file and the
+> design docs**. Three matter enough to name here:
+>
+> 1. **Task 4 below is wrong about the manifest.** `tokenWidth`/`tokenHeight` are **pixels**;
+>    `gridWidth`/`gridHeight` are the grid units Foundry wants. The GUI design's assumption A2
+>    says otherwise, and following it would set a cruiser's token 1728 hexes wide.
+> 2. **The capitalization defect has four join sites, not three.** Exactly 20 of the 40
+>    occurrences are `{plan}` after the token template's white-void sentence — Task 2 below
+>    names only Detail, Command bridge and Markings, so fixing what it lists fixes half the bug.
+> 3. **`--out-root` does not exist** (GUI assumption A3 is false), and the ship tables file is
+>    `prompts/spaceship-generator-tables.md`, not the `scene-and-spaceship-tables.md` the GUI
+>    design derives.
+>
+> Also settled: design §4's "no new ComfyUI workflow JSON needed" claim is **verified**, and the
+> merge in Task 1 has been **validated end to end** — the spliced file's dry run is byte-identical
+> to today's and the GUI's parser reads all four constants out of it.
+
 Task list for picking this up. The plan and the reasoning are in
 [`docs/superpowers/plans/2026-09-07-spaceships-and-trait-fixes.md`](docs/superpowers/plans/2026-09-07-spaceships-and-trait-fixes.md);
-**read that first**, then work these in order.
+**read that first**, then the two implementation plans above.
 
 **Repos and branches** (nothing is on `main`, nothing is pushed):
 
