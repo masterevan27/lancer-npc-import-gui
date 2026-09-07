@@ -58,6 +58,7 @@ const pronouns = require('./lib/pronouns');
 const traitOptions = require('./lib/traitOptions');
 const traitOdds = require('./lib/traitOdds');
 const traitChoices = require('./lib/traitChoices');
+const applyTrait = require('./lib/applyTrait');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -693,6 +694,27 @@ ensureSeenLoaded();
 const regenJobsByItemId = new Map();
 
 const REGEN_LOG_LIMIT = 4000; // chars of stdout+stderr kept for an error message
+
+/**
+ * Items with a `--apply-only` spawn in flight - the staged trait edits, which
+ * are not jobs and deliberately have no map of their own: they finish in about
+ * a second, the answer is the item view the route replies with, and nothing
+ * polls for them.
+ *
+ * A set rather than nothing at all because a staged edit reads the whole
+ * manifest entry, rolls, and writes the whole entry back. Two of them
+ * overlapping lose the first, and they are fast enough (no ComfyUI in the
+ * loop) that a user CAN get a second click inside the window. One at a time
+ * per item, refused rather than queued - the refusal is a sentence in the
+ * detail sheet and the click can simply be repeated.
+ */
+const stagingItemIds = new Set();
+
+// A staged edit rolls and writes a JSON file; it never contacts ComfyUI. A
+// minute is already far past "the interpreter is wedged", and the route holds
+// its response open for the whole of it, so the cap is what stops a hung
+// Python leaving the trait gutters disabled until the page is reloaded.
+const STAGE_TIMEOUT_MS = 60000;
 
 function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, release }) {
     const existing = regenJobsByItemId.get(item.id);
@@ -1467,6 +1489,91 @@ function runTraitChoices(item, trait) {
 }
 
 /**
+ * Spawns `generate-npc.py --apply-only` and hands back what it printed.
+ *
+ * Structured like runTraitChoices() above, and for the same reason it is not
+ * folded into startRegenJob(): this is not a job. It renders nothing, contacts
+ * no ComfyUI server, finishes in about a second and answers the request that
+ * started it, so the caller awaits a result rather than polling a map for a
+ * status. What it leaves behind is a rewritten manifest entry.
+ *
+ * Two things it has that runTraitChoices does not:
+ *
+ *   - the `stagingItemIds` guard, added before the spawn and dropped on every
+ *     resolve path, because this one WRITES the entry (see the set above);
+ *   - a deadline, because the route is holding a response open on it.
+ *
+ * Resolves `{ ok: true, data: <parsed>, log: <stderr tail> }` - the log
+ * included rather than discarded because the generator's cascade report ("with
+ * Hair colour: 'x' -> 'y'") goes to stderr under --apply-only, and it is the
+ * only place that says what else travelled with the trait the user clicked.
+ */
+function runApplyTrait(item, { op, table, value, release, seed }) {
+    if (!fs.existsSync(GENERATE_NPC_SCRIPT)) {
+        return Promise.resolve({ ok: false, reason: `generate-npc.py not found at ${GENERATE_NPC_SCRIPT}` });
+    }
+
+    let args;
+    try {
+        args = applyTrait.applyArgs(
+            GENERATE_NPC_SCRIPT, config.npcManifestPath, item.id,
+            { op, table, value, release, seed });
+    } catch (err) {
+        return Promise.resolve({ ok: false, reason: err.message });
+    }
+
+    stagingItemIds.add(item.id);
+    return new Promise((resolve) => {
+        let timer = null;
+        let settled = false;
+        // One funnel for every exit, so the guard cannot be left set by a race
+        // between the deadline firing and the child closing.
+        const settle = (result) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            stagingItemIds.delete(item.id);
+            resolve(result);
+        };
+
+        let child;
+        try {
+            child = spawn(config.pythonExecutable, args, { cwd: path.dirname(GENERATE_NPC_SCRIPT) });
+        } catch (err) {
+            return settle({ ok: false, reason: `could not run ${config.pythonExecutable}: ${err.message}` });
+        }
+
+        let out = '';
+        let errText = '';
+        child.stdout.on('data', (chunk) => { out += chunk.toString(); });
+        child.stderr.on('data', (chunk) => { errText = (errText + chunk.toString()).slice(-ODDS_LOG_LIMIT); });
+        child.on('error', (err) => settle({ ok: false, reason: `could not run ${config.pythonExecutable}: ${err.message}` }));
+        child.on('close', (code) => {
+            if (code !== 0) {
+                return settle({
+                    ok: false,
+                    reason: errText.trim() || `generate-npc.py --apply-only exited with code ${code}`,
+                });
+            }
+            try {
+                return settle({ ok: true, data: applyTrait.parseApplyOutput(out), log: errText });
+            } catch (err) {
+                return settle({ ok: false, reason: err.message });
+            }
+        });
+
+        timer = setTimeout(() => {
+            child.kill();
+            settle({
+                ok: false,
+                timedOut: true,
+                reason: `generate-npc.py --apply-only did not finish within ${STAGE_TIMEOUT_MS / 1000}s`,
+            });
+        }, STAGE_TIMEOUT_MS);
+    });
+}
+
+/**
  * Appends one bullet to npc-generator-tables.md under its exact '## <table>'
  * heading, right before the next heading (or EOF) - i.e. as the new last
  * bullet in that section. A heading that doesn't exist yet is refused rather
@@ -1622,6 +1729,13 @@ function itemView(item) {
         // only present for entries written by a generate-npc.py new enough to record it.
         portraitPrompt: item.portraitPrompt || null,
         tokenPrompt: item.tokenPrompt || null,
+        // generate-npc.py --apply-only sets this when a trait edit lands
+        // without a render, and clears it on the next real render. The traits
+        // and prompts above therefore describe the NPC; the images may not.
+        // Coerced rather than passed through: the client reads it directly as
+        // `hidden = !item.artStale` and as a badge arm, and an entry written
+        // before the marker existed has to answer false rather than undefined.
+        artStale: !!item.artStale,
     };
 }
 
@@ -1874,6 +1988,11 @@ async function handleApi(req, res, url) {
         });
     }
 
+    // Re-roll a trait AND re-render, in one 202'd job. The page's own buttons
+    // now stage the edit instead (POST /api/stage-trait below) and leave the
+    // rendering to Regenerate, so this is the one-shot equivalent: kept whole
+    // because a browser tab served before that change still calls it, and
+    // because "do the lot" is the right shape for a script.
     if (url.pathname === '/api/reroll-trait' && req.method === 'POST') {
         const raw = await readBody(req);
         let body;
@@ -1916,6 +2035,8 @@ async function handleApi(req, res, url) {
         return sendJson(res, result.ok ? 202 : 409, result);
     }
 
+    // Pin a trait AND re-render, in one 202'd job - the counterpart of
+    // /api/reroll-trait above, kept for the same two reasons.
     if (url.pathname === '/api/set-trait' && req.method === 'POST') {
         const raw = await readBody(req);
         let body;
@@ -1983,6 +2104,148 @@ async function handleApi(req, res, url) {
             which: 'both', seedMode: 'random', setTrait: { table, value }, release,
         });
         return sendJson(res, result.ok ? 202 : 409, result);
+    }
+
+    /*
+     * POST /api/stage-trait - apply one trait edit to the stored NPC and
+     * render nothing. { id, op: 'reroll' | 'set', table, value?, release? }.
+     *
+     * The two routes above start a render, which queues a portrait, a token
+     * and a background-removal pass and takes minutes; the server refuses a
+     * second regen while one runs, so trying three haircuts could not be done
+     * back to back at all. This one writes the edit into the manifest entry in
+     * about a second and answers with the item as it now stands. The entry is
+     * the accumulator - edits compose because each one starts from what the
+     * last one wrote - and rendering is the Regenerate button, unchanged.
+     * `artStale` on the item view is what says the two have parted company.
+     *
+     * Synchronous, and so not a job: nothing polls for it, and the reply IS
+     * the answer. The refusals below are the ones the two routes above give,
+     * reused verbatim rather than reworded, so a button refused here can never
+     * be refused differently there.
+     */
+    if (url.pathname === '/api/stage-trait' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const item = body.id && findItem(body.id);
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        if (item.kind !== 'npc') {
+            return sendJson(res, 400, {
+                error: `setting a trait isn't supported for kind "${item.kind}" yet`,
+            });
+        }
+
+        const op = body.op === 'reroll' || body.op === 'set' ? body.op : null;
+        if (!op) return sendJson(res, 400, { error: 'op must be "reroll" or "set"' });
+
+        const table = typeof body.table === 'string' ? body.table : '';
+        if (!table) return sendJson(res, 400, { error: 'table is required' });
+
+        const value = typeof body.value === 'string' ? body.value : '';
+        const release = Array.isArray(body.release) ? body.release : [];
+
+        // Ahead of the re-rollable check on purpose, and in the same order
+        // /api/set-trait puts them: an entry with no raw bullets gets the
+        // legacy list, so checking that first would refuse Outfit as
+        // un-settable when the real answer - and the cure - is that the entry
+        // recorded no bullets to pin the rest of it to.
+        if (op === 'set' && !hasRawTraits(item)) {
+            return sendJson(res, 400, {
+                error: 'this NPC recorded no raw bullets, so there is nothing to '
+                    + 'pin the rest of it to. Re-roll the NPC to record them.',
+            });
+        }
+
+        // The list this NPC gets, chosen the same way the two routes above
+        // choose it - and named in the refusal, so the set printed is the one
+        // that applies to THIS entry rather than the shorter one by default.
+        const allowed = rerollableFor(item);
+        if (allowed.length && !allowed.includes(table)) {
+            return sendJson(res, 400, {
+                error: op === 'reroll'
+                    ? `"${table}" cannot be re-rolled on its own. Re-rollable: ${allowed.join(', ')}`
+                    : `"${table}" cannot be set on its own. Settable: ${allowed.join(', ')}`,
+            });
+        }
+
+        if (op === 'reroll') {
+            // --release only ever answers a pinned value's conflicts, so there
+            // is nothing here for it to be in conflict with. Refused rather
+            // than dropped: silently ignoring it would re-roll the one trait
+            // while the client believed it had asked for more.
+            if (release.length) {
+                return sendJson(res, 400, {
+                    error: 'release only applies when setting a value; a re-roll frees its own cascade',
+                });
+            }
+        } else {
+            if (!value) return sendJson(res, 400, { error: 'value is required to set a trait' });
+
+            // Re-checked against the generator rather than trusted, exactly as
+            // /api/set-trait does it and for the same reason: --set-trait takes
+            // its bullet VERBATIM, and the staged entry is what the eventual
+            // render reads, so an arbitrary string arriving here would be
+            // rendered later rather than now. Goes through the same cache the
+            // GET route filled.
+            const query = await readTraitChoices(item, table);
+            if (!query.ok) return sendJson(res, 502, { error: query.reason });
+            const choice = query.data.choices.find((c) => c.value === value);
+            if (!choice) {
+                return sendJson(res, 400, {
+                    error: `"${value}" is not a value the ${table} table offers; the `
+                        + 'tables file may have changed since this list was loaded.',
+                });
+            }
+            const stray = release.filter((r) => !choice.conflicts.includes(r));
+            if (stray.length) {
+                return sendJson(res, 400, {
+                    error: `cannot release ${stray.join(', ')}: not in conflict with this value`,
+                });
+            }
+        }
+
+        // Both refusals below are about the entry being written underneath
+        // this edit. A regen rewrites it wholesale at the end of its run, and
+        // a second staged edit rewrites it immediately - either would swallow
+        // whatever this one applied.
+        if (regenJobsByItemId.get(item.id)?.status === 'running') {
+            return sendJson(res, 409, {
+                ok: false, reason: 'this NPC is being re-rendered; wait for it to finish',
+            });
+        }
+        if (stagingItemIds.has(item.id)) {
+            return sendJson(res, 409, { ok: false, reason: 'another edit is still being applied' });
+        }
+
+        // A fresh draw seed every time, for the reason the two routes above
+        // ask for `seedMode: 'random'`: clicking Re-roll twice must not hand
+        // back the same haircut both times. It is not written to the entry -
+        // the entry's own seed still describes the noise of the stored image.
+        const result = await runApplyTrait(item, {
+            op, table, value, release, seed: crypto.randomInt(0, 2 ** 32 - 1),
+        });
+        if (!result.ok) {
+            return sendJson(res, result.timedOut ? 504 : 502, { ok: false, reason: result.reason });
+        }
+
+        // Re-read rather than echoed: the generator's stdout says what it
+        // rolled, and this says what is stored. They should agree, and the
+        // stored one is the one the next click and the next render will use.
+        const fresh = findItem(item.id);
+        return sendJson(res, 200, {
+            ok: true,
+            item: fresh ? itemView(fresh) : null,
+            // The generator's own "with Hair colour: 'x' -> 'y'" cascade
+            // report, off stderr. It is the only place that says what
+            // travelled, and a user who clicked one button and got four new
+            // traits needs to be told.
+            log: result.log || '',
+        });
     }
 
     if (url.pathname === '/api/trait-choices' && req.method === 'GET') {

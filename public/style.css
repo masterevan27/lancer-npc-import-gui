@@ -300,6 +300,11 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 }
 .card .badge.error { background: #c0392b; }
 .card .badge.pending { background: #b7791f; }
+/* Traits edited since the art was made. Purple because the four meanings
+   already spoken for are green (Imported), amber (pending), red (failed) and
+   blue (New), and this is a fifth: not an error and not work in progress, but
+   a render the user still has to ask for. */
+.card .badge.stale { background: #7d5ba6; }
 /* Generated since the user last opened it. Not another arm of the if/else
    chain that picks the badge above: a brand-new NPC can equally be mid-regen
    or have just failed a 3D build, and those are independent facts, so this
@@ -530,6 +535,16 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 }
 #regen-btn:disabled,
 #model3d-btn:disabled { background: #2c2f38; color: #6b7280; cursor: default; }
+/* The one button on the sheet with something outstanding to do. Amber rather
+   than a brighter blue: the panel's default blue is already the "go" colour, so
+   a louder blue would read as the same button rather than a changed one, and
+   amber is what the pending badge on the card already means. */
+#regen-btn.accent { background: #b7791f; }
+#regen-btn.accent:hover { background: #d18f2a; }
+/* The same amber, on the sentence that explains it. Bold because it sits above
+   three rows of radio labels at the same size and would otherwise read as a
+   fourth one. */
+.regen-stale { color: #b7791f; font-weight: 600; margin: 0 0 0.5rem; font-size: 0.8rem; }
 .regen-status { margin: 0.5rem 0 0; font-size: 0.8rem; color: #b3bac6; }
 #detail-traits { border-collapse: collapse; font-size: 0.85rem; }
 #detail-traits td { padding: 0.15rem 0.6rem 0.15rem 0; vertical-align: top; }

@@ -19,6 +19,19 @@ const state = {
   filters: [], // { key, value }
   detailItemId: null,     // item currently shown in the detail overlay, if any
   regenLastStatus: null,  // that item's regenStatus as of the last render, to catch done/error transitions
+  // The trait-specific "Re-rolling Hair…" line, so renderRegenPanel's running
+  // branch stops overwriting it with the generic one two seconds later.
+  // Cleared by openDetail and whenever the job leaves 'running'.
+  regenRunningMessage: null,
+  // The item whose staged trait edit is in flight, so both trait gutters can be
+  // shut for the second or so the generator takes. Not an edit list: the
+  // manifest entry is the accumulator, and this page only ever re-renders what
+  // the server sends back. See stageTraitEdit.
+  stagingItemId: null,
+  // Bumped by every startPolling() call, so a tick already in flight can tell
+  // that someone asked for polling while it was awaiting - and refuse to clear
+  // the timer over a list it fetched before that job existed. See startPolling.
+  pollWanted: 0,
   // Ids marked seen during this page load. /api/seen is fire-and-forget and
   // the two-second poller replaces state.items wholesale, so without this a
   // poll landing between the click and the POST brings the New badge back for
@@ -59,6 +72,7 @@ const el = {
   regenCurrentSeed: document.getElementById('regen-current-seed'),
   regenBtn: document.getElementById('regen-btn'),
   regenStatus: document.getElementById('regen-status'),
+  regenStale: document.getElementById('regen-stale'),
   model3dPanel: document.getElementById('model3d-panel'),
   model3dRig: document.getElementById('model3d-rig'),
   model3dOverwrite: document.getElementById('model3d-overwrite'),
@@ -711,6 +725,16 @@ function render() {
       badge.textContent = 'Regen failed';
       badge.title = item.regenError || '';
       card.appendChild(badge);
+    } else if (item.artStale) {
+      // Below the two regen arms and above the 3D ones, deliberately. A live or
+      // failed render outranks this - it is about to settle the question - but a
+      // 3D build does not, because a portrait that no longer matches the traits
+      // is the more actionable of the two facts.
+      const badge = document.createElement('span');
+      badge.className = 'badge stale';
+      badge.textContent = 'Art out of date';
+      badge.title = 'Traits were edited after this art was made — open it and press Regenerate';
+      card.appendChild(badge);
     } else if (item.model3dStatus === 'running') {
       const badge = document.createElement('span');
       badge.className = 'badge pending';
@@ -952,19 +976,31 @@ function renderDetailFiles(item) {
     .join(' · ');
 }
 
-function openDetail(item) {
-  // portraitUrl/tokenUrl carry the source file's mtime as a version query
-  // param (see itemView in server.js), so a Regenerate since this item was
-  // last shown naturally produces a different src here - no manual
-  // cache-busting needed.
-  el.detailPortrait.src = item.portraitUrl || '';
-  el.detailToken.src = item.tokenUrl || '';
+/** The sheet's name, subtitle, generated-on line and Files block. */
+function renderDetailHeader(item) {
   el.detailName.textContent = item.name;
   el.detailSub.textContent = [item.roleCategory, item.traits?.Role, factionDisplayName(item.traits?.Faction)]
     .filter(Boolean)
     .join(' — ');
   el.detailGenerated.textContent = formatGeneratedWhen(item.when);
   renderDetailFiles(item);
+}
+
+/**
+ * The trait table for one item.
+ *
+ * Extracted from openDetail so an edit repaints it in place. This was written
+ * exactly once per overlay open, which is why a re-rolled trait's new value
+ * never appeared on the NPC's own page even though /api/items had been sending
+ * it for two seconds: the sheet simply never asked again.
+ *
+ * The button set is repainted with the values rather than left alone, because
+ * it is computed from rerollableForItem() and a legacy entry gains rawTraits -
+ * and with them a full set of live buttons - the first time it is re-rolled.
+ *
+ * Nothing here reads the DOM, so it is safe to call on every poll tick.
+ */
+function renderDetailTraits(item) {
   // A reroll button per trait the generator will re-roll on this NPC, which is
   // a per-NPC question rather than a global one. The server sends both of
   // generate-npc.py's lists and each item says which applies: an entry that
@@ -986,21 +1022,55 @@ function openDetail(item) {
   // them. Leading, they stack in two fixed gutters.
   const rerollable = rerollableForItem(item);
   el.detailTraits.innerHTML = Object.entries(item.traits || {})
-    .filter(([k]) => !['name', 'Given names', 'Family names'].includes(k))
+    .filter(([k]) => !TRAIT_KEY_EXCLUDE.includes(k))
     .map(([k, v]) => {
       const cells = traitControlCells(k, rerollable);
       return `<tr>${cells}<td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`;
     })
     .join('');
+}
 
+/** The sheet's prompt panes, for a manifest entry new enough to carry them. */
+function renderDetailPrompts(item) {
   // Only recorded by generate-npc.py versions new enough to save it - older
   // manifest entries just hide this section rather than show it empty.
   el.detailPrompts.hidden = !item.portraitPrompt && !item.tokenPrompt;
   el.detailPortraitPrompt.textContent = item.portraitPrompt || '';
   el.detailTokenPrompt.textContent = item.tokenPrompt || '';
+}
+
+/**
+ * Repaint everything in the open sheet that comes from the item row.
+ *
+ * Order is load-bearing. renderDetailTraits() replaces el.detailTraits'
+ * innerHTML, handing back freshly-ENABLED buttons; renderRegenPanel() is what
+ * disables them for a running job. Painting the traits after the panel would
+ * re-enable both gutters every two seconds during a render and reopen the 409
+ * "already regenerating" window the server refuses a second job through.
+ */
+function renderDetailFor(item) {
+  renderDetailHeader(item);
+  renderDetailTraits(item);
+  renderDetailPrompts(item);
+  renderRegenPanel(item);
+}
+
+function openDetail(item) {
+  // portraitUrl/tokenUrl carry the source file's mtime as a version query
+  // param (see itemView in server.js), so a Regenerate since this item was
+  // last shown naturally produces a different src here - no manual
+  // cache-busting needed.
+  el.detailPortrait.src = item.portraitUrl || '';
+  el.detailToken.src = item.tokenUrl || '';
+  renderDetailHeader(item);
+  renderDetailTraits(item);
+  renderDetailPrompts(item);
 
   state.detailItemId = item.id;
   state.regenLastStatus = item.regenStatus ?? null;
+  // The trait-specific line belongs to one item and one job, and this is
+  // neither of them yet.
+  state.regenRunningMessage = null;
   document.querySelector('input[name="regen-which"][value="both"]').checked = true;
   document.querySelector('input[name="regen-seed-mode"][value="same"]').checked = true;
   el.regenSeedInput.disabled = true;
@@ -1033,6 +1103,29 @@ function openDetail(item) {
   el.overlay.hidden = false;
 }
 
+/**
+ * Shut or reopen both trait gutters.
+ *
+ * Only the live buttons, which are the ones carrying a data-trait. The
+ * explanatory button traitControlCells() emits for a trait this entry cannot
+ * re-roll is disabled for a reason that has nothing to do with a running job,
+ * and an unqualified selector here would enable it the moment one finished -
+ * handing back a clickable control with no trait on it to post.
+ *
+ * Set... rides along: it edits the same entry, so it has to be shut for the
+ * same reason. It only ever exists with a data-trait, but the selector keeps
+ * the qualifier so the two halves read as one rule.
+ *
+ * Lifted out of renderRegenPanel so a staged edit (stageTraitEdit) closes the
+ * same set of controls through the same selector rather than a second copy.
+ */
+function setTraitGuttersDisabled(on) {
+  for (const button of el.detailTraits.querySelectorAll(
+    '.reroll-btn[data-trait], .set-trait-btn[data-trait]')) {
+    button.disabled = on;
+  }
+}
+
 /** The detail overlay's "Regenerate art" panel, for whichever item is open. */
 function renderRegenPanel(item) {
   const supported = typeof item.seed === 'number';
@@ -1040,38 +1133,39 @@ function renderRegenPanel(item) {
   if (!supported) return;
 
   el.regenCurrentSeed.textContent = `Current seed: ${item.seed}`;
+  // The traits below the panel describe the NPC; the images above it may not.
+  // Set by a staged trait edit, cleared by the next real render - so the notice
+  // is exactly "there is a Regenerate waiting to be pressed", and the button
+  // that answers it is highlighted while that is true.
+  el.regenStale.hidden = !item.artStale;
 
-  const running = item.regenStatus === 'running';
+  // A running regen shuts everything, and so does a staged edit in flight: it
+  // rewrites the whole manifest entry, and a Regenerate landing mid-write would
+  // render a half-applied NPC.
+  const running = item.regenStatus === 'running' || state.stagingItemId === item.id;
   const seedMode = document.querySelector('input[name="regen-seed-mode"]:checked')?.value;
   el.regenBtn.disabled = running;
   el.regenBtn.textContent = running ? 'Regenerating…' : 'Regenerate';
+  el.regenBtn.classList.toggle('accent', !!item.artStale && !running);
   for (const radio of document.querySelectorAll('#regen-panel input[type="radio"]')) radio.disabled = running;
   el.regenSeedInput.disabled = running || seedMode !== 'specific';
-  // A reroll IS a regen job, so it shares the running flag - two at once on
-  // one NPC would have the second overwrite the first's output.
-  //
-  // Only the live buttons, which are the ones carrying a data-trait. The
-  // explanatory button traitControlCells() emits for a trait this entry cannot
-  // re-roll is disabled for a reason that has nothing to do with a running job,
-  // and an unqualified selector here would enable it the moment one finished -
-  // handing back a clickable control with no trait on it to post.
-  //
-  // Set... rides along: it starts the same kind of job, so it has to be shut
-  // for the same reason. It only ever exists with a data-trait, but the
-  // selector keeps the qualifier so the two lines read as one rule.
-  for (const button of el.detailTraits.querySelectorAll(
-    '.reroll-btn[data-trait], .set-trait-btn[data-trait]')) {
-    button.disabled = running;
-  }
+  setTraitGuttersDisabled(running);
 
   const justFinished = item.regenStatus === 'done' && state.regenLastStatus !== 'done';
   if (running) {
-    el.regenStatus.textContent = 'Regenerating… this can take a few minutes (ComfyUI must be running).';
+    // The trait-named line the click wrote, where there is one. This branch
+    // runs again two seconds later on the first poll tick, and writing the
+    // generic sentence unconditionally is what used to discard it.
+    el.regenStatus.textContent = state.regenRunningMessage
+      || 'Regenerating… this can take a few minutes (ComfyUI must be running).';
   } else if (item.regenStatus === 'error') {
+    state.regenRunningMessage = null;
     el.regenStatus.textContent = `Failed: ${item.regenError || 'unknown error'}`;
   } else if (justFinished) {
+    state.regenRunningMessage = null;
     el.regenStatus.textContent = `Done — new seed ${item.seed}.`;
   } else if (item.regenStatus !== 'done') {
+    state.regenRunningMessage = null;
     el.regenStatus.textContent = '';
   }
 
@@ -1192,9 +1286,17 @@ el.model3dBtn.addEventListener('click', async () => {
       await refreshModel3d(id);
       return;
     }
+    // Before the awaits, not after. refreshItems() throws through api() on any
+    // non-OK /api/items, and a poller started only on the happy path is exactly
+    // the omission the trait handlers used to have: the job runs, nothing
+    // watches it, and the panel sits on "Building…" until the page is reloaded.
+    //
+    // No noteRegenStarted() here - a 3D build has no regenStatus of its own,
+    // and seeding the regen banner's gate for one would claim a job that does
+    // not exist.
+    startPolling();
     await refreshItems();
     await refreshModel3d(id);
-    startPolling();
   } catch (err) {
     el.model3dStatus.textContent = `Couldn't start: ${err.message}`;
     await refreshModel3d(id);
@@ -1239,9 +1341,17 @@ el.regenBtn.addEventListener('click', async () => {
       el.regenBtn.textContent = 'Regenerate';
       return;
     }
+    // The generic line is the right one here - this button re-renders the NPC
+    // as it stands rather than editing anything.
+    state.regenRunningMessage = null;
     el.regenStatus.textContent = 'Regenerating… this can take a few minutes (ComfyUI must be running).';
-    await refreshItems();
+    // Both before the await, not after: refreshItems() throws through api() on
+    // any non-OK /api/items, and a 202 followed by one bad list load would
+    // otherwise leave a job genuinely running with no poller watching it and no
+    // record that it ever started.
+    noteRegenStarted(id);
     startPolling();
+    await refreshItems();
   } catch (err) {
     el.regenStatus.textContent = `Couldn't start: ${err.message}`;
     el.regenBtn.disabled = false;
@@ -1561,18 +1671,29 @@ el.detailDeleteBtn.addEventListener('click', async () => {
 
 /** Shared by the import flow and the regenerate-art flow - whichever queued something. */
 function startPolling() {
+  // Bumped on every call, including the ones that find a timer already running.
+  // A tick spends most of its two seconds awaiting /api/items, so a job started
+  // during that await is invisible to the list the tick is holding - and a
+  // tick that then cleared the interval would take the poller down over a job
+  // it had never seen. The counter is how the tick notices it happened.
+  state.pollWanted += 1;
   if (state.pollTimer) return;
   let ticks = 0;
   let sawImportPending = false;
   state.pollTimer = setInterval(async () => {
     ticks += 1;
+    const wantedAtEntry = state.pollWanted;
     if (state.items.some((i) => i.jobStatus === 'queued' || i.jobStatus === 'sent')) sawImportPending = true;
 
     await refreshItems();
     if (state.detailItemId) {
       const openItem = state.items.find((i) => i.id === state.detailItemId);
       if (openItem) {
-        renderRegenPanel(openItem);
+        // The whole sheet, not just the regen panel. The traits, the header and
+        // the prompts all come off the item row too, and a re-roll changes them
+        // - which is the one thing a user watching this page wants to see.
+        // Repainting ~20 rows every two seconds is cheap.
+        renderDetailFor(openItem);
         await refreshModel3d(state.detailItemId);
       }
     }
@@ -1580,17 +1701,31 @@ function startPolling() {
     const building3d = state.items.some((i) => i.model3dStatus === 'running');
     const stillPending = building3d || state.items.some((i) =>
       i.jobStatus === 'queued' || i.jobStatus === 'sent' || i.regenStatus === 'running');
-    // 600 ticks (20 min) is just a safety net against a stuck/unreachable
-    // ComfyUI - generate-npc.py's own per-image timeout defaults to 30 min.
-    //
-    // A 3D build gets three times that. It is not one render but a render, two
-    // reconstructions and a headless Blender assembly, and cutting the poll
-    // off mid-build would leave the panel stuck on "Building…" for a run that
-    // finished fine.
-    if (!stillPending || ticks > (building3d ? 1800 : 600)) {
+    // An empty list is not "nothing is pending". generate-npc.py rewrites the
+    // whole manifest at the very end of a regen and the server answers [] for a
+    // half-written file, so the one tick most likely to read empty is the one
+    // landing on exactly the transition this poller exists to see. Keep
+    // polling; the cap below still bounds it.
+    const listUnreadable = state.items.length === 0;
+    // The cap is a safety net against an unreachable ComfyUI, not a deadline
+    // for the job. A regen queues a portrait, a token and the background-removal
+    // pass, each with generate-npc.py's own --timeout default of 1800s, so the
+    // old 20 minutes cut off runs that were still perfectly fine. A 3D build -
+    // a render, two reconstructions and a headless Blender assembly - is in the
+    // same range, so both get one number rather than two.
+    const cap = 2700;   // 90 minutes at 2s/tick
+    if (((!stillPending && !listUnreadable) || ticks > cap)
+        // Not over a job started while this tick was awaiting: that job is not
+        // in the list above, so `stillPending` says nothing about it.
+        && state.pollWanted === wantedAtEntry) {
       clearInterval(state.pollTimer);
       state.pollTimer = null;
       if (!stillPending && sawImportPending) el.status.textContent = 'Import complete.';
+      // Never stop silently on a job that is still going: the card keeps its
+      // "Regenerating…" pill and nothing else on the page would say why.
+      if (stillPending) {
+        el.status.textContent = 'Still working after 90 minutes — reload the page to check on it.';
+      }
     }
   }, 2000);
 }
@@ -1811,6 +1946,22 @@ function detectRegenFinished(items) {
     else if (current === 'error') failed.push(item);
   }
   if (finished.length || failed.length) announceRegenComplete(finished, failed);
+}
+
+/**
+ * Record that THIS page started a regen for `id`, so the gate above is
+ * satisfied from the click rather than from a poll that may arrive after the
+ * job has already failed.
+ *
+ * startRegenJob records status:'error' synchronously when the spawn itself
+ * fails and the route still answers 202, so a job can be over before the first
+ * /api/items lands - and the gate, seeing no previous status, would drop the
+ * one failure the user most needs telling about. Seeding here is also what
+ * makes the gate mean what its own comment already claims: "this page started
+ * or witnessed the job".
+ */
+function noteRegenStarted(id) {
+  regenSeen.set(id, 'running');
 }
 
 /**
@@ -2972,32 +3123,7 @@ el.detailTraits.addEventListener('click', async (event) => {
   // backing out leaves the sheet exactly as it was.
   if (rerollNeedsConfirm(trait) && !(await confirmReroll(trait))) return;
 
-  button.disabled = true;
-  try {
-    const res = await fetch('/api/reroll-trait', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, table: trait }),
-    });
-    const result = await res.json();
-    if (!res.ok) {
-      el.regenStatus.textContent =
-        `Couldn't re-roll ${trait}: ${result.reason || result.error || res.status}`;
-      button.disabled = false;
-      return;
-    }
-    el.regenStatus.textContent =
-      `Re-rolling ${trait} and re-rendering… this can take a few minutes `
-      + '(ComfyUI must be running).';
-    // Hand over to the regen poller, which already watches regenStatus, swaps
-    // the art in when the job finishes and reports a failure - a reroll is a
-    // regen job, so none of that needs a second copy here.
-    state.regenLastStatus = 'running';
-    await refreshItems();
-  } catch (err) {
-    el.regenStatus.textContent = `Couldn't re-roll ${trait}: ${err.message}`;
-    button.disabled = false;
-  }
+  await stageTraitEdit({ id, op: 'reroll', table: trait, button });
 });
 
 el.detailTraits.addEventListener('click', async (event) => {
@@ -3016,32 +3142,97 @@ el.detailTraits.addEventListener('click', async (event) => {
   const picked = await openSetTrait(item, trait);
   if (!picked) return;
 
+  await stageTraitEdit({
+    id, op: 'set', table: trait, value: picked.value, release: picked.release, button,
+  });
+});
+
+/**
+ * What the generator said travelled, as one sentence.
+ *
+ * A re-roll on the raw path re-draws the named trait's whole cascade, and the
+ * generator reports each one it moved on stderr as `  with Hair colour: 'x' ->
+ * 'y'`. Somebody who clicked Re-roll on Theme and got a new outfit, weapon and
+ * hair needs that said here rather than left to be found in the trait table.
+ *
+ * Null when nothing matched, so the caller falls back to the plain sentence: an
+ * edit that moved exactly the trait named on the button has nothing extra to
+ * report, and "and 0 others" is worse than silence.
+ */
+function cascadeSummary(table, log) {
+  const also = [...String(log || '').matchAll(/^\s+with (.+?): /gm)].map((m) => m[1]);
+  if (!also.length) return null;
+  // Named up to three, counted past that - the same rule releaseLabel() uses,
+  // for the same reason: a line naming eleven traits is not read.
+  const named = also.length <= 3 ? also.join(', ') : `${also.length} other traits`;
+  return `${table} updated — ${named} also changed. The art is now out of date `
+    + '— press Regenerate when you are done editing.';
+}
+
+/**
+ * Apply one trait edit to the stored NPC, with no render.
+ *
+ * The whole point of the redesign. A re-roll used to queue two ComfyUI jobs and
+ * take minutes, so trying three haircuts cost the better part of an hour - and
+ * because the server refuses a second regen while one is running, they could
+ * not be done back to back at all. Now the edit lands in the manifest in about
+ * a second, edits accumulate on the entry itself, and the Regenerate button -
+ * unchanged, and now the only thing that makes a picture - is what renders
+ * whatever the user has settled on. `artStale` is what says the two have parted
+ * company in the meantime.
+ *
+ * The item comes back on the response rather than being fetched again: the
+ * server re-reads the entry after the generator has written it, so what arrives
+ * is the stored truth and not an echo of what was asked for.
+ */
+async function stageTraitEdit({ id, op, table, value, release, button }) {
+  const label = op === 'reroll' ? `re-roll ${table}` : `set ${table}`;
+  state.stagingItemId = id;
+  state.regenRunningMessage = op === 'reroll' ? `Re-rolling ${table}…` : `Setting ${table}…`;
+  el.regenStatus.textContent = state.regenRunningMessage;
   button.disabled = true;
+  setTraitGuttersDisabled(true);
+
+  let fresh = null;
+  let message;
   try {
-    const res = await fetch('/api/set-trait', {
+    const res = await fetch('/api/stage-trait', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, table: trait, value: picked.value, release: picked.release }),
+      body: JSON.stringify({ id, op, table, value, release }),
     });
     const result = await res.json();
     if (!res.ok) {
-      el.regenStatus.textContent =
-        `Couldn't set ${trait}: ${result.reason || result.error || res.status}`;
-      button.disabled = false;
-      return;
+      message = `Couldn't ${label}: ${result.reason || result.error || res.status}`;
+    } else {
+      fresh = result.item || null;
+      message = cascadeSummary(table, result.log)
+        || `${table} updated. The art is now out of date — press Regenerate when you are done editing.`;
     }
-    el.regenStatus.textContent =
-      `Setting ${trait} and re-rendering… this can take a few minutes `
-      + '(ComfyUI must be running).';
-    // Same hand-off as a re-roll: a pin IS a regen job, so the existing poller
-    // swaps the art in and reports a failure without a second copy here.
-    state.regenLastStatus = 'running';
-    await refreshItems();
   } catch (err) {
-    el.regenStatus.textContent = `Couldn't set ${trait}: ${err.message}`;
+    message = `Couldn't ${label}: ${err.message}`;
+  }
+
+  // Cleared before anything repaints, not after. renderRegenPanel() reads it to
+  // decide whether the panel is shut, so a repaint that still saw this edit in
+  // flight would leave Regenerate disabled and labelled "Regenerating…" - with
+  // no poller running to ever turn it back.
+  state.stagingItemId = null;
+  state.regenRunningMessage = null;
+  if (fresh) {
+    const at = state.items.findIndex((i) => i.id === id);
+    if (at !== -1) state.items[at] = fresh;
+    // The sheet, for the new trait value and the stale-art notice, and the grid
+    // behind it, for the card's badge.
+    renderDetailFor(fresh);
+    render();
+  } else {
+    // Nothing was replaced, so reopen by hand what the click shut.
+    setTraitGuttersDisabled(false);
     button.disabled = false;
   }
-});
+  el.regenStatus.textContent = message;
+}
 
 loadCategories().catch((err) => {
   el.status.textContent = `Failed to load: ${err.message}`;

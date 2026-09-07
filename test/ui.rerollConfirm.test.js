@@ -393,6 +393,9 @@ test('the confirmation is awaited before anything is posted', async (t) => {
     // question asked about a job already running.
     const gate = js.indexOf('rerollNeedsConfirm(trait) && !(await confirmReroll(trait))');
     assert.notEqual(gate, -1, 'the click handler no longer gates the re-roll on the dialog');
-    assert.ok(gate < js.indexOf("fetch('/api/reroll-trait'"),
+    // /api/stage-trait, not /api/reroll-trait: a Re-roll applies the edit to
+    // the NPC and renders nothing, so the route it posts to changed. What this
+    // pins did not - the dialog is still awaited before anything is sent.
+    assert.ok(gate < js.indexOf("fetch('/api/stage-trait'"),
         'the re-roll is posted before the confirmation is answered');
 });

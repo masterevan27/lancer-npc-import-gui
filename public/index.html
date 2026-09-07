@@ -247,6 +247,13 @@
 
       <div class="regen-panel" id="regen-panel" hidden>
         <h3>Regenerate art</h3>
+        <!-- Up whenever a trait has been edited since this art was made. Trait
+             edits apply to the NPC immediately and render nothing (see
+             stageTraitEdit in app.js), so this is the only thing on the page
+             that says the portrait above is describing an older NPC. -->
+        <p class="regen-stale" id="regen-stale" hidden>
+          Traits have changed since this art was made. Press Regenerate to render them.
+        </p>
         <div class="regen-row">
           <label><input type="radio" name="regen-which" value="both" checked> Both</label>
           <label><input type="radio" name="regen-which" value="portrait"> Portrait only</label>
