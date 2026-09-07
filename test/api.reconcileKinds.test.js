@@ -12,10 +12,14 @@
  * survives. A report that explicitly names a kind is authoritative for it.
  *
  * See docs/foundry-importer-contract.md and server.js's reconcile().
+ *
+ * No id-uniquing or importedIndex cleanup here: startTestServer points
+ * config.importedIndexPath at this test's own tmp directory (fix round 1,
+ * R15), so each test's imported-Actor cache is a private file that vanishes
+ * with the tmp dir on srv.stop() - fixed, readable ids are safe again.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { startTestServer } = require('./helpers/testServer');
@@ -23,29 +27,8 @@ const { startTestServer } = require('./helpers/testServer');
 const PORT = 5230;
 const TABLES = '## Role\n\n- a courier\n';
 
-// importedIndex is persisted to .imported.json beside server.js - a real,
-// gitignored, repo-root file shared by every server.js process this suite
-// spawns, not something startTestServer's per-test temp dir can isolate (see
-// server.js:419 and its "No data migration" constraint). A fixed id would
-// collide with a stale entry left by a previous run of this same file, so
-// every run gets a fresh suffix, and the entries this file writes are
-// cleaned up afterward so repeated runs don't leave the real file growing.
-const RUN = crypto.randomBytes(4).toString('hex');
-const NPC_ID = `npc-jules-sokolova-${RUN}`;
-const SHIP_ID = `ship-aurora-drift-${RUN}`;
-const IMPORTED_INDEX_FILE = path.join(__dirname, '..', '.imported.json');
-
-function cleanupImportedIndex() {
-    let parsed;
-    try {
-        parsed = JSON.parse(fs.readFileSync(IMPORTED_INDEX_FILE, 'utf8'));
-    } catch {
-        return;
-    }
-    delete parsed[NPC_ID];
-    delete parsed[SHIP_ID];
-    fs.writeFileSync(IMPORTED_INDEX_FILE, JSON.stringify(parsed, null, 2));
-}
+const NPC_ID = 'npc-jules-sokolova-1';
+const SHIP_ID = 'ship-aurora-drift-1';
 
 function makeItemFolder(dir, ...segments) {
     const folder = path.join(dir, ...segments);
@@ -121,7 +104,6 @@ test('reconcile with no kinds (an old NPC-only module) leaves an imported ship a
         assert.equal(body.tracked, 2, 'the ship was dropped by a report that never claimed to cover ships');
     } finally {
         await srv.stop();
-        cleanupImportedIndex();
     }
 });
 
@@ -140,7 +122,6 @@ test('reconcile with kinds:["npc","spaceship"] drops a ship the report omitted',
         assert.equal(body.tracked, 1, 'a report authoritative for both kinds must still drop the missing ship');
     } finally {
         await srv.stop();
-        cleanupImportedIndex();
     }
 });
 
@@ -166,7 +147,6 @@ test('an itemId no longer in the manifest is pruned in both the default and expl
         assert.equal(body.tracked, 1, 'a manifest-gone ship must be pruned even though the report is npc-only');
     } finally {
         await srv.stop();
-        cleanupImportedIndex();
     }
 });
 
@@ -187,6 +167,5 @@ test('`tracked` in the response always matches importedIndex.size', async () => 
         assert.equal(empty.tracked, 0, 'an authoritative empty report for both kinds must clear the index');
     } finally {
         await srv.stop();
-        cleanupImportedIndex();
     }
 });

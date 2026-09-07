@@ -42,16 +42,13 @@ async function importAndGetJob(server, id) {
     return job;
 }
 
-test('an NPC import job carries no size or actorType keys when none are configured', async () => {
-    // foundryNpcActorType: '' isolates the conditional-spread mechanism from
-    // its own real-world default ('npc'), so this proves the mechanism
-    // itself omits the key rather than proving today's shipped config does -
-    // config.example.json ships foundryNpcActorType: 'npc', which is a
-    // deliberate, harmless addition to the wire, not a regression this test
-    // is meant to catch.
-    const srv = await startTestServer({
-        tablesText: TABLES, port: PORT, extraConfig: { foundryNpcActorType: '' },
-    });
+test('an NPC import job carries no size or actorType keys under the default config', async () => {
+    // No extraConfig: foundryNpcActorType defaults to '' (fix round 1,
+    // finding 1), which is what makes today's NPC payload byte-identical to
+    // before this task - this is the pin, not just a demonstration of the
+    // conditional-spread mechanism. See test/importerContract.test.js for
+    // the equivalent assertion kept alongside the routes it guards.
+    const srv = await startTestServer({ tablesText: TABLES, port: PORT });
     try {
         const folder = makeItemFolder(srv.dir, 'output', 'Pilots', 'Jules Sokolova');
         const manifest = {
@@ -149,6 +146,34 @@ test('a ship entry without gridWidth degrades gracefully: the size keys are abse
         const job = await importAndGetJob(srv, 'ship-caravel-of-rust-1');
         assert.ok(!('tokenWidth' in job), 'tokenWidth must be absent, not null, when gridWidth is missing');
         assert.ok(!('tokenHeight' in job), 'tokenHeight must be absent, not null, when gridWidth is missing');
+    } finally {
+        await srv.stop();
+    }
+});
+
+test('a ship entry with gridWidth: 0 is treated as no recorded size, not a real 0x0 token', async () => {
+    const srv = await startTestServer({ tablesText: TABLES, port: PORT });
+    try {
+        const folder = makeItemFolder(srv.dir, 'ship-output', 'Scrap', 'Zero Width');
+        const manifest = {
+            [folder]: {
+                id: 'ship-zero-width-1',
+                kind: 'spaceship',
+                name: 'Zero Width',
+                seed: 444,
+                traits: {},
+                portrait: 'portrait.png',
+                token: 'token.png',
+                files: ['portrait.png', 'token.png'],
+                gridWidth: 0,
+                gridHeight: 0,
+            },
+        };
+        fs.writeFileSync(srv.manifestPath, JSON.stringify(manifest));
+
+        const job = await importAndGetJob(srv, 'ship-zero-width-1');
+        assert.ok(!('tokenWidth' in job), 'gridWidth: 0 must not produce tokenWidth: 0 on the wire');
+        assert.ok(!('tokenHeight' in job), 'gridWidth: 0 must not produce tokenHeight: 0 on the wire');
     } finally {
         await srv.stop();
     }

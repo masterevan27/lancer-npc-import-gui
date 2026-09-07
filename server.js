@@ -93,11 +93,18 @@ const DEFAULT_CONFIG = {
     // the two output trees read as the same convention.
     foundryNpcSubdir: 'LancerNPCs',
     foundrySpaceshipSubdir: 'LancerSpaceships',
-    // Sent to the Foundry module as the actor type to create. foundryNpcActorType
-    // names today's behaviour explicitly; foundrySpaceshipActorType is unverified
-    // against the Lancer system (the module isn't vendored in this repo) - an
-    // empty string omits the field entirely rather than guessing wrong.
-    foundryNpcActorType: 'npc',
+    // Sent to the Foundry module as the actor type to create - only when
+    // non-empty; an empty string omits the field entirely rather than
+    // guessing wrong (queueImport()). foundryNpcActorType defaults empty:
+    // the module already creates a plain 'npc'-type Actor for every NPC
+    // import today with no actorType on the wire at all, so an empty
+    // default here is what preserves that behaviour byte-for-byte - set it
+    // explicitly only if a deployment wants to send one anyway.
+    // foundrySpaceshipActorType defaults to 'deployable', which is
+    // unverified against the Lancer system (the module isn't vendored in
+    // this repo, R14/G6) - a wrong guess there costs one config line, not a
+    // code change, same reasoning applied to both kinds.
+    foundryNpcActorType: '',
     foundrySpaceshipActorType: 'deployable',
     // npc-generator-tables.md and the npc-trait-import skill's staging
     // directory both default to prompts/ beneath generate-npc.py; override
@@ -135,6 +142,16 @@ const DEFAULT_CONFIG = {
     // property of the machine rather than of any one request, so it lives
     // here rather than in a query parameter.
     traitOddsSamples: 20000,
+    // Where the imported-Actor cache (see INDEX_FILE below) is persisted.
+    // Empty means today's default: a fixed file beside server.js. This
+    // exists so a test server can point it at its own per-test tmp
+    // directory instead of the one real, gitignored file every server.js
+    // process on the machine otherwise shares - a concurrently running dev
+    // server and a test run (or two test files run at once) would
+    // otherwise silently stomp each other's cache, since saveIndex()
+    // writes a full snapshot rather than merging. Production behaviour is
+    // unchanged: an unset value resolves to the exact same path as before.
+    importedIndexPath: '',
 };
 
 function loadConfig() {
@@ -415,8 +432,12 @@ const jobsByItemId = new Map();
  * below rebuilds it from the actor flags Foundry actually reports, so a GM
  * deleting an Actor in Foundry is reflected here on the next poll rather
  * than leaving a stale "already imported" mark behind.
+ *
+ * Location is config-driven (config.importedIndexPath) so a test server can
+ * isolate it in its own tmp directory; empty resolves to exactly today's
+ * path, so production behaviour is unchanged.
  */
-const INDEX_FILE = path.join(__dirname, '.imported.json');
+const INDEX_FILE = config.importedIndexPath || path.join(__dirname, '.imported.json');
 let importedIndex = new Map();
 try {
     const raw = fs.readFileSync(INDEX_FILE, 'utf8');
@@ -465,7 +486,7 @@ function queueImport(item, { force = false } = {}) {
         // test/importerContract.test.js's existing assertions passing
         // unchanged.
         ...(kind.foundryActorType ? { actorType: kind.foundryActorType } : {}),
-        ...(Number.isInteger(gw) ? { tokenWidth: gw, tokenHeight: gh } : {}),
+        ...(Number.isInteger(gw) && gw > 0 ? { tokenWidth: gw, tokenHeight: gh } : {}),
         status: 'queued',
         queuedAt: Date.now(),
     };

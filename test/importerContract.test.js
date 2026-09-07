@@ -10,7 +10,6 @@
  */
 const test = require('node:test');
 const assert = require('node:assert');
-const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { startTestServer } = require('./helpers/testServer');
@@ -18,27 +17,17 @@ const { startTestServer } = require('./helpers/testServer');
 const PORT = 5196;
 const TABLES = '# Tables\n\n## Role\n\n- Assault\n';
 
-// Task 4 additive assertions below pin the two things a shipped module must
-// be able to keep assuming: a job with no recorded size carries no size
-// keys at all (not null - see docs/foundry-importer-contract.md), and an
-// old module's reconcile report (no `kinds` field) cannot un-import a kind
-// it never scanned for. importedIndex is persisted to the real,
-// gitignored .imported.json beside server.js (server.js:419) rather than a
-// per-test temp dir, so these tests use a random per-run id suffix and clean
-// up after themselves rather than assuming a pristine shared file.
-const RUN = crypto.randomBytes(4).toString('hex');
-const IMPORTED_INDEX_FILE = path.join(__dirname, '..', '.imported.json');
-
-function cleanupImportedIndex(...ids) {
-    let parsed;
-    try {
-        parsed = JSON.parse(fs.readFileSync(IMPORTED_INDEX_FILE, 'utf8'));
-    } catch {
-        return;
-    }
-    for (const id of ids) delete parsed[id];
-    fs.writeFileSync(IMPORTED_INDEX_FILE, JSON.stringify(parsed, null, 2));
-}
+// Task 4 additive assertions below pin what a shipped module must be able to
+// keep assuming, under the DEFAULT config the project actually ships (fix
+// round 1, finding 1): an NPC job carries no actorType/tokenWidth/
+// tokenHeight keys at all (not null - see docs/foundry-importer-contract.md
+// - foundryNpcActorType defaults to '', which is what keeps this true), a
+// ship job does carry actorType: 'deployable' (foundrySpaceshipActorType's
+// default), and an old module's reconcile report (no `kinds` field) cannot
+// un-import a kind it never scanned for. Fixed ids are safe here:
+// startTestServer points config.importedIndexPath at this test's own tmp
+// dir (fix round 1, finding 2), so importedIndex never leaks across test
+// runs or files.
 
 test('/importer/pending returns a jobs array', async () => {
     const srv = await startTestServer({ tablesText: TABLES, port: PORT });
@@ -96,11 +85,13 @@ test('an unknown /importer/ route 404s rather than falling through to /api', asy
 
 // --- Task 4: optional size/actorType fields, additive to this contract ---
 
-test('a queued job for an item with no recorded size carries no tokenWidth/tokenHeight keys', async () => {
-    const id = `npc-contract-${RUN}`;
-    const srv = await startTestServer({
-        tablesText: TABLES, port: PORT, extraConfig: { foundryNpcActorType: '' },
-    });
+test('under the DEFAULT config, a queued NPC job carries no actorType/tokenWidth/tokenHeight keys', async () => {
+    const id = 'npc-contract-case';
+    // No extraConfig at all: this is the config the project actually ships
+    // (config.example.json), which is the pin fix round 1 found missing -
+    // the earlier version of this test only proved the *mechanism* with
+    // foundryNpcActorType blanked out, not what a real deployment sends.
+    const srv = await startTestServer({ tablesText: TABLES, port: PORT });
     try {
         const folder = path.join(srv.dir, 'output', 'Pilots', 'Contract Case');
         fs.mkdirSync(folder, { recursive: true });
@@ -124,14 +115,14 @@ test('a queued job for an item with no recorded size carries no tokenWidth/token
         assert.ok(job, 'no job was queued for the contract-pinning item');
         assert.ok(!('tokenWidth' in job), 'tokenWidth must be absent, not null, with no recorded size');
         assert.ok(!('tokenHeight' in job), 'tokenHeight must be absent, not null, with no recorded size');
-        assert.ok(!('actorType' in job), 'actorType must be absent when the configured type is empty');
+        assert.ok(!('actorType' in job), 'actorType leaked onto an NPC job under the default shipped config');
     } finally {
         await srv.stop();
     }
 });
 
-test('/importer/reconcile with no `kinds` field defaults to npc-only, leaving another kind tracked', async () => {
-    const id = `ship-contract-${RUN}`;
+test('under the DEFAULT config, a queued ship job carries actorType: "deployable"; a kinds-less reconcile still tracks it', async () => {
+    const id = 'ship-contract-case';
     const srv = await startTestServer({ tablesText: TABLES, port: PORT });
     try {
         const folder = path.join(srv.dir, 'ship-output', 'Frigate', 'Contract Ship');
@@ -153,6 +144,9 @@ test('/importer/reconcile with no `kinds` field defaults to npc-only, leaving an
         });
         const { jobs } = await (await fetch(`${srv.baseUrl}/importer/pending`)).json();
         const job = jobs.find((j) => j.itemId === id);
+        assert.ok(job, 'no job was queued for the contract-pinning ship');
+        assert.strictEqual(job.actorType, 'deployable', 'the default foundrySpaceshipActorType must reach the wire');
+
         await fetch(`${srv.baseUrl}/importer/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -175,6 +169,5 @@ test('/importer/reconcile with no `kinds` field defaults to npc-only, leaving an
         assert.strictEqual(body.tracked, 1, 'a kinds-less reconcile un-imported a kind it never claimed to cover');
     } finally {
         await srv.stop();
-        cleanupImportedIndex(`ship-contract-${RUN}`);
     }
 });

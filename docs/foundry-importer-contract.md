@@ -80,6 +80,41 @@ behaves exactly as before.
 - `role` and `faction` are NPC trait names and are `null` for kinds that have
   no such traits. Do not substitute another trait into them.
 
+`actorType` is emitted only when the deployment has configured one *for that
+item's kind* — `config.foundryNpcActorType` / `config.foundrySpaceshipActorType`,
+each independently empty-or-set. In the shipped default config, only spaceship
+jobs carry `actorType` (`"deployable"`); NPC jobs carry none, which is today's
+existing wire behaviour preserved byte-for-byte.
+
+A worked example — a ship job with a recorded size, under the shipped default
+config:
+
+```json
+{
+  "jobId": "8c2c9e5e-....",
+  "itemId": "ship-aurora-drift-1",
+  "kind": "spaceship",
+  "name": "Aurora Drift",
+  "callsign": null,
+  "role": null,
+  "faction": null,
+  "portraitPath": "LancerSpaceships/Frigate/Aurora Drift/portrait.png",
+  "tokenPath": "LancerSpaceships/Frigate/Aurora Drift/token.png",
+  "actorType": "deployable",
+  "tokenWidth": 3,
+  "tokenHeight": 2,
+  "status": "sent",
+  "queuedAt": 1234567890,
+  "sentAt": 1234567890
+}
+```
+
+`tokenWidth`/`tokenHeight` here are `3`/`2` — the manifest entry's
+**`gridWidth`/`gridHeight`** — even though that same entry's own
+`tokenWidth`/`tokenHeight` fields (the rendered canvas) might read `1728`/
+`1152` pixels. The wire's field names are pixels' names on the manifest but
+grid units on this endpoint; see `queueImport()` in `server.js`.
+
 Until the module is bumped, a spaceship imports as a 1×1 actor of the
 module's default type with correct art — degraded, never wrong.
 

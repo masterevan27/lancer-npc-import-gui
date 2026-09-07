@@ -88,6 +88,16 @@ async function startTestServer({
         npcTablesPath: tablesPath,
         stagedImportsDir: path.join(dir, 'staged-imports'),
         presetsDir,
+        // Isolates the imported-Actor cache (server.js's INDEX_FILE) inside
+        // this test's own tmp dir. Without this every server.js process this
+        // suite spawns shares one real, gitignored file beside server.js -
+        // saveIndex() writes a full snapshot rather than merging, so two
+        // servers (two test files running concurrently, or a test run
+        // alongside a developer's own dev server) can silently clobber each
+        // other's cache. Placed here rather than only via extraConfig so
+        // every existing caller gets isolation for free; extraConfig below
+        // can still override it for a test that wants otherwise.
+        importedIndexPath: path.join(dir, '.imported.json'),
         ...(generateNpcScript ? { generateNpcScript, pythonExecutable: process.execPath } : {}),
         ...(generateSpaceshipScript ? { generateSpaceshipScript, pythonExecutable: process.execPath } : {}),
         ...(spaceshipTablesPath ? { spaceshipTablesPath } : {}),

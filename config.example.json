@@ -11,7 +11,7 @@
   "generateSpaceshipScript": "",
   "foundryNpcSubdir": "LancerNPCs",
   "foundrySpaceshipSubdir": "LancerSpaceships",
-  "foundryNpcActorType": "npc",
+  "foundryNpcActorType": "",
   "foundrySpaceshipActorType": "deployable",
   "npcTablesPath": "",
   "stagedImportsDir": "",
@@ -24,5 +24,6 @@
   "spaceshipPresetsDir": "",
   "spaceshipCreatePresetsDir": "",
   "spaceshipOutputRoot": "",
-  "traitOddsSamples": 20000
+  "traitOddsSamples": 20000,
+  "importedIndexPath": ""
 }
