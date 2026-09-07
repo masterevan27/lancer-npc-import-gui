@@ -2721,7 +2721,7 @@ async function handleApi(req, res, url) {
             return sendJson(res, 400, { error: err.message });
         }
         const kind = resolveKind(url, body);
-        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
         const { table, text, enabled } = body;
         if (typeof table !== 'string' || !table || typeof text !== 'string' || typeof enabled !== 'boolean') {
             return sendJson(res, 400, { error: 'table (string), text (string), and enabled (boolean) are required' });
@@ -2744,7 +2744,7 @@ async function handleApi(req, res, url) {
             return sendJson(res, 400, { error: err.message });
         }
         const kind = resolveKind(url, body);
-        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
         const { table, text, weight } = body;
         if (typeof table !== 'string' || !table || typeof text !== 'string'
             || !Number.isInteger(weight) || weight < 1) {
@@ -2772,7 +2772,7 @@ async function handleApi(req, res, url) {
             return sendJson(res, 400, { error: err.message });
         }
         const kind = resolveKind(url, body);
-        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
         const name = typeof body.name === 'string' ? body.name.trim() : '';
         if (!name) return sendJson(res, 400, { error: 'name is required' });
         const slug = presets.slugify(name);
@@ -2795,7 +2795,7 @@ async function handleApi(req, res, url) {
             return sendJson(res, 400, { error: err.message });
         }
         const kind = resolveKind(url, body);
-        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
         // safeSlug rather than a bare string check. This reached
         // path.join(dir, slug + '.json') unguarded, so a slug of
         // '../../../../some/other' deleted any .json file the server process
@@ -2837,7 +2837,7 @@ async function handleApi(req, res, url) {
             return sendJson(res, 400, { error: err.message });
         }
         const kind = resolveKind(url, body);
-        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
         if (!body || typeof body.selected !== 'object' || body.selected === null) {
             return sendJson(res, 400, { error: 'not a valid preset file - missing "selected"' });
         }
@@ -2854,7 +2854,7 @@ async function handleApi(req, res, url) {
             return sendJson(res, 400, { error: err.message });
         }
         const kind = resolveKind(url, body);
-        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
         if (!body || typeof body.selected !== 'object' || body.selected === null) {
             return sendJson(res, 400, { error: 'not a valid preset file - missing "selected"' });
         }
@@ -2914,7 +2914,7 @@ async function handleApi(req, res, url) {
             return sendJson(res, 400, { error: err.message });
         }
         const kind = resolveKind(url, body);
-        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
         const name = typeof body.name === 'string' ? body.name.trim() : '';
         if (!name) return sendJson(res, 400, { error: 'name is required' });
         const slug = createPresets.slugify(name);
@@ -2954,7 +2954,7 @@ async function handleApi(req, res, url) {
             return sendJson(res, 400, { error: err.message });
         }
         const kind = resolveKind(url, body);
-        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
         // A slug that fails safeSlug answers 404 rather than 400, the same as
         // one that simply is not there. Separating the two would tell anyone
         // poking at this which of their guesses were at least the right shape,
@@ -3043,7 +3043,9 @@ async function handleApi(req, res, url) {
             return sendJson(res, 400, { error: err.message });
         }
         const kindEntry = resolveKind(url, body);
-        if (!kindEntry) return sendJson(res, 400, { error: `unknown kind "${body.kind}"` });
+        if (!kindEntry) {
+            return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        }
         const { status, body: respBody } = handleCreateRequest(kindEntry, body);
         return sendJson(res, status, respBody);
     }
