@@ -216,3 +216,176 @@ test('no ship-specific copy of the trait-rendering machinery exists', async (t) 
     assert.doesNotMatch(js, /renderShipDetailTraits|renderShipRegenPanel/,
         'a ship-specific copy of the shared trait machinery has appeared in app.js');
 });
+
+// ---------------------------------------------------------------------------
+// The seam, actually connected.
+//
+// Everything above pins that the three functions CAN read a second
+// vocabulary. These pin that the three live callers DO. Until they did, the
+// seam was inert: renderDetailTraits, the reroll click handler and
+// confirmReroll all took the default, so every sheet - a spaceship's
+// included - asked the NPC lists which of its traits were rerollable. The two
+// vocabularies overlap on exactly two names, Glow colour and Glow placement,
+// which is why the symptom was not "no buttons" but the more confusing "two
+// buttons out of sixteen, and their cascade warning names NPC traits".
+//
+// So nothing below may be assertable from either vocabulary. Each case turns
+// on a trait only one of them holds.
+// ---------------------------------------------------------------------------
+
+/** Enough of app.js's escapeHtml for a cell, without a document. */
+const escapeHtml = (text) => String(text ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+test('a ship\'s trait table draws its buttons from the ship vocabulary', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    const detailTraits = { innerHTML: '' };
+    // createState is the NPC vocabulary throughout - injected into the lift,
+    // and registered in traitVocab under 'npc' - so a row that comes back
+    // NPC-shaped can only mean the ship's kind never reached the lists.
+    const renderDetailTraits = liftFunction(js, 'renderDetailTraits', NPC_STATE, {
+        el: { detailTraits },
+        TRAIT_KEY_EXCLUDE: ['name', 'Given names', 'Family names'],
+        escapeHtml,
+        traitControlCells: liftFunction(js, 'traitControlCells', NPC_STATE, { escapeHtml }),
+        rerollableForItem: liftFunction(js, 'rerollableForItem', NPC_STATE),
+        vocabFor: liftFunction(js, 'vocabFor', NPC_STATE,
+            { traitVocab: { npc: NPC_STATE, spaceship: SHIP_STATE } }),
+    });
+
+    // Hull is in the ship's raw-rerollable list and in no NPC list at all;
+    // Eyes is in the NPC's and in no ship list. One item carrying both is the
+    // whole test: whichever vocabulary answered, the other trait's row says so.
+    renderDetailTraits({
+        kind: 'spaceship',
+        hasRawTraits: true,
+        traits: { Hull: 'a blunt slab of ablative plate', Eyes: 'pale grey' },
+    });
+
+    assert.match(detailTraits.innerHTML, /class="reroll-btn" data-trait="Hull"/,
+        'a ship trait got no Re-roll button, so the sheet is still reading the NPC lists');
+    assert.match(detailTraits.innerHTML, /class="set-trait-btn" data-trait="Hull"/,
+        'a ship trait got no Set... button');
+    assert.doesNotMatch(detailTraits.innerHTML, /class="reroll-btn" data-trait="Eyes"/,
+        'an NPC trait got a live Re-roll button on a spaceship');
+    assert.equal((detailTraits.innerHTML.match(/class="reroll-btn" data-trait=/g) || []).length, 1,
+        'the ship sheet offered a different set of live buttons than its own vocabulary holds');
+    // The disabled variant carries no data-trait, so the two assertions above
+    // cannot see it - and it is the branch that puts "This NPC was generated
+    // before its raw trait bullets were recorded" under a spaceship's traits.
+    // Asked of the ship's own vocabulary, Eyes is in neither of its lists and
+    // gets two empty cells; asked of the NPC's, it gets that sentence.
+    assert.doesNotMatch(detailTraits.innerHTML, /reroll-unavailable/,
+        'a ship trait row carries the NPC explanation, so the disabled branch is still '
+        + 'reading createState rather than the vocabulary the row was drawn from');
+
+    // And the NPC path is unchanged by the same call: no kind on the item is
+    // what every manifest entry written before spaceships existed looks like.
+    detailTraits.innerHTML = '';
+    renderDetailTraits({
+        hasRawTraits: true,
+        traits: { Hull: 'a blunt slab of ablative plate', Eyes: 'pale grey' },
+    });
+    assert.match(detailTraits.innerHTML, /class="reroll-btn" data-trait="Eyes"/,
+        'an item with no kind stopped resolving the NPC vocabulary');
+    assert.doesNotMatch(detailTraits.innerHTML, /class="reroll-btn" data-trait="Hull"/,
+        'an item with no kind is being offered ship traits');
+});
+
+test('the re-roll click handler resolves the clicked item\'s vocabulary', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    // The handler touches the document and awaits a modal, so it is read
+    // rather than run - the same treatment ui.detailRepaint.test.js gives the
+    // other handlers in this file.
+    const start = js.indexOf("event.target.closest('.reroll-btn')");
+    assert.notEqual(start, -1, 'app.js no longer has a .reroll-btn click handler');
+    const handler = js.slice(start, js.indexOf('stageTraitEdit(', start));
+
+    const resolved = handler.indexOf('vocabFor(');
+    assert.notEqual(resolved, -1,
+        'the re-roll handler never resolves a vocabulary, so its cascade check and its warning '
+        + 'both answer from the NPC lists whatever kind was clicked');
+    assert.ok(resolved < handler.indexOf('rerollNeedsConfirm('),
+        'the vocabulary is resolved after it is needed');
+    // One vocabulary, handed to both halves. Resolving it twice, or passing it
+    // to only one, is how the dialog ends up naming a different kind's traits
+    // than the check that raised it.
+    assert.match(handler, /rerollNeedsConfirm\(trait, vocab\)/,
+        'the cascade check is still asked of the default NPC vocabulary');
+    assert.match(handler, /confirmReroll\(trait, vocab\)/,
+        'the warning dialog is still built from the default NPC vocabulary');
+});
+
+test('confirmReroll names the freed traits from the vocabulary it is given', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    // confirmReroll has no item and no kind of its own - it is handed a trait
+    // name and opens a dialog - so the vocabulary has to arrive as a
+    // parameter. Defaulted, like the other three, so nothing that called it
+    // with one argument changed meaning.
+    assert.match(js, /function confirmReroll\(trait, vocab = createState\)/,
+        'confirmReroll cannot be told which kind\'s cascade to name');
+    assert.match(js, /traitCascade\(trait, vocab\)/,
+        'confirmReroll still walks createState\'s map to list the traits it frees');
+
+    // The consequence, on data only one vocabulary can produce: re-rolling a
+    // ship's Ship type frees Size, Hull and Engine. Asked of the NPC map, the
+    // same name frees nothing at all and the dialog would have named none.
+    const traitCascade = liftFunction(js, 'traitCascade', NPC_STATE);
+    assert.deepEqual(
+        traitCascade('Ship type', SHIP_STATE).filter((name) => name !== 'Ship type'),
+        ['Size', 'Hull', 'Engine']);
+});
+
+test('renderDetailTraits asks the item which vocabulary to read', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    // Resolved once, then handed to both readers. Two separate vocabFor calls
+    // would work, but the pair of them is the thing worth pinning: the list
+    // that decides which buttons are live and the list that decides whether a
+    // dead row gets an explanation have to be the same kind's, or a ship gets
+    // live ship buttons on some rows and NPC copy on others.
+    const start = js.indexOf('function renderDetailTraits(');
+    assert.notEqual(start, -1, 'app.js no longer defines renderDetailTraits');
+    const body = js.slice(start, js.indexOf('\n}', start));
+    assert.match(body, /const vocab = vocabFor\(item\.kind\)/,
+        'the trait table resolves its lists without consulting the item\'s kind');
+    assert.match(body, /rerollableForItem\(item, vocab\)/,
+        'the rerollable list is still read from the default NPC vocabulary');
+    assert.match(body, /traitControlCells\(k, rerollable, vocab\)/,
+        'the gutter cells are still built against the default NPC vocabulary, so a ship trait '
+        + 'in the NPC raw list gets the "this NPC was generated before..." explanation');
+});
+
+test('traitControlCells takes the vocabulary as an optional trailing argument', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    // Optional and trailing, exactly like the three functions above it. Every
+    // two-argument call keeps meaning createState, which is what lets
+    // ui.traitColumns.test.js go on lifting this function and calling it with
+    // two arguments without a line of that file changing.
+    assert.match(js, /function traitControlCells\(trait, rerollable, vocab = createState\)/,
+        'traitControlCells cannot be told which kind\'s raw list to explain from');
+
+    const traitControlCells = liftFunction(js, 'traitControlCells', NPC_STATE, { escapeHtml });
+    // Theme is in the NPC raw list and in no ship list. Two arguments still
+    // answer from createState; a third answers from what it is handed.
+    assert.match(traitControlCells('Theme', []), /reroll-unavailable/,
+        'the default no longer reaches createState, so an NPC row lost its explanation');
+    assert.doesNotMatch(traitControlCells('Theme', [], SHIP_STATE), /reroll-unavailable/,
+        'a ship row is explained out of the NPC raw list');
+    assert.match(traitControlCells('Hull', [], SHIP_STATE), /reroll-unavailable/,
+        'a ship trait in the ship raw list lost its explanation');
+});

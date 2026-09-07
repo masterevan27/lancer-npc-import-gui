@@ -4,7 +4,27 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { startTestServer } = require('./helpers/testServer');
 
-const TABLES_FIXTURE = ['## Outfit', '- a heavy work jacket || civ', ''].join('\n');
+// Both fixtures carry a '## Backdrop'. That collision is the reason table
+// identity is (kind, table) on the wire and the reason the two staging
+// directories are siblings rather than nested: a staged candidate's table
+// name only means something paired with the file it came from.
+const TABLES_FIXTURE = [
+    '## Outfit',
+    '- a heavy work jacket || civ',
+    '',
+    '## Backdrop',
+    '- a rain-slick loading dock',
+    '',
+].join('\n');
+
+const SHIP_TABLES_FIXTURE = [
+    '## Hull',
+    '- a blunt slab of ablative plate || bulk',
+    '',
+    '## Backdrop',
+    '- a shattered orbital ring',
+    '',
+].join('\n');
 
 // A real 1x1 PNG rather than a text file with a .png name: the endpoint reads
 // the extension to pick a Content-Type, and a test that never sends bytes a
@@ -27,6 +47,7 @@ const PORT = 5204;
 const WITH_COPIES = '2026-09-02-221633.json';
 const TRAVERSING = '2026-09-03-090000.json';
 const JPEG_RUN = '2026-09-03-100000.json';
+const SHIP_RUN = '2026-09-06-120000.json';
 
 let server;
 
@@ -39,8 +60,12 @@ let server;
  * deliberately a separate argument - an entry naming an image nobody copied
  * is the ordinary case for a run staged before this feature existed.
  */
-function stageRun({ file, entries, copied = [] }) {
-    const stagedDir = path.join(server.dir, 'staged-imports');
+function stageRun({ file, entries, copied = [], kind = 'npc' }) {
+    // Siblings, not nested - lib/paths.js derives the ship directory beside
+    // the NPC one for exactly the reason listStagedFiles reads *.json at the
+    // top level of whichever it is given.
+    const stagedDir = path.join(
+        server.dir, kind === 'spaceship' ? 'staged-imports-spaceship' : 'staged-imports');
     fs.mkdirSync(stagedDir, { recursive: true });
     fs.writeFileSync(path.join(stagedDir, file), JSON.stringify({
         generated_at: '2026-09-02T22:16:33-04:00',
@@ -92,9 +117,36 @@ const ENTRIES = [
     },
 ];
 
+// A ship run, staged in the ship's own directory. Its Backdrop entry is the
+// point: the name collides with the NPC file's heading, so nothing but the
+// directory the run came from says which file the bullet belongs in.
+const SHIP_ENTRIES = [
+    {
+        id: 's1-e1',
+        table: 'Hull',
+        bullet: 'a scarred prow of layered ablative plate || bulk',
+        source_image: 'drydock.png',
+        placement_hint: null,
+        bookkeeping_note: null,
+        notes: null,
+    },
+    {
+        id: 's1-e2',
+        table: 'Backdrop',
+        bullet: 'a breaker yard of half-cut hulls',
+        source_image: null,
+        placement_hint: null,
+        bookkeeping_note: null,
+        notes: null,
+    },
+];
+
 test.before(async () => {
-    server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    server = await startTestServer({
+        tablesText: TABLES_FIXTURE, spaceshipTablesText: SHIP_TABLES_FIXTURE, port: PORT,
+    });
     stageRun({ file: WITH_COPIES, entries: ENTRIES, copied: ['gold-mech-cathedral.png'] });
+    stageRun({ file: SHIP_RUN, entries: SHIP_ENTRIES, copied: ['drydock.png'], kind: 'spaceship' });
     // The staged JSON is written by a skill, not by the browser - but it is
     // still a file on disk that something else could have produced, so a
     // traversing source_image has to be refused rather than trusted.
@@ -160,4 +212,91 @@ test('serves a jpeg with a jpeg content type', async () => {
     const res = await get(imageUrl(JPEG_RUN, 'j1'));
     assert.equal(res.status, 200);
     assert.equal(res.type, 'image/jpeg');
+});
+
+/* ------------------------------------------------------------------ */
+/* The same three routes, per kind                                     */
+/* ------------------------------------------------------------------ */
+
+const candidatesUrl = (kind) =>
+    `${server.baseUrl}/api/trait-candidates${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`;
+
+async function candidates(kind) {
+    const res = await fetch(candidatesUrl(kind));
+    assert.equal(res.status, 200, `?kind=${kind} should list`);
+    return (await res.json()).candidates;
+}
+
+test('each kind lists only its own staged runs', async () => {
+    const npc = await candidates('npc');
+    const ship = await candidates('spaceship');
+
+    assert.ok(npc.some((c) => c.id === 'c1-e1'), 'the NPC listing lost its own runs');
+    assert.ok(!npc.some((c) => c.file === SHIP_RUN),
+        'a ship run reached the NPC listing, so the two staging directories are being read as one');
+    assert.deepEqual(ship.map((c) => c.id).sort(), ['s1-e1', 's1-e2']);
+    // The reference image is found under the SHIP refs directory, which is
+    // the half of this that refImagePath had wrong when it read one constant.
+    assert.equal(ship.find((c) => c.id === 's1-e1').hasSourceImage, true);
+});
+
+test('no kind on the query is the NPC listing, exactly as before', async () => {
+    assert.deepEqual(
+        (await candidates()).map((c) => c.id).sort(),
+        (await candidates('npc')).map((c) => c.id).sort());
+});
+
+test('a kind the registry does not know is refused rather than served as NPC', async () => {
+    for (const path_ of ['/api/trait-candidates?kind=spacehip',
+        `/api/trait-image?kind=spacehip&file=${SHIP_RUN}&id=s1-e1`]) {
+        const res = await get(`${server.baseUrl}${path_}`);
+        assert.equal(res.status, 400, `${path_} folded an unknown kind onto npc`);
+    }
+    const res = await fetch(`${server.baseUrl}/api/trait-candidates/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'spacehip', items: [] }),
+    });
+    await res.arrayBuffer();
+    assert.equal(res.status, 400, 'the import route folded an unknown kind onto npc');
+});
+
+test("a run's image is served under its own kind and nobody else's", async () => {
+    const ok = await get(`${server.baseUrl}/api/trait-image?kind=spaceship`
+        + `&file=${encodeURIComponent(SHIP_RUN)}&id=s1-e1`);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.type, 'image/png');
+    assert.deepEqual(ok.body, PNG_1X1);
+
+    // Same file and id, asked of the NPC kind: that run is not in the NPC
+    // staging directory, so it is as unknown as a candidate that never
+    // existed rather than a path the server goes looking for.
+    const wrong = await get(imageUrl(SHIP_RUN, 's1-e1'));
+    assert.equal(wrong.status, 404);
+});
+
+test("an imported ship bullet lands in the ship's tables file, not the NPC's", async () => {
+    const res = await fetch(`${server.baseUrl}/api/trait-candidates/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // 'Backdrop' on purpose: the heading exists in both files, so a route
+        // that resolved the tables path from anything but the kind would
+        // append this to npc-generator-tables.md and report success.
+        body: JSON.stringify({ kind: 'spaceship', items: [{ file: SHIP_RUN, id: 's1-e2' }] }),
+    });
+    assert.equal(res.status, 200);
+    const { results } = await res.json();
+    assert.deepEqual(results, [{ file: SHIP_RUN, id: 's1-e2', imported: true }]);
+
+    const shipTables = fs.readFileSync(server.spaceshipTablesPath, 'utf8');
+    assert.match(shipTables, /- a breaker yard of half-cut hulls/);
+    assert.match(fs.readFileSync(server.tablesPath, 'utf8'), /- a rain-slick loading dock/);
+    assert.doesNotMatch(fs.readFileSync(server.tablesPath, 'utf8'), /breaker yard/,
+        'the ship bullet was appended to the NPC tables file');
+
+    // And the run itself is marked imported in the ship staging directory,
+    // rather than a same-named file being looked for under the NPC one.
+    const staged = JSON.parse(fs.readFileSync(
+        path.join(server.dir, 'staged-imports-spaceship', SHIP_RUN), 'utf8'));
+    assert.equal(staged.entries.find((e) => e.id === 's1-e2').imported, true);
 });

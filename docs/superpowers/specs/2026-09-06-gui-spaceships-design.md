@@ -81,7 +81,7 @@ function buildKinds(paths, config) {
       stagedImportsDir: paths.stagedImportsDir,
       stagedRefsDir: paths.stagedRefsDir,
       foundrySubdir: config.foundryNpcSubdir,          // 'LancerNPCs'
-      foundryActorType: config.foundryNpcActorType,    // 'npc'
+      foundryActorType: config.foundryNpcActorType,    // '' by default
       supports: { regen: true, setTrait: true, stageTrait: true, model3d: true,
                   traitCandidates: true, tables: true, create: true, odds: true },
       createArgs(o) { /* current server.js:1113-1125, verbatim */ },
@@ -145,7 +145,7 @@ Added to `DEFAULT_CONFIG` (`server.js:64-107`) and `config.example.json`:
 | `spaceshipCreatePresetsDir` | `''` → `spaceshipPresetsDir/create` | Create-Spaceship form presets. |
 | `spaceshipStagedImportsDir` / `spaceshipStagedRefsDir` | `''` → derived | Ship trait-import staging. |
 | `foundrySpaceshipSubdir` | `'LancerSpaceships'` | Import destination subtree under `foundryDataRoot`. |
-| `foundryNpcActorType` | `'npc'` | Sent to the Foundry module as `actorType`. Existing behaviour named explicitly. |
+| `foundryNpcActorType` | `''` | Sent to the Foundry module as `actorType`. Empty by default, so the field is omitted and the NPC payload is unchanged from before this work (R14); set it to `'npc'` to have it emitted. |
 | `foundrySpaceshipActorType` | `'deployable'` | **Assumption A5** — see §8. One config line to change if the Lancer system wants something else. |
 | `spaceshipOutputRoot` | `''` | When non-empty, passed to the ship generator as `--out-root <path>`; the generator still owns run-folder numbering (`next_run_folder`). Empty = the generator's own `DEFAULT_OUTPUT_ROOT`. **Assumption A3.** |
 

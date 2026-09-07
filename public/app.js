@@ -260,8 +260,20 @@ function rerollNeedsConfirm(trait, vocab = createState) {
   return traitCascade(trait, vocab).length > 1;
 }
 
-/** Shows the cascade warning before a re-roll of `trait`; resolves true/false. */
-function confirmReroll(trait) {
+/**
+ * Shows the cascade warning before a re-roll of `trait`; resolves true/false.
+ *
+ * `vocab` is whose dependency map the named list is walked over, and it is a
+ * parameter rather than something derived here because this function has no
+ * item and no kind in scope at all - it is handed a trait name and a dialog.
+ * Its caller knows which item the button belongs to, so the caller resolves
+ * the vocabulary and passes the same one to rerollNeedsConfirm() and to this,
+ * which is what stops the question ("does this cascade?") and the answer
+ * ("these are the traits it frees") from being asked of two different kinds.
+ * Defaulted to createState for the same reason the other three seam functions
+ * are: every existing single-argument call keeps meaning the NPC vocabulary.
+ */
+function confirmReroll(trait, vocab = createState) {
   return new Promise((resolve) => {
     // Named, not gestured at. "More than one trait" is not something a user can
     // weigh, and one stock sentence about the outfit, weapon, hair and the whole
@@ -274,7 +286,7 @@ function confirmReroll(trait) {
     // back on. It has to say that it cannot name them rather than name none:
     // this dialog exists to let the user decline, and a warning that quietly
     // knows nothing is worse than one that says so.
-    const alsoFreed = traitCascade(trait).filter((name) => name !== trait);
+    const alsoFreed = traitCascade(trait, vocab).filter((name) => name !== trait);
     elRerollConfirm.message.textContent = alsoFreed.length
       ? `Re-rolling ${trait} frees the traits it gates as well, so `
         + `${alsoFreed.length} other ${alsoFreed.length === 1 ? 'trait' : 'traits'} `
@@ -498,8 +510,46 @@ function markBatchSeen(ids) {
     .catch(() => { /* same as markSeen: a lingering tag is not worth an error */ });
 }
 
+/**
+ * Removes the affordances of every kind this install cannot actually
+ * generate, given /api/categories' `kinds` - the ids whose generator script
+ * lib/kinds.js's available() found on disk.
+ *
+ * The seam is declarative: anything in index.html carrying `data-kind` is an
+ * affordance for exactly that kind and nothing else, so this needs no list of
+ * its own and a third kind would need no edit here. NPC controls carry no
+ * data-kind at all and so can never be removed by this - the NPC half of the
+ * page is untouched whatever the server says.
+ *
+ * Three ways to answer "leave everything alone", all of them deliberate: no
+ * `kinds` field (a server too old to send one), a non-array, or an empty list
+ * (a server that can see no generator script whatsoever, which is a
+ * misconfiguration rather than a statement about spaceships). A failed
+ * /api/categories never calls this at all. In every one of those cases the
+ * page is exactly what it was before this function existed - degrading to
+ * today's UI, never to a page with controls missing.
+ */
+function applyKindAvailability(kinds) {
+  if (!Array.isArray(kinds) || !kinds.length) return;
+  const have = new Set(kinds);
+  for (const node of document.querySelectorAll('[data-kind]')) {
+    if (!have.has(node.dataset.kind)) node.remove();
+  }
+  // Removing a tab button that was the one showing would leave its panel open
+  // and no button to leave it by. Only reachable if someone clicked Create
+  // Spaceship inside the first round trip of the page load, but the recovery
+  // is one line: no active tab button left means fall back to Import.
+  if (!document.querySelector('#tabs button.active')) {
+    document.querySelector('#tabs button[data-tab="import"]')?.click();
+  }
+}
+
 async function loadCategories() {
-  const { categories } = await api('/api/categories');
+  const { categories, kinds } = await api('/api/categories');
+  // Before the early return below: an install with no generated content yet is
+  // precisely the one that must not be offered a Create Spaceship tab it has
+  // no generator for.
+  applyKindAvailability(kinds);
   el.categories.innerHTML = '';
   if (!categories.length) {
     el.categories.textContent = 'No generated content found yet.';
@@ -507,7 +557,10 @@ async function loadCategories() {
   }
   for (const cat of categories) {
     const btn = document.createElement('button');
-    btn.textContent = `${CATEGORY_LABELS[cat.id] || cat.id} (${cat.count})`;
+    // The server's own registry label, which is where the kind's name is
+    // defined; CATEGORY_LABELS stays as the fallback for a kind the server
+    // does not label (and for 'mech', which the registry has never held).
+    btn.textContent = `${cat.label || CATEGORY_LABELS[cat.id] || cat.id} (${cat.count})`;
     btn.addEventListener('click', () => selectCategory(cat.id));
     btn.dataset.id = cat.id;
     el.categories.appendChild(btn);
@@ -971,7 +1024,27 @@ function releaseLabel(choice) {
   return `also re-roll ${named} (and ${extra} trait${extra === 1 ? '' : 's'} that depend on ${them})`;
 }
 
-function traitControlCells(trait, rerollable) {
+/**
+ * The two gutter cells for one trait's row: a live pair of controls, the
+ * explained-but-disabled Re-roll, or two empty cells.
+ *
+ * `vocab` is which kind's raw-rerollable list answers the middle branch, and
+ * it is the fourth reader of the trait vocabulary rather than the fourth
+ * hard-coded reference to createState. That branch used to ask the NPC list
+ * whatever kind the row belonged to, which put NPC copy on a spaceship's
+ * sheet: the seven headings both tables files share - Backdrop, Weather, Glow
+ * colour, Glow placement, Theme, Faction and Weapon - are all in the NPC raw
+ * list, so a ship trait missing from the ship's own rerollable list rendered a
+ * greyed button explaining that "this NPC was generated before its raw trait
+ * bullets were recorded". Reachable on any ship sheet opened while
+ * shipCreateState is still empty, since ensureVocab swallows a failed load.
+ *
+ * Optional and trailing, like the three seam functions above: every existing
+ * two-argument call - here and in the test files that lift this function out
+ * of the served source and inject a variable named createState - keeps
+ * resolving the NPC vocabulary it always meant.
+ */
+function traitControlCells(trait, rerollable, vocab = createState) {
   const name = escapeHtml(trait);
   // Both cells go out of every branch, so the row always has four columns.
   const cells = (reroll, set) =>
@@ -986,7 +1059,7 @@ function traitControlCells(trait, rerollable) {
       `<button type="button" class="set-trait-btn" data-trait="${name}"
              title="Choose a value for ${name} and re-render this NPC">Set&hellip;</button>`);
   }
-  if (createState.rawRerollableTraits.includes(trait)) {
+  if ((vocab.rawRerollableTraits || []).includes(trait)) {
     const why = `This NPC was generated before its raw trait bullets were recorded, so ${name} `
       + 'cannot be re-rolled on its own. Re-roll the whole NPC once to record them and this '
       + 'button turns on.';
@@ -1074,11 +1147,26 @@ function renderDetailTraits(item) {
   // trait value that runs to a couple of hundred characters on Backdrop and
   // Stance, so their left edge moved with every row and the eye had to hunt for
   // them. Leading, they stack in two fixed gutters.
-  const rerollable = rerollableForItem(item);
+  //
+  // vocabFor(item.kind), not the default: a spaceship's traits are not an
+  // NPC's, and until this argument was passed every sheet asked the NPC lists
+  // whose traits were rerollable. The two vocabularies overlap on exactly two
+  // names - Glow colour and Glow placement - so a ship drew buttons on two of
+  // its sixteen rerollable traits and nothing on the other fourteen. The item
+  // carries its own kind, so the sheet reads the lists that item was rolled
+  // from; an item with no kind, and a kind this page does not know, both fall
+  // back to createState inside vocabFor and behave exactly as before.
+  //
+  // Resolved once and handed to both readers. traitControlCells needs it too:
+  // the list it consults when a trait is NOT rerollable decides whether the
+  // row gets the greyed "re-roll the whole NPC once" explanation, and asking
+  // the NPC list that question on a ship put NPC copy under a ship's traits.
+  const vocab = vocabFor(item.kind);
+  const rerollable = rerollableForItem(item, vocab);
   el.detailTraits.innerHTML = Object.entries(item.traits || {})
     .filter(([k]) => !TRAIT_KEY_EXCLUDE.includes(k))
     .map(([k, v]) => {
-      const cells = traitControlCells(k, rerollable);
+      const cells = traitControlCells(k, rerollable, vocab);
       return `<tr>${cells}<td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`;
     })
     .join('');
@@ -2179,7 +2267,7 @@ const shipCreateState = {
   // /api/ship-catalogue's {types, sizes, themes}, or null before it loads or
   // if the route fails - see sizeBlockReason, which degrades to no gating.
   catalogue: null,
-  formLoaded: false, // whether traitOptions/catalogue have been fetched yet
+  formLoaded: false, // whether the form's own trait options have been fetched
   pinned: { 'Ship type': '', Size: '', Theme: '' },
   overrides: [], // further overrides, same shape as createState.overrides
   presets: [],
@@ -3141,15 +3229,24 @@ async function ensureShipCreateForm() {
       elShipCreate.status.textContent = `Failed to load ship trait options: ${err.message}`;
       return;
     }
-    // Own try/catch: the trait-options fetch above already succeeded, so a
-    // catalogue failure must not be blamed on "trait options" or stop
-    // formLoaded from being true - Type -> Size gating degrades to none,
-    // exactly as the design's own phase-6 note says, but the rest of the
-    // form still works.
+  }
+  // Outside the formLoaded block, and guarded on the catalogue itself rather
+  // than on a "loaded" flag. formLoaded flips as soon as the trait options
+  // land, so a catalogue fetch nested inside it got exactly one attempt per
+  // page load: one transient failure of /api/ship-catalogue silently disabled
+  // Type -> Size gating for the whole session, with no retry and no message.
+  // Keyed on `catalogue === null` it retries on the next tab visit and stops
+  // asking the moment it succeeds.
+  //
+  // Own try/catch for the reason it always had: the trait-options fetch above
+  // has already succeeded by here, so a catalogue failure must not be blamed
+  // on "trait options" or stop the rest of the form from rendering. Gating
+  // degrades to none, exactly as the design's own phase-6 note says.
+  if (shipCreateState.catalogue === null) {
     try {
       shipCreateState.catalogue = await api('/api/ship-catalogue');
     } catch {
-      shipCreateState.catalogue = null; // Type -> Size gating degrades to none
+      shipCreateState.catalogue = null; // Type -> Size gating degrades to none, and we try again next visit
     }
   }
   renderShipPinnedSelects();
@@ -3173,14 +3270,23 @@ async function ensureShipCreateForm() {
  * (both smuggler) - so that approach silently disabled gating for them.
  * The flag segment is authoritative and needs no guessing.
  *
+ * The LAST `||` segment, not the second. Ship bullets come in two shapes:
+ * most are `text || flags`, but '## Backdrop' is one of the two
+ * three-segment tables (`text || scene || flags`), where `[1]` is the scene
+ * and the flags are one further along. Only the two-segment Ship type and
+ * Size reach this function today, so `[1]` was harmless - but it is a trap
+ * for the next caller, and popping the last segment is right for both shapes.
+ *
  * Null when the bullet carries no `||` flag segment, or its first flag token
  * names no slug the catalogue knows - including a catalogue that never
  * loaded - which sizeBlockReason already treats as "do not gate".
  */
 function shipTypeSlugFor(bullet, catalogue) {
   if (!catalogue || !bullet) return null;
-  const flags = String(bullet).split('||')[1];
-  if (!flags) return null;
+  const parts = String(bullet).split('||');
+  if (parts.length < 2) return null;
+  const flags = parts.pop();
+  if (!flags.trim()) return null;
   const slug = flags.trim().split(/\s+/)[0];
   return catalogue.types.some((t) => t.slug === slug) ? slug : null;
 }
@@ -3202,13 +3308,18 @@ function shipTypeSlugFor(bullet, catalogue) {
  * that rolls only `small`, wrongly permitted). The flag segment is
  * authoritative and needs no guessing.
  *
+ * The LAST `||` segment for the same reason shipTypeSlugFor takes it - see
+ * its note on the three-segment '## Backdrop' shape.
+ *
  * Null when the bullet carries no flag segment, or its first flag token
  * names no band the catalogue knows.
  */
 function sizeBandFor(sizeBullet, catalogue) {
   if (!catalogue || !sizeBullet) return null;
-  const flags = String(sizeBullet).split('||')[1];
-  if (!flags) return null;
+  const parts = String(sizeBullet).split('||');
+  if (parts.length < 2) return null;
+  const flags = parts.pop();
+  if (!flags.trim()) return null;
   const band = flags.trim().split(/\s+/)[0];
   return catalogue.sizes.some((s) => s.sizeBand === band) ? band : null;
 }
@@ -3913,10 +4024,22 @@ el.detailTraits.addEventListener('click', async (event) => {
   if (!id) return;
   const trait = button.dataset.trait;
 
+  // Both halves of the question read the vocabulary the clicked item was
+  // rolled from, not the NPC lists this used to reach by default. Resolved
+  // once and passed to both, so the check and the dialog cannot answer from
+  // two different kinds - a ship whose cascade was read off the NPC map named
+  // the wrong freed traits in the warning it then showed.
+  //
+  // An id with no matching row falls to vocabFor(undefined), which is
+  // createState - the same lists this asked before, so a click on a sheet
+  // whose item has left the list behaves exactly as it always did rather than
+  // throwing on the way to a dialog.
+  const vocab = vocabFor((state.items.find((i) => i.id === id) || {}).kind);
+
   // Ask first when the re-roll can reach past the trait named on the button -
   // see rerollNeedsConfirm(). Awaited before anything is disabled or posted, so
   // backing out leaves the sheet exactly as it was.
-  if (rerollNeedsConfirm(trait) && !(await confirmReroll(trait))) return;
+  if (rerollNeedsConfirm(trait, vocab) && !(await confirmReroll(trait, vocab))) return;
 
   await stageTraitEdit({ id, op: 'reroll', table: trait, button });
 });

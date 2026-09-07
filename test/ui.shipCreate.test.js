@@ -106,6 +106,181 @@ test('the Tables tab carries a #tables-kind select', async (t) => {
     assert.match(tables[0], /id="tables-kind"/, '#tab-tables is missing the #tables-kind select');
 });
 
+/* ---- kind availability: the tab and the option only exist with the script ---- */
+
+// A script that is present and parses to nothing, which is all availability
+// cares about: available() asks whether the file exists, never what is in it.
+const PRESENT_SCRIPT = 'process.exit(0);\n';
+
+test('/api/categories lists spaceship as available when the ship script is on disk', async (t) => {
+    const server = await startTestServer({
+        tablesText: TABLES_FIXTURE,
+        port: PORT,
+        generatorSource: PRESENT_SCRIPT,
+        spaceshipGeneratorSource: PRESENT_SCRIPT,
+    });
+    t.after(() => server.stop());
+
+    const body = await (await fetch(`${server.baseUrl}/api/categories`)).json();
+    assert.deepEqual(body.kinds, ['npc', 'spaceship']);
+});
+
+test('/api/categories omits spaceship when there is no ship generator script', async (t) => {
+    // generatorSource alone: the NPC stub is written into the fixture dir and
+    // pointed at, and generateSpaceshipScript then DEFAULTS to
+    // generate-spaceship.py beside it (lib/paths.js) - a path that was never
+    // written, so it does not exist. That is the whole NPC-only install, and
+    // it is the state every existing user of this GUI is in.
+    const server = await startTestServer({
+        tablesText: TABLES_FIXTURE,
+        port: PORT,
+        generatorSource: PRESENT_SCRIPT,
+    });
+    t.after(() => server.stop());
+
+    const body = await (await fetch(`${server.baseUrl}/api/categories`)).json();
+    assert.deepEqual(body.kinds, ['npc']);
+});
+
+test('index.html marks both ship affordances with data-kind, and nothing else', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const html = await fetchText(server, '/index.html');
+    // Attributes only, not the explanatory comments beside them.
+    const marked = [...html.matchAll(/<(button|option)\b[^>]*\bdata-kind="([\w-]+)"/g)];
+    assert.equal(marked.length, 2, 'exactly the Create Spaceship tab and the Tables Spaceships option carry data-kind');
+    assert.deepEqual(marked.map((m) => m[2]), ['spaceship', 'spaceship']);
+    assert.match(html, /data-tab="shipcreate" data-kind="spaceship"/,
+        'the Create Spaceship tab button is no longer gated on kind availability');
+    assert.match(html, /<option value="spaceship" data-kind="spaceship">/,
+        'the Tables kind select\'s Spaceships option is no longer gated on kind availability');
+    // The NPC half must carry no marker at all - that is what makes it
+    // impossible for this mechanism to remove an NPC control.
+    assert.doesNotMatch(html, /data-tab="create" data-kind=/);
+    assert.doesNotMatch(html, /<option value="npc"[^>]*data-kind=/);
+});
+
+/**
+ * A stand-in for the two document methods applyKindAvailability calls. Nodes
+ * are plain objects with a dataset and a remove(); the two #tabs lookups are
+ * answered from `activeTab`.
+ */
+function fakeNode(kind, name) {
+    return { name, dataset: { kind }, removed: false, remove() { this.removed = true; } };
+}
+
+function fakeDocument(nodes, { activeTab = 'import' } = {}) {
+    const clicked = [];
+    return {
+        clicked,
+        querySelectorAll(sel) {
+            // Pinned, because it is the whole NPC-safety argument: the only
+            // nodes this function can ever reach are the ones that opted in
+            // by carrying data-kind.
+            assert.equal(sel, '[data-kind]', `applyKindAvailability queried ${sel}`);
+            return nodes.filter((n) => !n.removed);
+        },
+        querySelector(sel) {
+            if (sel === '#tabs button.active') return activeTab ? { name: activeTab } : null;
+            if (sel === '#tabs button[data-tab="import"]') {
+                return { click: () => clicked.push('import') };
+            }
+            return null;
+        },
+    };
+}
+
+function liftApplyKindAvailability(js, document) {
+    return liftFunction(js, 'applyKindAvailability', { document });
+}
+
+test('applyKindAvailability removes the ship affordances when spaceship is not available', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    const tab = fakeNode('spaceship', 'shipcreate tab');
+    const option = fakeNode('spaceship', 'Spaceships option');
+    const document = fakeDocument([tab, option]);
+
+    liftApplyKindAvailability(js, document)(['npc']);
+
+    assert.equal(tab.removed, true, 'the Create Spaceship tab survived an NPC-only install');
+    assert.equal(option.removed, true, 'the Tables Spaceships option survived an NPC-only install');
+});
+
+test('applyKindAvailability leaves the ship affordances alone when spaceship IS available', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    const tab = fakeNode('spaceship', 'shipcreate tab');
+    const option = fakeNode('spaceship', 'Spaceships option');
+    const document = fakeDocument([tab, option]);
+
+    liftApplyKindAvailability(js, document)(['npc', 'spaceship']);
+
+    assert.equal(tab.removed, false);
+    assert.equal(option.removed, false);
+    assert.deepEqual(document.clicked, [], 'nothing was removed, so no tab needed rescuing');
+});
+
+test('applyKindAvailability degrades to today\'s UI rather than to a blank one', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    // undefined: a server too old to send the field. []: a server that can
+    // see no generator script at all, which is a misconfiguration and not a
+    // statement about spaceships. Neither may cost the user a control.
+    for (const kinds of [undefined, null, [], 'npc', {}]) {
+        const tab = fakeNode('spaceship', 'shipcreate tab');
+        const option = fakeNode('spaceship', 'Spaceships option');
+        liftApplyKindAvailability(js, fakeDocument([tab, option]))(kinds);
+        assert.equal(tab.removed, false, `kinds=${JSON.stringify(kinds)} removed the tab`);
+        assert.equal(option.removed, false, `kinds=${JSON.stringify(kinds)} removed the option`);
+    }
+});
+
+test('applyKindAvailability falls back to Import if it removed the tab that was showing', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    const tab = fakeNode('spaceship', 'shipcreate tab');
+    // activeTab null stands for "the active button is the one just removed",
+    // which is only reachable by clicking Create Spaceship inside the page's
+    // first round trip - but it would otherwise strand an open panel with no
+    // button to leave it by.
+    const document = fakeDocument([tab], { activeTab: null });
+
+    liftApplyKindAvailability(js, document)(['npc']);
+
+    assert.equal(tab.removed, true);
+    assert.deepEqual(document.clicked, ['import']);
+});
+
+test('loadCategories applies kind availability, and does it before its empty-library return', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    const body = /async function loadCategories\(\)[\s\S]*?\n\}/.exec(js);
+    assert.ok(body, 'loadCategories is no longer a top-level async function');
+    assert.match(body[0], /const \{ categories, kinds \} = await api\('\/api\/categories'\)/,
+        'loadCategories no longer reads the `kinds` field off /api/categories');
+    const applyAt = body[0].indexOf('applyKindAvailability(kinds)');
+    const emptyReturnAt = body[0].indexOf('No generated content found yet.');
+    assert.notEqual(applyAt, -1, 'loadCategories never calls applyKindAvailability');
+    assert.ok(applyAt < emptyReturnAt,
+        'applyKindAvailability runs after the empty-library return, so a fresh install keeps a tab it cannot use');
+    // The other half of the /api/categories cleanup: the server's own label,
+    // with the client-side table only as the fallback.
+    assert.match(body[0], /cat\.label \|\| CATEGORY_LABELS\[cat\.id\]/,
+        'the category button no longer prefers the server\'s own registry label');
+});
+
 /* ---- app.js wiring ---- */
 
 test('app.js declares shipCreateState and elShipCreate, and switchTab lazy-loads the tab', async (t) => {
