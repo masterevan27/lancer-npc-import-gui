@@ -140,7 +140,7 @@ const elSetTrait = {
 };
 
 /**
- * The re-rollable list that applies to one NPC.
+ * The re-rollable list that applies to one item.
  *
  * Two lists, chosen per item rather than per server, because generate-npc.py
  * chooses that way: an entry that recorded its raw bullets re-rolls nearly
@@ -148,9 +148,17 @@ const elSetTrait = {
  * else gates. Kept as a function of its own so the choice is testable without
  * a DOM, and so openDetail() and anything that follows it cannot drift apart
  * on which list they meant.
+ *
+ * `vocab` is which kind's lists to read - NPC traits are not spaceship
+ * traits, so the answer has to vary by more than the item's own
+ * hasRawTraits. Defaulted to `createState` rather than made required: three
+ * functions here read that free variable by name, and test/ui.rerollConfirm.
+ * test.js lifts each of them out of the served source and injects a variable
+ * of exactly that name, so every existing single-argument call - here and in
+ * that file - keeps resolving to the NPC vocabulary it always meant.
  */
-function rerollableForItem(item) {
-  return item.hasRawTraits ? createState.rawRerollableTraits : createState.rerollableTraits;
+function rerollableForItem(item, vocab = createState) {
+  return item.hasRawTraits ? vocab.rawRerollableTraits : vocab.rerollableTraits;
 }
 
 /**
@@ -177,16 +185,20 @@ function rerollableForItem(item) {
  * discovery order is load-bearing rather than tidy: that list is empty until
  * /api/npc-tables lands, and filtering by an empty list would drop the very
  * trait the user clicked and make a cascade look like a lone re-roll.
+ *
+ * `vocab` picks whose dependents map and override table order to walk - see
+ * rerollableForItem() above for why it defaults to `createState` rather than
+ * being required.
  */
-function traitCascade(trait) {
-  const dependents = createState.traitDependents || {};
+function traitCascade(trait, vocab = createState) {
+  const dependents = vocab.traitDependents || {};
   const freed = [trait];
   for (let i = 0; i < freed.length; i += 1) {
     for (const next of dependents[freed[i]] || []) {
       if (!freed.includes(next)) freed.push(next);
     }
   }
-  const ordered = (createState.overrideTables || []).filter((name) => freed.includes(name));
+  const ordered = (vocab.overrideTables || []).filter((name) => freed.includes(name));
   return ordered.includes(trait) ? ordered : freed;
 }
 
@@ -227,12 +239,20 @@ function traitCascade(trait) {
  * Weather costs a click; firing Theme unannounced costs a dozen traits and a
  * re-render nobody asked for. The coarse list is the right way to be wrong
  * here, and it is only reached once the parse has already failed.
+ *
+ * `vocab` picks whose map and legacy list answer the blind fallback - see
+ * rerollableForItem() above for why it defaults to `createState`. Each field
+ * read here falls back to createState's own when `vocab` does not carry it,
+ * which only matters for a caller that hands this a second argument shaped
+ * like something other than a vocabulary - the fallback is what keeps that
+ * read from crashing instead of quietly answering from the wrong list.
  */
-function rerollNeedsConfirm(trait) {
-  if (!Object.keys(createState.traitDependents || {}).length) {
-    return !createState.rerollableTraits.includes(trait);
+function rerollNeedsConfirm(trait, vocab = createState) {
+  const dependents = vocab.traitDependents || createState.traitDependents || {};
+  if (!Object.keys(dependents).length) {
+    return !(vocab.rerollableTraits || createState.rerollableTraits).includes(trait);
   }
-  return traitCascade(trait).length > 1;
+  return traitCascade(trait, vocab).length > 1;
 }
 
 /** Shows the cascade warning before a re-roll of `trait`; resolves true/false. */
@@ -499,6 +519,10 @@ async function selectCategory(id) {
   for (const btn of el.categories.querySelectorAll('button')) {
     btn.classList.toggle('active', btn.dataset.id === id);
   }
+  // Before the grid loads, not after: a ship opened straight from a cold
+  // vocabulary would offer its detail sheet's reroll buttons off an empty
+  // list until the next refresh happened to land after this request did.
+  await ensureVocab(id);
   await refreshItems();
 }
 
@@ -976,12 +1000,20 @@ function renderDetailFiles(item) {
     .join(' · ');
 }
 
-/** The sheet's name, subtitle, generated-on line and Files block. */
+/**
+ * The sheet's name, subtitle, generated-on line and Files block.
+ *
+ * The subtitle carries both kinds' identifying traits at once rather than
+ * branching on item.kind: an NPC has no Ship type or Size, a ship has no Role
+ * or roleCategory, and the .filter(Boolean) already in place drops whichever
+ * half is absent - so an NPC's line is exactly what it was before Ship type
+ * and Size were added to the list.
+ */
 function renderDetailHeader(item) {
   el.detailName.textContent = item.name;
-  el.detailSub.textContent = [item.roleCategory, item.traits?.Role, factionDisplayName(item.traits?.Faction)]
-    .filter(Boolean)
-    .join(' — ');
+  el.detailSub.textContent = [item.roleCategory, item.traits?.Role,
+    item.traits?.['Ship type'], item.traits?.Size,
+    factionDisplayName(item.traits?.Faction)].filter(Boolean).join(' — ');
   el.detailGenerated.textContent = formatGeneratedWhen(item.when);
   renderDetailFiles(item);
 }
@@ -1189,8 +1221,11 @@ function renderRegenPanel(item) {
 function renderModel3dPanel(item, view) {
   // generate-3d.py reconstructs from a rendered A-pose of the NPC's token,
   // which only exists for an NPC. Anything else gets no panel rather than a
-  // button that always fails.
-  el.model3dPanel.hidden = item.kind !== 'npc';
+  // button that always fails. Read off the server's own supports.model3d
+  // rather than hardcoding the one kind that has it today, so a later kind
+  // that gains the capability needs no change here - and falls back to the
+  // kind check for a server too old to send `supports` at all.
+  el.model3dPanel.hidden = item.supports ? !item.supports.model3d : item.kind !== 'npc';
   if (el.model3dPanel.hidden) return;
 
   const status = view ? view.status : item.model3dStatus;
@@ -1756,6 +1791,11 @@ function switchTab(tab) {
     panel.hidden = panel.id !== `tab-${tab}`;
   }
   if (tab === 'create' && !createState.tablesLoaded) loadOverrideTables();
+  // The spaceship Create tab does not exist yet - this task only cuts the
+  // seam a later one hangs it off - but the vocabulary it will need loads the
+  // same lazy way a ship's detail sheet does, so the call is wired up ahead
+  // of the tab rather than the tab arriving with its own copy of it.
+  if (tab === 'shipcreate') ensureVocab('spaceship');
   // Re-listed on every visit rather than once, the way the Tables tab's own
   // presets are: a preset saved in another browser tab should be there when
   // this one comes back to the form, not after a reload.
@@ -1787,14 +1827,18 @@ const elBanner = {
  * The ids of the run the banner currently on screen is announcing, so its ×
  * can clear those New tags and no others.
  *
- * Empty whenever the run could not name its own NPCs - an older server, or a
+ * Empty whenever the run could not name its own items - an older server, or a
  * manifest that could not be read either side of the child, both of which also
  * make job.produced null and send the count back to what the form asked for.
  * Dismissing then clears nothing at all. That leaves tags up that arguably
  * should have gone, which is the cheap way to be wrong: an extra tag costs one
  * click to clear, while a tag cleared by mistake is gone for good.
+ *
+ * `announcedKind` rides alongside for the Show button: it names the category
+ * the run belongs to, so Show can select it even once the banner's own ×
+ * has long since cleared `announcedIds`.
  */
-const bannerState = { announcedIds: [] };
+const bannerState = { announcedIds: [], announcedKind: 'npc' };
 
 /**
  * Announce a finished generate run wherever the user happens to be standing.
@@ -1810,15 +1854,19 @@ const bannerState = { announcedIds: [] };
  * The banner lives outside every .tab-panel, so it is visible from all four
  * tabs rather than only the one that owns the list it refers to.
  *
- * `ids` is the server's list of the NPCs this run added (job.producedIds),
+ * `ids` is the server's list of the items this run added (job.producedIds),
  * which the banner holds on to for its dismiss button - see bannerState.
+ * `kind` is the run's own registry entry (/api/create-status's `kind` field),
+ * 'npc' for a server too old to send it - the same fallback every job before
+ * that field existed produced.
  */
-function announceBatchComplete(count, ids) {
+function announceBatchComplete(count, ids, kind) {
+  const jobKind = kind ?? 'npc';
   // Forget that this page marked these seen, before anything reloads. An id
   // outlives the card it was clicked on whenever the same name and seed roll a
   // second folder under it, which is why the server un-sees a run's own output
   // (see forgetSeen there); left here, the record would overrule that for the
-  // rest of the page load and leave this run's NPCs the only ones with no tag.
+  // rest of the page load and leave this run's items the only ones with no tag.
   for (const id of Array.isArray(ids) ? ids : []) state.locallySeen.delete(id);
   // Reload the list on screen first, whatever the count says - ahead of the
   // zero guard below, deliberately. Putting it after would read as sensible (a
@@ -1827,12 +1875,12 @@ function announceBatchComplete(count, ids) {
   // the generator reports, and a measurement can miss. A zero we measured
   // ourselves is precisely where a reload earns its one request, being also
   // where a card may have landed that nothing else on this page will reveal
-  // until the user reloads by hand. Still gated on the Import tab showing NPCs,
-  // since refreshItems() reloads the selected category and from anywhere else
-  // would do nothing useful.
-  if (tabState.current === 'import' && state.category === 'npc') refreshItems();
+  // until the user reloads by hand. Still gated on the Import tab showing this
+  // run's own kind, since refreshItems() reloads the selected category and
+  // from anywhere else would do nothing useful.
+  if (tabState.current === 'import' && state.category === jobKind) refreshItems();
   // The banner is the part that has to stay quiet on a zero: an exit code of 0
-  // is not a promise that any NPC landed, and "0 new NPCs finished generating"
+  // is not a promise that anything landed, and "0 new NPCs finished generating"
   // is worse than silence. The guard lives in the function rather than at the
   // call site so a future caller cannot bring the empty banner back.
   if (!(count > 0)) return;
@@ -1840,9 +1888,15 @@ function announceBatchComplete(count, ids) {
   // it takes the user to notice it, and the array must not be something a later
   // poll can quietly extend or empty underneath the dismiss button.
   bannerState.announcedIds = Array.isArray(ids) ? [...ids] : [];
+  bannerState.announcedKind = jobKind;
+  // CATEGORY_LABELS-driven, the way regenSubject() names a regen's own
+  // subject - a spaceship batch has to say "Spaceships", not "NPCs" wearing
+  // whatever count it happened to produce.
+  const label = CATEGORY_LABELS[jobKind] || 'items';
   elBanner.text.textContent = count === 1
-    ? '1 new NPC finished generating.'
-    : `${count} new NPCs finished generating.`;
+    ? `1 new ${label.replace(/s$/, '')} finished generating.`
+    : `${count} new ${label} finished generating.`;
+  elBanner.show.textContent = `Show new ${label}`;
   // Visible from all four tabs, since it lives outside every .tab-panel - and
   // it stays up even after the refresh above, as the "that run is over" signal.
   elBanner.root.hidden = false;
@@ -1871,16 +1925,17 @@ elBanner.dismiss.addEventListener('click', () => {
 elBanner.show.addEventListener('click', async () => {
   dismissBatchBanner();
   switchTab('import');
-  // loadCategories() first, not selectCategory('npc') alone: on the very
-  // first run there was no NPC category to render a button for, so selecting
-  // it without reloading would leave the category row without the one that
-  // is now showing. loadCategories() ends by selecting categories[0], which
-  // is why the explicit selection has to come after it rather than before.
+  // loadCategories() first, not selectCategory(bannerState.announcedKind)
+  // alone: on the very first run of a kind there was no category button for
+  // it yet, so selecting it without reloading would leave the category row
+  // without the one that is now showing. loadCategories() ends by selecting
+  // categories[0], which is why the explicit selection has to come after it
+  // rather than before.
   try {
     await loadCategories();
-    await selectCategory('npc');
+    await selectCategory(bannerState.announcedKind);
   } catch (err) {
-    el.status.textContent = `Couldn't load the new NPCs: ${err.message}`;
+    el.status.textContent = `Couldn't load the new items: ${err.message}`;
   }
 });
 
@@ -2063,6 +2118,74 @@ const createState = {
   presets: [],
   pollTimer: null,
 };
+
+/**
+ * The trait vocabulary a spaceship's detail sheet reads - shaped like the
+ * four fields of createState that rerollableForItem(), traitCascade() and
+ * rerollNeedsConfirm() actually read, so vocabFor('spaceship') can hand it to
+ * the same three functions createState is handed to today.
+ *
+ * Declared here empty on purpose, not left undeclared: `traitVocab` below
+ * closes over this by name at module-load time, so an undeclared
+ * shipCreateState would throw on every page load, npc-only sessions
+ * included, rather than only once a spaceship is actually opened. Empty is
+ * also the correct answer for anyone who opens a spaceship before
+ * ensureVocab('spaceship') below has filled it in: rerollableForItem() hands
+ * back no buttons and traitCascade()/rerollNeedsConfirm() report no cascade,
+ * rather than reading the NPC's own lists by accident.
+ *
+ * Filled in by ensureVocab(), the same way createState fills in from the
+ * eager fetch further down this file - just lazily, since a page that never
+ * opens the Spaceships category should not pay for a list it never shows.
+ */
+const shipCreateState = {
+  overrideTables: [],
+  rerollableTraits: [],
+  rawRerollableTraits: [],
+  traitDependents: {},
+  tablesLoaded: false,
+};
+
+/** Which vocabulary each kind's detail sheet reads its trait lists from. */
+const traitVocab = { npc: createState, spaceship: shipCreateState };
+
+/** `traitVocab`'s answer for `kind`, or createState for a kind it does not know. */
+function vocabFor(kind) {
+  return traitVocab[kind] || createState;
+}
+
+/**
+ * Loads one kind's reroll vocabulary, once, the first time something asks for
+ * it.
+ *
+ * createState's own load stays eager (see the /api/npc-tables fetch further
+ * down this file) so an NPC-only session still pays exactly one request, the
+ * same as before this function existed. A kind with no eager load of its own
+ * needs this instead: called from selectCategory() before that kind's grid
+ * loads, and from switchTab() for that kind's own Create-style tab, so its
+ * detail sheet's reroll buttons are never drawn from an empty vocabulary
+ * because nothing had asked the server for it yet.
+ *
+ * A no-op for 'npc' (or anything else already backed by createState): that
+ * vocabulary already has its own loader, and calling this for it would only
+ * risk a second, redundant fetch racing the eager one.
+ */
+async function ensureVocab(kind) {
+  const vocab = vocabFor(kind);
+  if (vocab === createState || vocab.tablesLoaded) return;
+  try {
+    const { tables, rerollable, rawRerollable, dependents } =
+      await api(`/api/npc-tables?kind=${encodeURIComponent(kind)}`);
+    vocab.overrideTables = tables;
+    vocab.rerollableTraits = rerollable || [];
+    vocab.rawRerollableTraits = rawRerollable || [];
+    vocab.traitDependents = dependents || {};
+    vocab.tablesLoaded = true;
+  } catch {
+    // Same failure mode as createState's own eager load: no reroll buttons
+    // for this kind, and nothing else on the page depends on this succeeding.
+  }
+}
 
 const elCreate = {
   count: document.getElementById('create-count'),
@@ -2669,7 +2792,7 @@ function pollCreateJob(jobId, dryRun, jobCount) {
       // producedIds rides along with the count and comes from the same
       // measurement: the banner's dismiss button clears the New tag, and the
       // only tags it may clear are the ones this run put there.
-      if (!dryRun) announceBatchComplete(made, job.producedIds);
+      if (!dryRun) announceBatchComplete(made, job.producedIds, job.kind);
     } else {
       elCreate.status.textContent = `Failed: ${job.error || 'unknown error'}`;
     }

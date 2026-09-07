@@ -26,7 +26,11 @@
 <div class="banner-stack">
   <div class="banner batch-banner" id="batch-banner" hidden>
     <span id="batch-banner-text"></span>
-    <button type="button" id="batch-banner-show">Show new NPCs</button>
+    <!-- app.js sets this per run's own kind (announceBatchComplete) before the
+         banner ever un-hides, the same way #regen-banner-show's label below is
+         set at render time - this is only what a banner shown before any run
+         has been announced would carry. -->
+    <button type="button" id="batch-banner-show">Show new items</button>
     <button type="button" class="banner-dismiss" id="batch-banner-dismiss"
             aria-label="Dismiss">&times;</button>
   </div>

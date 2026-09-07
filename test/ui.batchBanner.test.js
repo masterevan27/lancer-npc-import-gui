@@ -141,8 +141,9 @@ test('dismissing the banner clears only the run it announces', async (t) => {
         js, /job\.producedIds/,
         'app.js never reads the ids the run reported, so it cannot scope the clear to them');
     assert.match(
-        js, /announceBatchComplete\(made, job\.producedIds\)/,
-        'the banner is announced without the ids it would need to clear its own run');
+        js, /announceBatchComplete\(made, job\.producedIds, job\.kind\)/,
+        'the banner is announced without the ids and kind it would need to clear its own run '
+        + 'and reload the right category');
 
     const dismiss = /elBanner\.dismiss\.addEventListener\([\s\S]*?\n\}\);/.exec(js);
     assert.ok(dismiss, 'the dismiss handler is no longer a top-level binding, so this check is vacuous');
@@ -156,4 +157,39 @@ test('dismissing the banner clears only the run it announces', async (t) => {
     assert.match(
         js, /bannerState\.announcedIds = Array\.isArray\(ids\)/,
         'the banner does not record the ids it was announced with');
+});
+
+// The contract change this task makes: the banner used to say "NPC" no
+// matter what finished, because only NPCs could. Now that POST /api/create
+// takes a kind, a spaceship batch has to be announced as spaceships - so the
+// wording moved from a literal string to CATEGORY_LABELS, the same table
+// regenSubject() already reads for the regen-complete banner's own text.
+test('the banner names the kind that actually finished', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    const announce = /function announceBatchComplete\([\s\S]*?\n\}/.exec(js);
+    assert.ok(announce, 'announceBatchComplete is no longer a top-level function');
+
+    // The old literal is gone rather than merely joined by a new path: a
+    // string this specific left behind would still make every server response
+    // for a spaceship run print the word "NPC".
+    assert.doesNotMatch(
+        announce[0], /'1 new NPC finished generating\.'/,
+        'the banner text is still hardcoded to NPC, so a spaceship batch would announce itself wrong');
+    assert.match(
+        announce[0], /CATEGORY_LABELS\[jobKind\]/,
+        'the banner text no longer reads CATEGORY_LABELS by the run\'s own kind');
+    // The Show button is part of the same announcement and has to agree with
+    // the text next to it - "Show new NPCs" next to "1 new Spaceship finished
+    // generating" would send the user looking in the wrong category's clothes.
+    assert.match(
+        announce[0], /elBanner\.show\.textContent = `Show new \$\{label\}`/,
+        'the Show button label is no longer set from the same kind-derived label as the banner text');
+    // A server too old to send /api/create-status's kind field still gets the
+    // NPC wording it always got, not a crash or an "undefined" in the banner.
+    assert.match(
+        announce[0], /const jobKind = kind \?\? 'npc'/,
+        'an unset kind no longer falls back to npc, so an older server\'s run announces nothing sane');
 });
