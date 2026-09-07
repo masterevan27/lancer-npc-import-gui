@@ -439,6 +439,17 @@ function queueImport(item, { force = false } = {}) {
     if (importedIndex.has(item.id) && !force) {
         return { queued: false, reason: 'already imported' };
     }
+    const kind = kindOf(KINDS, item);
+    // Grid units on the wire. `item` here is a spread manifest entry (see
+    // manifestItemsFrom), so it carries BOTH pairs side by side:
+    // gridWidth/gridHeight are the hex count Foundry sets
+    // prototypeToken.width/height from, and tokenWidth/tokenHeight are the
+    // rendered canvas in PIXELS. Reading the wrong one sends 1728 where 3 was
+    // meant - see G1 in docs/foundry-importer-contract.md. Do not reach for
+    // item.tokenHexes; that is itemView's projection and is not present on
+    // this raw entry.
+    const gw = item.gridWidth;
+    const gh = item.gridHeight ?? item.gridWidth;
     const job = {
         jobId: crypto.randomUUID(),
         itemId: item.id,
@@ -449,6 +460,12 @@ function queueImport(item, { force = false } = {}) {
         faction: item.traits?.Faction || null,
         portraitPath: dataRelative(itemFile(item, 'portrait')),
         tokenPath: dataRelative(itemFile(item, 'token')),
+        // Conditional spreads, not null defaults: an NPC job's key set stays
+        // byte-identical to before this task, which is what keeps
+        // test/importerContract.test.js's existing assertions passing
+        // unchanged.
+        ...(kind.foundryActorType ? { actorType: kind.foundryActorType } : {}),
+        ...(Number.isInteger(gw) ? { tokenWidth: gw, tokenHeight: gh } : {}),
         status: 'queued',
         queuedAt: Date.now(),
     };
@@ -491,8 +508,20 @@ function completeJob({ jobId, itemId, ok, actorId, actorUuid, error }) {
     return true;
 }
 
-/** entries: [{ itemId, actorId, actorUuid }] currently flagged in the world. */
-function reconcile(entries) {
+/**
+ * entries: [{ itemId, actorId, actorUuid }] currently flagged in the world.
+ * kinds:   which item kinds this reporter actually looked for.
+ *
+ * A module that does not say `kinds` claims 'npc' alone - the only kind that
+ * existed when it shipped - so a spaceship it has never heard of survives its
+ * report instead of being deleted. This is additive to a request body rather
+ * than an alteration of a response, so it respects the contract doc's "add a
+ * route rather than altering one" rule without needing a new route.
+ */
+function reconcile(entries, kinds) {
+    const claimed = Array.isArray(kinds) && kinds.length
+        ? new Set(kinds) : new Set(['npc']);
+    const kindById = new Map(loadManifest().map((i) => [i.id, i.kind || 'npc']));
     const seen = new Set();
     for (const { itemId, actorId, actorUuid } of entries) {
         if (!itemId) continue;
@@ -505,7 +534,9 @@ function reconcile(entries) {
         });
     }
     for (const itemId of [...importedIndex.keys()]) {
-        if (!seen.has(itemId)) importedIndex.delete(itemId);
+        if (seen.has(itemId)) continue;
+        const k = kindById.get(itemId); // undefined = the item is gone entirely
+        if (k === undefined || claimed.has(k)) importedIndex.delete(itemId);
     }
     saveIndex();
 }
@@ -3173,7 +3204,7 @@ async function handleImporter(req, res, url) {
         } catch (err) {
             return sendJson(res, 400, { error: err.message });
         }
-        reconcile(Array.isArray(body.entries) ? body.entries : []);
+        reconcile(Array.isArray(body.entries) ? body.entries : [], body.kinds);
         return sendJson(res, 200, { ok: true, tracked: importedIndex.size });
     }
 

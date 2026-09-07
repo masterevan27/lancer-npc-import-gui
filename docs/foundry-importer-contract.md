@@ -65,6 +65,24 @@ Actor; no file transfer happens over this connection.
 A job left `sent` for more than two minutes (`SENT_STALE_MS`) is re-offered on
 the next poll, so a GM who reloaded mid-import is not stuck.
 
+**Optional fields, present only when the source generator recorded them.** A
+module that does not know these keys must ignore them; a job that lacks them
+behaves exactly as before.
+
+- `actorType` — the Foundry Actor type to create (`"npc"`, `"deployable"`).
+  Absent ⇒ the module's existing default. **A module that does not recognise
+  the value must fall back to its default rather than fail** — the ship type
+  is a configured guess, not a verified one.
+- `tokenWidth`, `tokenHeight` — the prototype token's footprint in **grid
+  units**, integers ≥ 1. Absent ⇒ 1×1. A Lancer spaceship is 1, 2, 3 or 5
+  hexes wide. When the two differ the module should also set
+  `texture.scaleX`/`scaleY` to fit and leave `lockRotation` false.
+- `role` and `faction` are NPC trait names and are `null` for kinds that have
+  no such traits. Do not substitute another trait into them.
+
+Until the module is bumped, a spaceship imports as a 1×1 actor of the
+module's default type with correct art — degraded, never wrong.
+
 ## `POST /importer/complete`
 
 ```json
@@ -85,6 +103,10 @@ The **full** set of Actors currently carrying the module's `importItemId` flag,
 sent on every poll. This server replaces its index with it, so deleting an Actor
 in Foundry makes that item importable again on the next tick and a fresh machine
 with no local state still sees the right picture on first connect.
+
+- `kinds` (optional array of strings) — the item kinds this report covers.
+  Omitted ⇒ `["npc"]`, so a module that only scans NPC actors cannot
+  un-import a spaceship it never looked for.
 
 Returns `200 {"ok": true, "tracked": <index size>}`.
 
