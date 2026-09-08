@@ -166,3 +166,79 @@ test('neither control column can be squeezed, and the value column takes the sla
     assert.doesNotMatch(css, /#detail-traits td:nth-child\(2\)\s*\{/,
         'the old trait-name selector is still there, styling a control column');
 });
+
+/*
+ * The one thing every other test in this repo assumes and none of them checks.
+ *
+ * Both control buttons interpolate the trait name into a title="..." attribute,
+ * and every test file that exercises them - here, ui.rerollConfirm,
+ * ui.setTraitPicker, ui.kindVocab, ui.detailRepaint - substitutes its own
+ * escapeHtml, each of which escapes the double quote. The shipped one did not,
+ * for as long as it was only `div.textContent = text; return div.innerHTML`:
+ * the text-node serializer escapes & < > and leaves " alone, so a value
+ * carrying one closed the attribute early and everything after it became
+ * markup. So the stubs asserted a property the real function lacked, and
+ * removing the fix would leave all five files green.
+ *
+ * The DOM half genuinely cannot run here, so it is stubbed - but stubbed as the
+ * serializer actually behaves, quote deliberately untouched, which puts the
+ * whole assertion on the shipped `.replace` rather than on the substitute.
+ */
+const serializerDocument = {
+    createElement: () => ({
+        textContent: '',
+        // What a text node serializes to: & < > escaped, " left as written.
+        get innerHTML() {
+            return String(this.textContent)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        },
+    }),
+};
+
+test('the shipped escapeHtml closes the quote hole its stubs assume is closed', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+
+    const shipped = liftFunction(js, 'escapeHtml', { document: serializerDocument });
+
+    assert.equal(shipped('a "quoted" name'), 'a &quot;quoted&quot; name',
+        'a double quote survives into the attribute and terminates it early');
+    // The three the serializer already handles, so the added replace cannot
+    // have been written in a way that drops them.
+    assert.equal(shipped('<b>&</b>'), '&lt;b&gt;&amp;&lt;/b&gt;');
+    assert.equal(shipped(null), '', 'the nullish guard');
+});
+
+test('a trait name carrying a quote cannot break out of the title attribute', async (t) => {
+    // The reachable end of the same hole: traitControlCells is the only place
+    // that writes these titles, and it takes its name from the tables.
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+
+    const shipped = liftFunction(js, 'escapeHtml', { document: serializerDocument });
+    const traitControlCells = liftFunction(js, 'traitControlCells', {
+        createState: { rawRerollableTraits: [] },
+        escapeHtml: shipped,
+    });
+
+    const hostile = 'Hair" onmouseover="x';
+    const html = traitControlCells(hostile, [hostile]);
+
+    // Every title the row emits still runs to its own closing quote. With the
+    // quote unescaped the first one ends inside the trait name instead, and the
+    // rest of the sentence parses as attributes.
+    const titles = [...html.matchAll(/title="([^"]*)"/g)].map((m) => m[1]);
+    assert.equal(titles.length, 2, 'both controls should carry a title');
+    for (const title of titles) {
+        assert.match(title, /re-render this NPC$/,
+            'the title ended early, so the trait name broke out of the attribute');
+    }
+    // `onmouseover=` is still in there and that is fine - inside a quoted value
+    // it is text, not an attribute. What must not survive is the raw quote that
+    // would end the value and hand the rest of the string to the parser.
+    assert.ok(!html.includes(hostile),
+        'the trait name reached the markup with its quote unescaped');
+    assert.match(html, /&quot;/, 'the quote was escaped by something else entirely');
+});
