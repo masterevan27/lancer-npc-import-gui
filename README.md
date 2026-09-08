@@ -355,7 +355,13 @@ and open <http://127.0.0.1:5089>.
   five-by-three ship arrives five by three instead of the size of a continent.
 - **Trait Imports** — lists reference-image trait candidates staged by the
   `npc-trait-import` skill, sortable and dated, and appends the ones you approve
-  as new bullets in `npc-generator-tables.md`. Clicking a candidate opens its
+  as new bullets in `npc-generator-tables.md`. Search the bullets, narrow to one
+  table, and use **Filter by** to cut the list down to the candidates you still
+  have to deal with — not yet imported, already imported, or the ones with and
+  without a reference image to check them against. Each option carries a count
+  of what picking it would leave, measured against whatever the search box and
+  the table dropdown have already narrowed the list to, so an option that would
+  show nothing says so before you pick it. Clicking a candidate opens its
   detail sheet, which names the reference image the bullet was read from and
   shows it — hover the preview for the full-size image, the same way the
   generated-art sheet works. The picture is the point: whether a bullet

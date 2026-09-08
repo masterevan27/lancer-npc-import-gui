@@ -254,6 +254,19 @@
     <select id="trait-table-filter">
       <option value="">All tables</option>
     </select>
+    <!-- The counts in these labels are written by renderTraitStatusFilter at
+         render time; what is here is only what a page whose candidates have
+         not loaded yet would show. -->
+    <label class="filter-by">
+      Filter by
+      <select id="trait-status-filter">
+        <option value="" selected>Any status</option>
+        <option value="pending">Not yet imported</option>
+        <option value="imported">Imported</option>
+        <option value="with-image">Has reference image</option>
+        <option value="without-image">No reference image</option>
+      </select>
+    </label>
     <label class="sort-by">
       Sort by
       <select id="trait-sort-select">

@@ -156,8 +156,13 @@ main { padding: 1rem 1.25rem 5rem; }
 }
 .select-all { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
 .status { color: #9aa1ad; font-size: 0.85rem; flex: 1; }
-.sort-by { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
-.sort-by select {
+/* .filter-by is the Trait Imports bar's "Filter by" pairing. Styled with
+   .sort-by rather than beside it, because the two sit next to each other in
+   that bar and any drift between them would read as a mistake. */
+.sort-by,
+.filter-by { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
+.sort-by select,
+.filter-by select {
   background: #262a33;
   border: 1px solid #363b47;
   color: #e6e6e6;
@@ -1064,6 +1069,30 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .create-preset-status.is-error { color: #e8a798; }
 
 /* ---- Trait imports ---- */
+
+/* The two bare controls in the Trait Imports filter bar. Neither ever got the
+   dressing its Import-tab counterpart has, so both painted as native light
+   widgets on a dark page - tolerable while they were off on their own, obvious
+   the moment a styled "Filter by" sat down beside them. The values below are
+   .sort-by select's and #filter-search's, copied rather than invented, so the
+   bar reads as one row of the same app. */
+#trait-table-filter {
+  background: #262a33;
+  border: 1px solid #363b47;
+  color: #e6e6e6;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.82rem;
+}
+#trait-search {
+  background: #1c1f26;
+  border: 1px solid #363b47;
+  color: #e6e6e6;
+  padding: 0.4rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  min-width: 240px;
+}
 
 .trait-list { display: flex; flex-direction: column; gap: 0.4rem; }
 .trait-row {

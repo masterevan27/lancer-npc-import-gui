@@ -3942,6 +3942,8 @@ const traitState = {
   selected: new Set(),
   search: '',
   tableFilter: '',
+  // The "Filter by" dropdown's key, '' for Any status. See TRAIT_STATUS_TESTS.
+  status: '',
   sort: 'table',
 };
 
@@ -3953,6 +3955,7 @@ const elTraits = {
   selectAll: document.getElementById('trait-select-all'),
   search: document.getElementById('trait-search'),
   tableFilter: document.getElementById('trait-table-filter'),
+  statusFilter: document.getElementById('trait-status-filter'),
   sortSelect: document.getElementById('trait-sort-select'),
   overlay: document.getElementById('trait-detail-overlay'),
   detailClose: document.getElementById('trait-detail-close'),
@@ -3992,11 +3995,76 @@ function renderTraitTableFilter() {
   if (tables.includes(current)) elTraits.tableFilter.value = current;
 }
 
-function traitMatchesFilters(c) {
+/**
+ * The "Filter by" dropdown's tests, keyed by the option values in index.html.
+ *
+ * A map rather than a switch so the dropdown and the predicates cannot drift:
+ * renderTraitStatusFilter counts with the very same functions the list filters
+ * with, and an option value this map has no entry for is treated as Any status
+ * (see traitMatchesStatus) rather than silently hiding everything, which is
+ * what a stale option left behind in the markup would otherwise do.
+ *
+ * Deliberately one axis' worth of mutually exclusive answers. Import status is
+ * the pair anyone actually reaches for - "what have I not dealt with yet" - and
+ * the reference-image pair is here because a candidate with no picture is one
+ * you cannot check against the frame, which is the other reason to want a
+ * subset of this list. Anything finer belongs in the search box, which already
+ * reads the bullet, the source image and the notes.
+ */
+const TRAIT_STATUS_TESTS = {
+  pending: (c) => !c.imported,
+  imported: (c) => !!c.imported,
+  'with-image': (c) => !!c.hasSourceImage,
+  'without-image': (c) => !c.hasSourceImage,
+};
+
+/** Whether one candidate passes a "Filter by" key. '' - Any status - passes all. */
+function traitMatchesStatus(c, status) {
+  const test = TRAIT_STATUS_TESTS[status];
+  return test ? test(c) : true;
+}
+
+/**
+ * Search and table: the filters that are not the status dropdown.
+ *
+ * Split out so renderTraitStatusFilter can count each status against the list
+ * the user is actually looking at - the number beside "Not yet imported" is how
+ * many of the currently searched and table-filtered candidates it would leave,
+ * not how many exist in all. Counting against everything would put a number
+ * next to an option that then selects nothing, which is the dead end this
+ * filter exists to save you from.
+ */
+function traitMatchesOtherFilters(c) {
   if (traitState.tableFilter && c.table !== traitState.tableFilter) return false;
   const search = traitState.search.trim().toLowerCase();
   if (!search) return true;
   return [c.bullet, c.sourceImage, c.notes, c.table].filter(Boolean).join('\n').toLowerCase().includes(search);
+}
+
+function traitMatchesFilters(c) {
+  return traitMatchesOtherFilters(c) && traitMatchesStatus(c, traitState.status);
+}
+
+/**
+ * Put a count beside every "Filter by" option.
+ *
+ * Labels only - the options themselves are the fixed set in index.html, so this
+ * rewrites textContent rather than innerHTML. Rebuilding the list on every
+ * keystroke in the search box (which is when this runs) would collapse the
+ * dropdown out from under anyone who had it open, and take the selection with
+ * it; retitling the options it already has does neither.
+ */
+function renderTraitStatusFilter() {
+  const pool = traitState.candidates.filter(traitMatchesOtherFilters);
+  for (const option of elTraits.statusFilter.options) {
+    // The label without its count, remembered the first time this runs so that
+    // the second run counts "Imported", not "Imported (3)".
+    if (!option.dataset.label) option.dataset.label = option.textContent;
+    const count = option.value
+      ? pool.filter((c) => traitMatchesStatus(c, option.value)).length
+      : pool.length;
+    option.textContent = `${option.dataset.label} (${count})`;
+  }
 }
 
 function compareTraitCandidates(a, b) {
@@ -4008,6 +4076,9 @@ function compareTraitCandidates(a, b) {
 }
 
 function renderTraits() {
+  // Ahead of the list, so the counts in the dropdown and the rows underneath
+  // always describe the same filtered set in the same frame.
+  renderTraitStatusFilter();
   elTraits.list.innerHTML = '';
   traitState.visible = traitState.candidates.filter(traitMatchesFilters).sort(compareTraitCandidates);
   elTraits.empty.hidden = traitState.visible.length > 0;
@@ -4114,6 +4185,10 @@ elTraits.search.addEventListener('input', () => {
 });
 elTraits.tableFilter.addEventListener('change', () => {
   traitState.tableFilter = elTraits.tableFilter.value;
+  renderTraits();
+});
+elTraits.statusFilter.addEventListener('change', () => {
+  traitState.status = elTraits.statusFilter.value;
   renderTraits();
 });
 elTraits.sortSelect.addEventListener('change', () => {
