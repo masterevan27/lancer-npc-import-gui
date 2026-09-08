@@ -809,7 +809,8 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 }
 .regen-row:last-of-type { margin-bottom: 0; }
 .regen-row label { display: flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
-#regen-seed-input {
+#regen-seed-input,
+#animate-seed-input {
   width: 6.5rem;
   background: var(--surface-2);
   border: 1px solid var(--line-strong);
@@ -818,10 +819,12 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   border-radius: var(--r-sm);
   font-size: var(--fs-sm);
 }
-#regen-seed-input:disabled { opacity: 0.5; }
+#regen-seed-input:disabled,
+#animate-seed-input:disabled { opacity: 0.5; }
 .regen-current-seed { color: var(--text-3); flex: 1; }
 #regen-btn,
-#model3d-btn {
+#model3d-btn,
+#animate-btn {
   background: var(--accent);
   border: none;
   color: white;
@@ -832,15 +835,19 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   font-size: var(--fs-sm);
 }
 #regen-btn:disabled,
-#model3d-btn:disabled { background: #2c2f38; color: var(--text-disabled); cursor: default; }
+#model3d-btn:disabled,
+#animate-btn:disabled { background: #2c2f38; color: var(--text-disabled); cursor: default; }
 #regen-btn:hover:not(:disabled):not(.accent),
-#model3d-btn:hover:not(:disabled) { background: var(--accent-hover); }
+#model3d-btn:hover:not(:disabled),
+#animate-btn:hover:not(:disabled):not(.accent) { background: var(--accent-hover); }
 /* The one button on the sheet with something outstanding to do. Amber rather
    than a brighter blue: the panel's default blue is already the "go" colour, so
    a louder blue would read as the same button rather than a changed one, and
    amber is what the pending badge on the card already means. */
-#regen-btn.accent { background: var(--warn); color: var(--on-warn); }
-#regen-btn.accent:hover { background: var(--warn-hover); }
+#regen-btn.accent,
+#animate-btn.accent { background: var(--warn); color: var(--on-warn); }
+#regen-btn.accent:hover,
+#animate-btn.accent:hover { background: var(--warn-hover); }
 /* The same amber, on the sentence that explains it. Bold because it sits above
    three rows of radio labels at the same size and would otherwise read as a
    fourth one. */
@@ -897,6 +904,8 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
    name anywhere inside or after that pair breaks the guard. Order in a
    selector list means nothing to CSS, so the new name goes where it leaves the
    guard standing. */
+.anim-reroll-btn,
+.anim-set-btn,
 .set-trait-btn,
 .reroll-btn,
 .copy-btn {
@@ -916,22 +925,68 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .copy-btn:hover,
 .copy-btn:focus,
 .set-trait-btn:hover,
-.set-trait-btn:focus { background: var(--accent-hover); border-color: var(--accent-hover); color: #ffffff; }
+.set-trait-btn:focus,
+.anim-reroll-btn:hover,
+.anim-reroll-btn:focus,
+.anim-set-btn:hover,
+.anim-set-btn:focus { background: var(--accent-hover); border-color: var(--accent-hover); color: #ffffff; }
 /* A quieter fill than Re-roll's: that one is the one-click action and this one
    opens a dialog, so equal weight would make the gutter read as two primary
    buttons. The gap between the two is the reroll-cell's padding rather than a
    margin here - they are in separate columns now, and a margin inside the
    second column would sit inside the width that column reserves for itself. */
-.set-trait-btn { background: var(--accent-soft); border-color: var(--accent-soft); }
+.set-trait-btn,
+.anim-set-btn { background: var(--accent-soft); border-color: var(--accent-soft); }
 /* Flat grey rather than a dimmed blue: at 0.4 opacity the fill was still
    plainly blue, so a re-roll already running read as one still on offer. */
 .reroll-btn:disabled,
-.set-trait-btn:disabled {
+.set-trait-btn:disabled,
+.anim-reroll-btn:disabled,
+.anim-set-btn:disabled {
   background: #2c2f38;
   border-color: #2c2f38;
   color: var(--text-disabled);
   cursor: default;
 }
+
+/* Which prompt a trait reaches, where it is not both. A pill after the name
+   says it in words; the row's own buttons take the same colour so the
+   control and the label read as one thing, and a row with no pill keeps the
+   ordinary blue - blue is "both", not a fourth scope. Teal for the portrait,
+   green for the token, violet for the animation: three hues that are none of
+   the page's existing signals (blue go, amber outstanding, red danger). */
+.scope-pill {
+  display: inline-block;
+  margin-left: var(--sp-2);
+  padding: 0 0.4rem;
+  border: 1px solid;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.scope-pill.scope-portrait { color: #7fd6d6; border-color: #22696b; background: rgba(42, 138, 138, 0.14); }
+.scope-pill.scope-token { color: #8fdcab; border-color: #2f6b45; background: rgba(23, 122, 66, 0.16); }
+.scope-pill.scope-animation { color: #cfb3ff; border-color: #6a4aa0; background: rgba(125, 91, 166, 0.18); }
+#detail-traits tr.scope-portrait .reroll-btn:not(:disabled) { background: #22696b; border-color: #22696b; }
+#detail-traits tr.scope-portrait .set-trait-btn:not(:disabled) { background: #1a5052; border-color: #1a5052; }
+#detail-traits tr.scope-token .reroll-btn:not(:disabled) { background: #2f6b45; border-color: #2f6b45; }
+#detail-traits tr.scope-token .set-trait-btn:not(:disabled) { background: #245238; border-color: #245238; }
+#detail-traits tr.scope-animation .anim-reroll-btn:not(:disabled) { background: #6a4aa0; border-color: #6a4aa0; }
+#detail-traits tr.scope-animation .anim-set-btn:not(:disabled) { background: #513a7c; border-color: #513a7c; }
+#detail-traits tr.scope-portrait .reroll-btn:hover:not(:disabled),
+#detail-traits tr.scope-portrait .set-trait-btn:hover:not(:disabled) { background: #2a8a8a; border-color: #2a8a8a; }
+#detail-traits tr.scope-token .reroll-btn:hover:not(:disabled),
+#detail-traits tr.scope-token .set-trait-btn:hover:not(:disabled) { background: #3f8a5b; border-color: #3f8a5b; }
+#detail-traits tr.scope-animation .anim-reroll-btn:hover:not(:disabled),
+#detail-traits tr.scope-animation .anim-set-btn:hover:not(:disabled) { background: #7d5ba6; border-color: #7d5ba6; }
+.scope-legend { font-size: var(--fs-xs); color: var(--text-3); margin: var(--sp-3) 0 0; line-height: 1.8; }
+.scope-legend .scope-pill { margin-left: 0; }
+.scope-note { color: var(--warn-text); font-size: var(--fs-xs); white-space: nowrap; }
+.animate-description { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--text-2); }
 /* The wrapper around a button disabled because this NPC predates raw bullets
    (see traitControlCells in app.js). It exists to carry the title, since a
    disabled control takes no pointer events and so shows no tooltip; the help

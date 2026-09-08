@@ -339,6 +339,12 @@
         <img id="detail-token" alt="Token" />
         <figcaption>Token</figcaption>
       </figure>
+      <!-- Hidden until a loop exists: an empty third frame would say the
+           NPC is missing something rather than that the option is there. -->
+      <figure id="detail-animated-figure" hidden>
+        <img id="detail-animated" alt="Animated portrait" />
+        <figcaption>Animated portrait</figcaption>
+      </figure>
     </div>
     <div class="detail-info">
       <div class="detail-title-row">
@@ -411,6 +417,36 @@
         <p class="model3d-files" id="model3d-files"></p>
       </div>
 
+      <!-- animate-portrait.py over this NPC's portrait. The description it
+           sends is the Animation row of the trait table below - Re-roll and
+           Set... there choose it - so this panel only shows the choice, the
+           seed and the button, the way the Regenerate panel does. -->
+      <div class="regen-panel animate-panel" id="animate-panel" hidden>
+        <h3>Animated portrait</h3>
+        <p class="regen-stale" id="animate-stale" hidden>
+          The portrait was re-rendered after this loop was made from it — press Re-animate to catch it up.
+        </p>
+        <p class="animate-description" id="animate-description"></p>
+        <div class="regen-row">
+          <label><input type="radio" name="animate-seed-mode" value="same" checked> Same seed</label>
+          <label><input type="radio" name="animate-seed-mode" value="specific"> Specific seed
+            <input type="number" id="animate-seed-input" min="0" max="4294967295" disabled>
+          </label>
+          <label><input type="radio" name="animate-seed-mode" value="random"> Random seed</label>
+        </div>
+        <div class="regen-row">
+          <span id="animate-built" class="regen-current-seed"></span>
+          <button id="animate-btn" type="button">Animate portrait</button>
+        </div>
+        <p class="regen-status" id="animate-status"></p>
+      </div>
+
+      <p class="scope-legend" id="scope-legend" hidden>
+        Most traits reach both image prompts. Those marked
+        <span class="scope-pill scope-portrait">Portrait only</span> reach only the portrait's,
+        <span class="scope-pill scope-token">Token only</span> only the token's, and
+        <span class="scope-pill scope-animation">Animated only</span> only the animated portrait.
+      </p>
       <table id="detail-traits"></table>
 
       <div id="detail-prompts">
@@ -506,7 +542,7 @@
       <input type="checkbox" id="set-trait-release">
       <span id="set-trait-release-label"></span>
     </label>
-    <p class="confirm-warning">The chosen bullet replaces the current one and
+    <p class="confirm-warning" id="set-trait-warning">The chosen bullet replaces the current one and
       there is no undo, and the re-render takes a few minutes with ComfyUI
       running.</p>
     <div class="confirm-actions">

@@ -62,6 +62,11 @@ test('3D models are an NPC capability only, for now', () => {
     assert.equal(KINDS.spaceship.supports.model3d, false);
 });
 
+test('animated portraits are an NPC capability only: the prompts describe a person', () => {
+    assert.equal(KINDS.npc.supports.animate, true);
+    assert.equal(KINDS.spaceship.supports.animate, false);
+});
+
 test('the ship create argv passes --manifest and never a person flag', () => {
     const argv = KINDS.spaceship.createArgs({
         count: 2, seed: 7, manifestPath: CONFIG.npcManifestPath,

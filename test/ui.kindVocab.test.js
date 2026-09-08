@@ -247,9 +247,15 @@ test('a ship\'s trait table draws its buttons from the ship vocabulary', async (
     // and registered in traitVocab under 'npc' - so a row that comes back
     // NPC-shaped can only mean the ship's kind never reached the lists.
     const renderDetailTraits = liftFunction(js, 'renderDetailTraits', NPC_STATE, {
-        el: { detailTraits },
+        el: { detailTraits, scopeLegend: {} },
         TRAIT_KEY_EXCLUDE: ['name', 'Given names', 'Family names'],
         escapeHtml,
+        // The scope labelling and the Animation row (see traitScopeOf and
+        // animationTraitRow in app.js) are not what this test is about, so
+        // they are stubbed to nothing rather than lifted.
+        traitScopeOf: () => 'both',
+        scopePill: () => '',
+        animationTraitRow: () => '',
         traitControlCells: liftFunction(js, 'traitControlCells', NPC_STATE, { escapeHtml }),
         rerollableForItem: liftFunction(js, 'rerollableForItem', NPC_STATE),
         vocabFor: liftFunction(js, 'vocabFor', NPC_STATE,
@@ -376,7 +382,10 @@ test('traitControlCells takes the vocabulary as an optional trailing argument', 
     // two-argument call keeps meaning createState, which is what lets
     // ui.traitColumns.test.js go on lifting this function and calling it with
     // two arguments without a line of that file changing.
-    assert.match(js, /function traitControlCells\(trait, rerollable, vocab = createState\)/,
+    // A fourth optional parameter followed later - the Animation row's own
+    // controls, see traitControlCells - and it too keeps every shorter call
+    // meaning what it did.
+    assert.match(js, /function traitControlCells\(trait, rerollable, vocab = createState(?:, controls = null)?\)/,
         'traitControlCells cannot be told which kind\'s raw list to explain from');
 
     const traitControlCells = liftFunction(js, 'traitControlCells', NPC_STATE, { escapeHtml });

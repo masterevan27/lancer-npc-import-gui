@@ -53,6 +53,8 @@ Everything else in `config.example.json` is optional and derived by default:
 - `generate3dScript` — `generate-3d.py`, behind the detail sheet's **3D model**
   panel. Defaults to the script beside `generateNpcScript`, which is where it
   lives in the generator repo; set it only if you have moved that one file.
+- `animatePortraitScript` — `animate-portrait.py`, behind the detail sheet's
+  **Animated portrait** panel. Same default and the same reason to set it.
 - `foundryNpcSubdir` — the folder imports are nested under inside
   `foundryDataRoot`. Default `LancerNPCs`.
 - `npcTablesPath` / `stagedImportsDir` — where the generator's own
@@ -175,6 +177,30 @@ and open <http://127.0.0.1:5089>.
   read that repo's own warning about it, and **Overwrite existing** is forced on
   once a model exists, because `generate-3d.py` silently skips an NPC that
   already has a non-empty `3d/` folder.
+  Beneath that, an **Animated portrait** panel over `animate-portrait.py` in
+  the same repo turns the portrait into a looping `.webp` through Wan 2.2 —
+  hair and clothing in a breeze, smoke or snow or a starfield moving behind a
+  figure who holds still. The loop appears as a third image beside the
+  portrait and token, and **Re-animate portrait** redoes just that one, with
+  the same three seed choices Regenerate offers; a portrait re-rendered after
+  its loop was made gets an amber notice and an amber button. The motion the
+  script is asked for is the **Animation** row of the trait table, drawn from
+  the `## Animation` table in `npc-generator-tables.md` (the Tables tab edits
+  it like any other): **Re-roll** draws another, **Set…** picks one, and
+  neither renders anything until the button is pressed. The loop and a small
+  JSON record of what made it sit beside the portrait as `<Name> Animated
+  Portrait.webp` and `.json`, so they travel with an import and go with a
+  delete; the manifest is never written for them. A render is minutes on a
+  12 GB card and needs ComfyUI with the Wan 2.2 I2V models — see the
+  generator repo's `docs/animate-portrait.md` for what it costs and what to
+  do when it runs out of memory.
+  The trait table also says which image each trait actually reaches. Most
+  reach both prompts; the ones that do not carry a pill after their name —
+  **Portrait only** (Backdrop, Weather, Glow placement), **Token only**
+  (Height, Stance) and **Animated only** (the Animation row) — and their
+  Re-roll and Set… buttons take the pill's colour, so a change to one of
+  them is visibly a change to one image. A legend above the table explains the
+  three.
 - **Create NPC** — a form over `generate-npc.py`'s roll options (count, seed,
   name, pronouns, per-table trait overrides, portrait/token toggles,
   dry-run-vs-generate) that rolls new NPCs into the same review flow as the CLI.

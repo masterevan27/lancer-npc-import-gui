@@ -61,6 +61,7 @@ const traitOptions = require('./lib/traitOptions');
 const traitOdds = require('./lib/traitOdds');
 const traitChoices = require('./lib/traitChoices');
 const applyTrait = require('./lib/applyTrait');
+const animate = require('./lib/animate');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -202,6 +203,9 @@ const DERIVED_PATHS = derivePaths(config);
 // directories - is now read off the kind the request resolved to, including
 // the trait-candidate routes that were the last holdouts.
 const { generate3dScript: GENERATE_3D_SCRIPT } = DERIVED_PATHS;
+// animate-portrait.py takes an image, not a kind, so it too belongs to no
+// kind here; which kinds may reach it is supports.animate in the registry.
+const { animatePortraitScript: ANIMATE_PORTRAIT_SCRIPT } = DERIVED_PATHS;
 
 // The kind registry - see lib/kinds.js for what varies between an NPC and a
 // spaceship and why it is resolved here rather than as scattered constants.
@@ -344,7 +348,11 @@ function foundryDestFolder(item) {
 function copyIntoFoundry(item) {
     const dest = foundryDestFolder(item);
     fs.mkdirSync(dest, { recursive: true });
-    for (const file of item.files || []) {
+    // The animation pair too, when there is one. It is not in the manifest's
+    // file list - generate-npc.py never wrote it - and a portrait that moved
+    // without its loop would open an empty panel on the imported copy.
+    const animation = Object.values(animate.animationFiles(animate.animationBase(item)));
+    for (const file of [...(item.files || []), ...animation]) {
         const src = path.join(item.folderPath, file);
         if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dest, file));
     }
@@ -402,6 +410,7 @@ function deleteItem(item) {
 
     jobsByItemId.delete(item.id);
     regenJobsByItemId.delete(item.id);
+    animateJobsByItemId.delete(item.id);
     if (importedIndex.delete(item.id)) saveIndex();
     // Forget that this NPC was ever looked at, too. Its id is
     // `npc-<slug>-<seed>` and so deterministic from its name and seed, which
@@ -851,6 +860,12 @@ function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, rel
     if (!fs.existsSync(kind.script)) {
         return { ok: false, reason: `${path.basename(kind.script)} not found at ${kind.script}` };
     }
+    // The mirror of startAnimateJob's refusal: a portrait re-rendered under a
+    // running animation would leave a loop of a face no longer on the sheet,
+    // recorded as if it matched.
+    if (animateJobsByItemId.get(item.id)?.status === 'running') {
+        return { ok: false, reason: 'the portrait is being animated - wait for it to finish' };
+    }
 
     const newSeed = seedMode === 'specific' ? seed
         : seedMode === 'random' ? crypto.randomInt(0, 2 ** 32 - 1)
@@ -1091,6 +1106,272 @@ function model3dFileError(item, file) {
     const servable = [found.shell, found.print, found.rigged, ...found.turnarounds].filter(Boolean);
     if (!servable.includes(file)) return { status: 404, error: 'no such 3D deliverable' };
     return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Animated portraits                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Animation jobs, keyed by item id - the shape regenJobsByItemId and
+ * model3dJobsByItemId share, for the same reason: this server runs
+ * animate-portrait.py itself. One entry lingers per item after it finishes
+ * so a client mid-poll still sees the final status.
+ *
+ * `stage` for the reason the 3D job has one: a Wan render is minutes, and
+ * the script prints a line as it uploads, queues and waits.
+ */
+const animateJobsByItemId = new Map();
+
+const ANIMATE_LOG_LIMIT = 8000; // chars of stdout+stderr kept for an error message
+
+/** The loop and its sidecar: beside the portrait, named from it. */
+function animationPaths(item) {
+    const files = animate.animationFiles(animate.animationBase(item));
+    return {
+        webp: path.join(item.folderPath, files.webp),
+        sidecar: path.join(item.folderPath, files.sidecar),
+    };
+}
+
+function readAnimationSidecar(item) {
+    let text = '';
+    try {
+        text = fs.readFileSync(animationPaths(item).sidecar, 'utf8');
+    } catch { /* no sidecar - no animation yet, which is not an error */ }
+    return animate.parseSidecar(text);
+}
+
+function writeAnimationSidecar(item, record) {
+    fs.writeFileSync(animationPaths(item).sidecar, JSON.stringify(record, null, 2));
+}
+
+/**
+ * The Animation table's enabled bullets, read from the kind's tables file
+ * on every call - the Tables tab edits that file, and a list cached at
+ * startup would keep offering a bullet it had just switched off.
+ */
+function animationDescriptions(kind) {
+    try {
+        return animate.descriptionsFrom(tableBullets.readTables(kind.tables));
+    } catch {
+        return [];
+    }
+}
+
+function animationSupported(item) {
+    return !!kindOf(KINDS, item).supports.animate;
+}
+
+/**
+ * Where the next loop's description comes from: what a Re-roll or Set...
+ * staged, else what the last loop used, else null - and the caller draws.
+ */
+function chosenDescription(sidecar) {
+    return sidecar.pending || sidecar.description || null;
+}
+
+function startAnimateJob(item, { seedMode, seed }) {
+    const existing = animateJobsByItemId.get(item.id);
+    if (existing?.status === 'running') {
+        return { ok: false, status: 409, error: 'this portrait is already being animated' };
+    }
+    if (!animationSupported(item)) {
+        return {
+            ok: false, status: 400,
+            error: `animating a portrait isn't supported for kind "${item.kind}" yet`,
+        };
+    }
+    if (!fs.existsSync(ANIMATE_PORTRAIT_SCRIPT)) {
+        return {
+            ok: false, status: 400,
+            error: `animate-portrait.py not found at ${ANIMATE_PORTRAIT_SCRIPT}`,
+        };
+    }
+    // The script uploads the portrait in its first second and never reads it
+    // again, so the race is not on the file - it is that the loop would be of
+    // the portrait a running regen is about to replace, and the sidecar would
+    // record it as matching.
+    if (regenJobsByItemId.get(item.id)?.status === 'running') {
+        return { ok: false, status: 409, error: 'this NPC is being re-rendered; wait for it to finish' };
+    }
+    const portrait = itemFile(item, 'portrait');
+    if (!portrait || !fs.existsSync(portrait)) {
+        return { ok: false, status: 400, error: 'this NPC has no portrait on disk to animate' };
+    }
+
+    const kind = kindOf(KINDS, item);
+    const sidecar = readAnimationSidecar(item);
+    let description = chosenDescription(sidecar);
+    if (!description) description = animate.pickDescription(animationDescriptions(kind));
+    if (!description) {
+        return {
+            ok: false, status: 400,
+            error: `${path.basename(kind.tables)} has no '## ${animate.ANIMATION_TABLE}' `
+                + 'table to draw a description from',
+        };
+    }
+
+    // 'same' with no loop yet is a fresh draw rather than an error: the panel
+    // defaults to it, and the first click should simply work.
+    const newSeed = seedMode === 'specific' ? seed
+        : seedMode === 'same' && Number.isInteger(sidecar.seed) ? sidecar.seed
+        : crypto.randomInt(0, 2 ** 32 - 1);
+
+    const files = animationPaths(item);
+    let args;
+    try {
+        args = animate.animateArgs(ANIMATE_PORTRAIT_SCRIPT, {
+            portrait, out: files.webp, description, seed: newSeed,
+        });
+    } catch (err) {
+        return { ok: false, status: 400, error: err.message };
+    }
+
+    const job = {
+        status: 'running', description, seed: newSeed,
+        startedAt: Date.now(), log: '', stage: null,
+    };
+    animateJobsByItemId.set(item.id, job);
+
+    let child;
+    try {
+        child = spawn(config.pythonExecutable, args, { cwd: path.dirname(ANIMATE_PORTRAIT_SCRIPT) });
+    } catch (err) {
+        job.status = 'error';
+        job.error = err.message;
+        return { ok: true, seed: newSeed }; // job was recorded; the poll will surface the failure
+    }
+
+    const remember = (chunk) => {
+        job.log = (job.log + chunk.toString()).slice(-ANIMATE_LOG_LIMIT);
+    };
+    child.stdout.on('data', (chunk) => {
+        remember(chunk);
+        // stdout only, as the 3D job does it: the script's progress lines go
+        // there, and stderr is where a warning would land.
+        const lines = chunk.toString().split('\n').map((line) => line.trim()).filter(Boolean);
+        if (lines.length) job.stage = lines[lines.length - 1];
+    });
+    child.stderr.on('data', remember);
+    child.on('error', (err) => {
+        job.status = 'error';
+        job.error = err.message;
+    });
+    child.on('close', (code) => {
+        if (job.status === 'error') return; // already failed via the 'error' event above
+        job.doneAt = Date.now();
+        job.stage = null;
+        if (code !== 0) {
+            job.status = 'error';
+            job.error = job.log.trim() || `animate-portrait.py exited with code ${code}`;
+            return;
+        }
+        if (!fs.existsSync(files.webp)) {
+            job.status = 'error';
+            job.error = `animate-portrait.py exited clean but wrote no ${path.basename(files.webp)}`;
+            return;
+        }
+        // Written only now, and only on success: the record describes the
+        // loop on disk. A failed run leaves the last good record - the staged
+        // description included - exactly as it was, so the next click retries
+        // the same choice. `pending` is consumed here because the loop now
+        // shows it.
+        const { pending, ...kept } = readAnimationSidecar(item);
+        void pending;
+        try {
+            writeAnimationSidecar(item, {
+                ...kept, description, seed: newSeed,
+                when: new Date().toISOString(),
+                portraitVersion: fileVersion(portrait),
+            });
+        } catch (err) {
+            job.status = 'error';
+            job.error = `the loop was written but its record could not be: ${err.message}`;
+            return;
+        }
+        job.status = 'done';
+    });
+
+    return { ok: true, seed: newSeed };
+}
+
+/**
+ * Stage the description the next loop will use, without rendering. The
+ * animation panel's Re-roll and Set... - the same edit-then-render split the
+ * trait gutters have, for the same reason: a render is minutes and a choice
+ * should be free to change until it is paid for.
+ */
+function stageAnimationDescription(item, { op, value }) {
+    if (!animationSupported(item)) {
+        return {
+            ok: false, status: 400,
+            error: `animating a portrait isn't supported for kind "${item.kind}" yet`,
+        };
+    }
+    if (animateJobsByItemId.get(item.id)?.status === 'running') {
+        return { ok: false, status: 409, error: 'this portrait is being animated; wait for it to finish' };
+    }
+    const kind = kindOf(KINDS, item);
+    const descriptions = animationDescriptions(kind);
+    if (!descriptions.length) {
+        return {
+            ok: false, status: 400,
+            error: `${path.basename(kind.tables)} has no '## ${animate.ANIMATION_TABLE}' table to choose from`,
+        };
+    }
+    const sidecar = readAnimationSidecar(item);
+    let pending;
+    if (op === 'reroll') {
+        pending = animate.pickDescription(descriptions, { exclude: chosenDescription(sidecar) });
+    } else if (!descriptions.includes(value)) {
+        // Verbatim to the text encoder, so only what the table offers - the
+        // same rule /api/stage-trait applies to a --set-trait value.
+        return {
+            ok: false, status: 400,
+            error: `that is not a description the ${animate.ANIMATION_TABLE} table offers; `
+                + 'the tables file may have changed since this list was loaded.',
+        };
+    } else {
+        pending = value;
+    }
+    try {
+        writeAnimationSidecar(item, { ...sidecar, pending });
+    } catch (err) {
+        return { ok: false, status: 500, error: `couldn't record the choice: ${err.message}` };
+    }
+    return { ok: true };
+}
+
+/**
+ * What the Animated portrait panel shows: the loop on disk, its record, the
+ * table it can choose from, and whatever this server's own job is doing.
+ * Separate from itemView for the reason /api/model-3d is: it reads the
+ * sidecar and the tables file, and the grid does not need either.
+ */
+function animationView(item) {
+    const files = animationPaths(item);
+    const sidecar = readAnimationSidecar(item);
+    const job = animateJobsByItemId.get(item.id);
+    const version = fileVersion(files.webp);
+    const kind = kindOf(KINDS, item);
+    return {
+        supported: animationSupported(item),
+        descriptions: animationDescriptions(kind),
+        description: sidecar.description || null,
+        pending: sidecar.pending || null,
+        seed: Number.isInteger(sidecar.seed) ? sidecar.seed : null,
+        when: sidecar.when || null,
+        file: version === null ? null : path.basename(files.webp),
+        url: version === null ? null
+            : `/api/animation-image?id=${encodeURIComponent(item.id)}&v=${version}`,
+        builtAt: version,
+        // Only ever true with a loop on disk - a stale nothing is nothing.
+        stale: version !== null && animate.isStale(sidecar, fileVersion(itemFile(item, 'portrait'))),
+        status: job ? job.status : null,
+        stage: job?.status === 'running' ? job.stage : null,
+        error: job?.status === 'error' ? job.error : null,
+    };
 }
 
 /* ------------------------------------------------------------------ */
@@ -2029,9 +2310,14 @@ function itemView(item) {
     const job = jobsByItemId.get(item.id);
     const regenJob = regenJobsByItemId.get(item.id);
     const model3dJob = model3dJobsByItemId.get(item.id);
+    const animateJob = animateJobsByItemId.get(item.id);
     const imported = importedIndex.get(item.id) || null;
     const portraitFile = itemFile(item, 'portrait');
     const tokenFile = itemFile(item, 'token');
+    // One stat, not a sidecar read: the grid needs "is there a loop" and the
+    // sheet asks /api/animation for the rest, the way the 3D panel does.
+    const animationVersion = animationSupported(item) && item.folderPath
+        ? fileVersion(animationPaths(item).webp) : null;
     return {
         id: item.id,
         kind: item.kind,
@@ -2073,6 +2359,12 @@ function itemView(item) {
         has3d: fs.existsSync(model3dDir(item)),
         model3dStatus: model3dJob ? model3dJob.status : null,
         model3dError: model3dJob?.status === 'error' ? model3dJob.error : null,
+        hasAnimation: animationVersion !== null,
+        animationUrl: animationVersion !== null
+            ? `/api/animation-image?id=${encodeURIComponent(item.id)}&v=${animationVersion}`
+            : null,
+        animationStatus: animateJob ? animateJob.status : null,
+        animationError: animateJob?.status === 'error' ? animateJob.error : null,
         // Where the art actually sits on disk. The browser is served
         // /api/image URLs and cannot resolve a local path, so this is text for
         // the user to read and copy - it is how they find the source files
@@ -2365,6 +2657,66 @@ async function handleApi(req, res, url) {
 
         const result = startModel3dJob(item, { rig: !!body.rig, overwrite: !!body.overwrite });
         return sendJson(res, result.ok ? 202 : result.status, result);
+    }
+
+    if (url.pathname === '/api/animation' && req.method === 'GET') {
+        const item = url.searchParams.get('id') && findItem(url.searchParams.get('id'));
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        return sendJson(res, 200, animationView(item));
+    }
+
+    if (url.pathname === '/api/animation' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const item = body.id && findItem(body.id);
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+
+        // The same three modes and the same validation as /api/regenerate.
+        const seedMode = ['same', 'specific', 'random'].includes(body.seedMode) ? body.seedMode : 'same';
+        let seed;
+        if (seedMode === 'specific') {
+            seed = Number(body.seed);
+            if (!Number.isInteger(seed) || seed < 0 || seed > 2 ** 32 - 1) {
+                return sendJson(res, 400, { error: 'seed must be an integer between 0 and 4294967295' });
+            }
+        }
+        const result = startAnimateJob(item, { seedMode, seed });
+        return sendJson(res, result.ok ? 202 : result.status, result);
+    }
+
+    if (url.pathname === '/api/animation/description' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const item = body.id && findItem(body.id);
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        const op = body.op === 'reroll' || body.op === 'set' ? body.op : null;
+        if (!op) return sendJson(res, 400, { error: 'op must be "reroll" or "set"' });
+        const value = typeof body.value === 'string' ? body.value : '';
+        if (op === 'set' && !value) return sendJson(res, 400, { error: 'value is required to set a description' });
+        const result = stageAnimationDescription(item, { op, value });
+        if (!result.ok) return sendJson(res, result.status, { error: result.error });
+        return sendJson(res, 200, animationView(item));
+    }
+
+    if (url.pathname === '/api/animation-image' && req.method === 'GET') {
+        const item = url.searchParams.get('id') && findItem(url.searchParams.get('id'));
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        if (!animationSupported(item)) return sendJson(res, 404, { error: 'no such image' });
+        const file = animationPaths(item).webp;
+        if (!fs.existsSync(file)) return sendJson(res, 404, { error: 'no such image' });
+        res.writeHead(200, { 'Content-Type': 'image/webp', 'Cache-Control': 'no-store' });
+        fs.createReadStream(file).pipe(res);
+        return;
     }
 
     if (url.pathname === '/api/model-3d-image' && req.method === 'GET') {

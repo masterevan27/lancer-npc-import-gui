@@ -142,3 +142,21 @@ test('the ship staged-imports dir is a SIBLING of the NPC one, not a child', () 
     assert.equal(p.spaceshipStagedRefsDir,
         path.join(p.spaceshipStagedImportsDir, 'refs'));
 });
+
+test('derives animate-portrait.py beside generate-npc.py, and its own key wins', () => {
+    const p = derivePaths({ npcManifestPath: path.join(REPO, '.generated-npcs.json') });
+    assert.strictEqual(p.animatePortraitScript, path.join(REPO, 'animate-portrait.py'));
+
+    const moved = derivePaths({
+        npcManifestPath: path.join(REPO, '.generated-npcs.json'),
+        generateNpcScript: path.join('D:', 'tools', 'generate-npc.py'),
+    });
+    assert.strictEqual(moved.animatePortraitScript, path.join('D:', 'tools', 'animate-portrait.py'));
+
+    const split = derivePaths({
+        npcManifestPath: path.join(REPO, '.generated-npcs.json'),
+        animatePortraitScript: path.join('E:', 'wan', 'animate-portrait.py'),
+    });
+    assert.strictEqual(split.animatePortraitScript, path.join('E:', 'wan', 'animate-portrait.py'));
+    assert.strictEqual(split.generateNpcScript, path.join(REPO, 'generate-npc.py'));
+});

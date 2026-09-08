@@ -8,6 +8,7 @@
   "pythonExecutable": "python",
   "generateNpcScript": "",
   "generate3dScript": "",
+  "animatePortraitScript": "",
   "generateSpaceshipScript": "",
   "foundryNpcSubdir": "LancerNPCs",
   "foundrySpaceshipSubdir": "LancerSpaceships",

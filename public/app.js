@@ -13,7 +13,53 @@ const ROLE_CATEGORY_KEY = 'Role Category';
 // Fields that are noise in a trait list - the character's own name split three ways.
 const TRAIT_KEY_EXCLUDE = ['name', 'Given names', 'Family names'];
 
+/**
+ * The pseudo-trait the sheet shows an NPC's animation description under. Not
+ * in the manifest's traits at all - it lives in the sidecar beside the loop
+ * (see lib/animate.js) - but it sits in the trait table because that is where
+ * Re-roll and Set... are, and a description chosen anywhere else would be the
+ * one trait on the sheet edited differently from the rest.
+ */
+const ANIMATION_TRAIT = 'Animation';
+
+/**
+ * Which of the generator's prompts each NPC trait reaches, where it is not
+ * both. Read off build_prompts() in generate-npc.py: the portrait template
+ * alone takes the Backdrop scene, the Weather sentence and the glow
+ * placement clause (GLOW_TOKEN names no placement); the token template alone
+ * takes Height and the Stance. Everything else - and every spaceship trait,
+ * whose templates this table does not describe - reaches both.
+ */
+const TRAIT_SCOPES = {
+  Backdrop: 'portrait',
+  Weather: 'portrait',
+  'Glow placement': 'portrait',
+  Height: 'token',
+  Stance: 'token',
+  [ANIMATION_TRAIT]: 'animation',
+};
+
+const SCOPE_LABELS = { portrait: 'Portrait only', token: 'Token only', animation: 'Animated only' };
+
+/** 'portrait' | 'token' | 'animation' | 'both', for one trait of one kind. */
+function traitScopeOf(kind, trait) {
+  if (kind && kind !== 'npc') return 'both';
+  return TRAIT_SCOPES[trait] || 'both';
+}
+
+/** The pill after a trait's name, or nothing for a trait both prompts read. */
+function scopePill(scope) {
+  if (!SCOPE_LABELS[scope]) return '';
+  return ` <span class="scope-pill scope-${scope}">${SCOPE_LABELS[scope]}</span>`;
+}
+
 const state = {
+  // /api/animation's answer for the open sheet, and whose it is. The Animation
+  // row and the panel both paint from it, and a stale one from the previous
+  // NPC must not paint the next.
+  animationView: null,
+  animationOwnerId: null,
+  animateLastStatus: null,
   category: null,
   items: [],
   visibleItems: [],
@@ -60,6 +106,8 @@ const el = {
   detailClose: document.getElementById('detail-close'),
   detailPortrait: document.getElementById('detail-portrait'),
   detailToken: document.getElementById('detail-token'),
+  detailAnimated: document.getElementById('detail-animated'),
+  detailAnimatedFigure: document.getElementById('detail-animated-figure'),
   detailName: document.getElementById('detail-name'),
   detailSub: document.getElementById('detail-sub'),
   detailGenerated: document.getElementById('detail-generated'),
@@ -86,6 +134,14 @@ const el = {
   model3dStatus: document.getElementById('model3d-status'),
   model3dTurnarounds: document.getElementById('model3d-turnarounds'),
   model3dFiles: document.getElementById('model3d-files'),
+  animatePanel: document.getElementById('animate-panel'),
+  animateStale: document.getElementById('animate-stale'),
+  animateDescription: document.getElementById('animate-description'),
+  animateSeedInput: document.getElementById('animate-seed-input'),
+  animateBuilt: document.getElementById('animate-built'),
+  animateBtn: document.getElementById('animate-btn'),
+  animateStatus: document.getElementById('animate-status'),
+  scopeLegend: document.getElementById('scope-legend'),
   detailDeleteBtn: document.getElementById('detail-delete-btn'),
 };
 
@@ -140,6 +196,7 @@ const elSetTrait = {
   releaseRow: document.getElementById('set-trait-release-row'),
   release: document.getElementById('set-trait-release'),
   releaseLabel: document.getElementById('set-trait-release-label'),
+  warning: document.getElementById('set-trait-warning'),
   cancel: document.getElementById('set-trait-cancel'),
   ok: document.getElementById('set-trait-ok'),
 };
@@ -830,6 +887,17 @@ function render() {
       badge.textContent = '3D failed';
       badge.title = item.model3dError || '';
       card.appendChild(badge);
+    } else if (item.animationStatus === 'running') {
+      const badge = document.createElement('span');
+      badge.className = 'badge pending';
+      badge.textContent = 'Animating…';
+      card.appendChild(badge);
+    } else if (item.animationStatus === 'error') {
+      const badge = document.createElement('span');
+      badge.className = 'badge error';
+      badge.textContent = 'Animation failed';
+      badge.title = item.animationError || '';
+      card.appendChild(badge);
     }
 
     // A second badge, deliberately outside the chain above rather than another
@@ -1051,11 +1119,16 @@ function releaseLabel(choice) {
  * of the served source and inject a variable named createState - keeps
  * resolving the NPC vocabulary it always meant.
  */
-function traitControlCells(trait, rerollable, vocab = createState) {
+function traitControlCells(trait, rerollable, vocab = createState, controls = null) {
   const name = escapeHtml(trait);
   // Both cells go out of every branch, so the row always has four columns.
   const cells = (reroll, set) =>
     `<td class="reroll-cell">${reroll}</td><td class="set-cell">${set}</td>`;
+  // A row whose controls are not the trait gutters' - the Animation row's,
+  // which stage into the sidecar rather than the manifest - still puts them
+  // in these two cells, so it lines up with the rest and so this stays the
+  // one place the cells are written (ui.traitColumns.test.js counts).
+  if (controls) return cells(controls.reroll, controls.set);
   if (rerollable.includes(trait)) {
     return cells(
       `<button type="button" class="reroll-btn" data-trait="${name}"
@@ -1168,15 +1241,63 @@ function renderDetailTraits(item) {
   // the list it consults when a trait is NOT rerollable decides whether the
   // row gets the greyed "re-roll the whole NPC once" explanation, and asking
   // the NPC list that question on a ship put NPC copy under a ship's traits.
+  //
+  // The scope class rides on the row rather than inside traitControlCells, so
+  // that function keeps the two-argument shape ui.traitColumns.test.js lifts
+  // it out under; the pill sits beside the name and the CSS tints the row's
+  // buttons to match it.
   const vocab = vocabFor(item.kind);
   const rerollable = rerollableForItem(item, vocab);
-  el.detailTraits.innerHTML = Object.entries(item.traits || {})
+  const rows = Object.entries(item.traits || {})
     .filter(([k]) => !TRAIT_KEY_EXCLUDE.includes(k))
     .map(([k, v]) => {
+      const scope = traitScopeOf(item.kind, k);
       const cells = traitControlCells(k, rerollable, vocab);
-      return `<tr>${cells}<td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`;
-    })
-    .join('');
+      return `<tr class="scope-${scope}">${cells}<td>${escapeHtml(k)}${scopePill(scope)}</td>`
+        + `<td>${escapeHtml(v)}</td></tr>`;
+    });
+  // Last, after the rolled traits: it is not one of them, and the generator's
+  // roll order above is worth keeping readable.
+  if (item.supports ? item.supports.animate : item.kind === 'npc') rows.push(animationTraitRow(item));
+  el.detailTraits.innerHTML = rows.join('');
+  el.scopeLegend.hidden = !rows.some((row) => row.includes('scope-pill'));
+}
+
+/**
+ * The Animation row: the description the next loop will use, with its own
+ * Re-roll and Set... - which stage a choice into the sidecar rather than into
+ * the manifest, and so carry their own classes rather than the trait
+ * gutters', whose click handlers post to /api/stage-trait.
+ *
+ * Painted from state.animationView when it belongs to this item. Before that
+ * answer lands the controls are disabled rather than absent, so the row does
+ * not change shape a moment after the sheet opens.
+ */
+function animationTraitRow(item) {
+  const view = state.animationOwnerId === item.id ? state.animationView : null;
+  const running = view ? view.status === 'running' : item.animationStatus === 'running';
+  const none = !!view && !view.descriptions.length;
+  const chosen = view ? (view.pending || view.description || '') : '';
+  let shown;
+  if (chosen) shown = escapeHtml(chosen);
+  else if (none) shown = '<em>the tables file has no ## Animation table to choose from</em>';
+  else if (view) shown = '<em>drawn from the Animation table when you animate</em>';
+  else shown = '';
+  // Staged but not yet rendered, the same fact the Regenerate panel's amber
+  // button carries for a staged trait edit.
+  if (view && view.pending && view.description && view.pending !== view.description) {
+    shown += ' <span class="scope-note">(chosen — press Re-animate)</span>';
+  }
+  const disabled = running || none || !view ? ' disabled' : '';
+  const cells = traitControlCells(ANIMATION_TRAIT, [], undefined, {
+    reroll: `<button type="button" class="anim-reroll-btn"${disabled}`
+      + ' title="Draw another description from the Animation table">Re-roll</button>',
+    set: `<button type="button" class="anim-set-btn"${disabled}`
+      + ' title="Choose a description from the Animation table">Set&hellip;</button>',
+  });
+  return `<tr class="scope-animation">${cells}`
+    + `<td>${escapeHtml(ANIMATION_TRAIT)}${scopePill('animation')}</td>`
+    + `<td>${shown}</td></tr>`;
 }
 
 /** The sheet's prompt panes, for a manifest entry new enough to carry them. */
@@ -1202,6 +1323,7 @@ function renderDetailFor(item) {
   renderDetailTraits(item);
   renderDetailPrompts(item);
   renderRegenPanel(item);
+  renderAnimationPanel(item, state.animationOwnerId === item.id ? state.animationView : null);
 }
 
 function openDetail(item) {
@@ -1234,6 +1356,17 @@ function openDetail(item) {
   el.model3dOverwrite.checked = false;
   renderModel3dPanel(item, null);
   refreshModel3d(item.id);
+
+  // Same arrangement for the animation: the sidecar and the table are one
+  // request, made once per open and on each poll tick while a job runs.
+  state.animationView = null;
+  state.animationOwnerId = null;
+  state.animateLastStatus = item.animationStatus ?? null;
+  document.querySelector('input[name="animate-seed-mode"][value="same"]').checked = true;
+  el.animateSeedInput.disabled = true;
+  el.animateSeedInput.value = '';
+  renderAnimationPanel(item, null);
+  refreshAnimation(item.id);
 
   // Opening the sheet is the one unambiguous "I have looked at this": it is
   // where the portrait at full size, the traits and the prompts actually are.
@@ -1414,6 +1547,259 @@ async function refreshModel3d(id) {
     if (item) renderModel3dPanel(item, view);
   } catch { /* leave the panel showing whatever it last knew */ }
 }
+
+/**
+ * The detail overlay's "Animated portrait" panel, and the third figure.
+ *
+ * `view` is /api/animation's answer, or null before the first one arrives -
+ * in which case the item row's own hasAnimation/animationUrl/animationStatus
+ * paint the frame and the description line waits.
+ */
+function renderAnimationPanel(item, view) {
+  const supported = item.supports ? !!item.supports.animate : item.kind === 'npc';
+  el.animatePanel.hidden = !supported;
+
+  // The figure follows the item row, whose animationUrl carries the loop's
+  // mtime the way portraitUrl does - so a re-animate changes the src and the
+  // browser fetches the new bytes without any cache-busting here.
+  const url = view && view.url ? view.url : item.animationUrl;
+  el.detailAnimatedFigure.hidden = !supported || !url;
+  if (url && el.detailAnimated.getAttribute('src') !== url) el.detailAnimated.src = url;
+  if (!url) el.detailAnimated.removeAttribute('src');
+  if (!supported) return;
+
+  const status = view ? view.status : item.animationStatus;
+  const running = status === 'running';
+  const built = view ? Boolean(view.url) : Boolean(item.hasAnimation);
+  const chosen = view ? (view.pending || view.description || '') : '';
+  const nothingToSend = !!view && !chosen && !view.descriptions.length;
+  const staged = !!view && !!view.pending && view.pending !== (view.description || null);
+
+  el.animateBtn.disabled = running || nothingToSend;
+  el.animateBtn.textContent = running ? 'Animating…' : built ? 'Re-animate portrait' : 'Animate portrait';
+  // Amber for the same reason Regenerate goes amber: something chosen or
+  // changed that the loop on disk does not yet show.
+  el.animateBtn.classList.toggle('accent', !running && built && !!view && (view.stale || staged));
+  el.animateStale.hidden = !(view && view.stale);
+
+  el.animateDescription.textContent = view
+    ? (chosen
+      ? `Description: ${chosen}`
+      : nothingToSend
+        ? 'The tables file has no ## Animation table, so there is nothing to describe the motion with.'
+        : 'Description: drawn from the Animation table when you press Animate — or choose one on the Animation row below.')
+    : '';
+
+  const seedMode = document.querySelector('input[name="animate-seed-mode"]:checked')?.value;
+  for (const radio of document.querySelectorAll('#animate-panel input[type="radio"]')) radio.disabled = running;
+  el.animateSeedInput.disabled = running || seedMode !== 'specific';
+
+  el.animateBuilt.textContent = view?.builtAt
+    ? `Animated ${new Date(view.builtAt).toLocaleString(undefined, {
+      dateStyle: 'medium', timeStyle: 'short',
+    })}${Number.isInteger(view.seed) ? ` · seed ${view.seed}` : ''}`
+    : built ? '' : 'No animation yet.';
+
+  const justFinished = status === 'done' && state.animateLastStatus !== 'done';
+  if (running) {
+    el.animateStatus.textContent = view?.stage
+      ? `Animating… ${view.stage}`
+      : 'Animating… this takes a few minutes (ComfyUI with the Wan 2.2 models must be running).';
+  } else if (status === 'error') {
+    el.animateStatus.textContent = `Failed: ${(view ? view.error : item.animationError) || 'unknown error'}`;
+  } else if (justFinished) {
+    el.animateStatus.textContent = 'Done.';
+  } else {
+    el.animateStatus.textContent = '';
+  }
+  state.animateLastStatus = status ?? null;
+}
+
+/**
+ * Fetches /api/animation for one NPC and repaints the panel and the
+ * Animation row. Silent on failure, for the reason refreshModel3d is.
+ */
+async function refreshAnimation(id) {
+  if (!id) return;
+  try {
+    const res = await fetch(`/api/animation?id=${encodeURIComponent(id)}`);
+    if (!res.ok) return;
+    const view = await res.json();
+    if (state.detailItemId !== id) return;
+    state.animationView = view;
+    state.animationOwnerId = id;
+    const item = state.items.find((i) => i.id === id);
+    if (item) {
+      renderAnimationPanel(item, view);
+      renderDetailTraits(item);
+      // Repainting the traits hands back enabled gutters; a running regen or
+      // staged edit has to shut them again, the order renderDetailFor keeps.
+      setTraitGuttersDisabled(item.regenStatus === 'running' || state.stagingItemId === item.id);
+    }
+  } catch { /* leave the panel showing whatever it last knew */ }
+}
+
+/**
+ * The description picker: the Set... dialog's frame over the Animation
+ * table's bullets. No release row and no re-render warning - choosing a
+ * description renders nothing and replaces nothing on disk.
+ */
+function openSetAnimation(view) {
+  return new Promise((resolve) => {
+    const current = view.pending || view.description || null;
+    let selected = current;
+
+    elSetTrait.title.textContent = `Set ${ANIMATION_TRAIT}`;
+    elSetTrait.filter.value = '';
+    elSetTrait.filter.hidden = view.descriptions.length < 12;
+    elSetTrait.releaseRow.hidden = true;
+    elSetTrait.release.checked = false;
+    elSetTrait.warning.hidden = true;
+    const okLabel = elSetTrait.ok.textContent;
+    elSetTrait.ok.textContent = 'Choose';
+    elSetTrait.ok.disabled = !selected;
+    elSetTrait.overlay.hidden = false;
+    elSetTrait.cancel.focus();
+
+    const cleanup = (result) => {
+      elSetTrait.overlay.hidden = true;
+      elSetTrait.warning.hidden = false;
+      elSetTrait.ok.textContent = okLabel;
+      elSetTrait.ok.removeEventListener('click', onOk);
+      elSetTrait.cancel.removeEventListener('click', onCancel);
+      elSetTrait.overlay.removeEventListener('click', onBackdrop);
+      elSetTrait.filter.removeEventListener('input', render);
+      elSetTrait.list.removeEventListener('change', onPick);
+      resolve(result);
+    };
+    const onOk = () => { if (selected) cleanup(selected); };
+    const onCancel = () => cleanup(null);
+    const onBackdrop = (e) => { if (e.target === elSetTrait.overlay) cleanup(null); };
+    const onPick = (e) => {
+      if (!view.descriptions.includes(e.target.value)) return;
+      selected = e.target.value;
+      elSetTrait.ok.disabled = false;
+    };
+
+    function render() {
+      const needle = elSetTrait.filter.value.trim().toLowerCase();
+      const visible = needle
+        ? view.descriptions.filter((d) => d.toLowerCase().includes(needle))
+        : view.descriptions;
+      if (!visible.length) {
+        elSetTrait.list.textContent = 'Nothing matches that.';
+        return;
+      }
+      elSetTrait.list.innerHTML = visible.map((text) => '<label class="set-trait-row">'
+        + `<input type="radio" name="set-trait-value" value="${escapeHtml(text)}"`
+        + `${text === selected ? ' checked' : ''}>`
+        + `<span class="set-trait-label">${escapeHtml(text)}`
+        + `${text === current ? ' <em>(current)</em>' : ''}</span>`
+        + '</label>').join('');
+    }
+
+    elSetTrait.ok.addEventListener('click', onOk);
+    elSetTrait.cancel.addEventListener('click', onCancel);
+    elSetTrait.overlay.addEventListener('click', onBackdrop);
+    elSetTrait.filter.addEventListener('input', render);
+    elSetTrait.list.addEventListener('change', onPick);
+    render();
+  });
+}
+
+/**
+ * Stage the next loop's description - a re-roll or a chosen value - and
+ * repaint from the server's answer. Nothing renders; that is the button.
+ */
+async function stageAnimationDescription(id, body) {
+  for (const button of el.detailTraits.querySelectorAll('.anim-reroll-btn, .anim-set-btn')) {
+    button.disabled = true;
+  }
+  try {
+    const view = await api('/api/animation/description', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...body }),
+    });
+    if (state.detailItemId !== id) return;
+    state.animationView = view;
+    state.animationOwnerId = id;
+    const item = state.items.find((i) => i.id === id);
+    if (item) {
+      renderAnimationPanel(item, view);
+      renderDetailTraits(item);
+      setTraitGuttersDisabled(item.regenStatus === 'running' || state.stagingItemId === item.id);
+    }
+  } catch (err) {
+    el.animateStatus.textContent = `Couldn't choose a description: ${err.message}`;
+    await refreshAnimation(id);
+  }
+}
+
+el.detailTraits.addEventListener('click', async (event) => {
+  const button = event.target.closest('.anim-reroll-btn');
+  if (!button || !state.detailItemId) return;
+  await stageAnimationDescription(state.detailItemId, { op: 'reroll' });
+});
+
+el.detailTraits.addEventListener('click', async (event) => {
+  const button = event.target.closest('.anim-set-btn');
+  if (!button || !state.detailItemId) return;
+  const id = state.detailItemId;
+  const view = state.animationOwnerId === id ? state.animationView : null;
+  if (!view) return;
+  const picked = await openSetAnimation(view);
+  if (!picked) return;
+  await stageAnimationDescription(id, { op: 'set', value: picked });
+});
+
+for (const input of document.querySelectorAll('input[name="animate-seed-mode"]')) {
+  input.addEventListener('change', () => {
+    el.animateSeedInput.disabled = input.value !== 'specific';
+    if (input.value === 'specific') el.animateSeedInput.focus();
+  });
+}
+
+el.animateBtn.addEventListener('click', async () => {
+  const id = state.detailItemId;
+  if (!id) return;
+  const seedMode = document.querySelector('input[name="animate-seed-mode"]:checked')?.value || 'same';
+  const body = { id, seedMode };
+  if (seedMode === 'specific') {
+    const seed = Number(el.animateSeedInput.value);
+    if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295) {
+      el.animateStatus.textContent = 'Enter a whole number seed between 0 and 4294967295.';
+      return;
+    }
+    body.seed = seed;
+  }
+
+  el.animateBtn.disabled = true;
+  el.animateBtn.textContent = 'Animating…';
+  el.animateStatus.textContent = 'Starting…';
+  try {
+    const res = await fetch('/api/animation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      el.animateStatus.textContent = `Couldn't start: ${result.error || result.reason || res.status}`;
+      const item = state.items.find((i) => i.id === id);
+      if (item) renderAnimationPanel(item, state.animationOwnerId === id ? state.animationView : null);
+      return;
+    }
+    el.animateStatus.textContent = 'Animating… this takes a few minutes (ComfyUI with the Wan 2.2 models must be running).';
+    startPolling();
+    await refreshItems();
+    await refreshAnimation(id);
+  } catch (err) {
+    el.animateStatus.textContent = `Couldn't start: ${err.message}`;
+    el.animateBtn.disabled = false;
+    el.animateBtn.textContent = 'Animate portrait';
+  }
+});
 
 el.model3dBtn.addEventListener('click', async () => {
   const id = state.detailItemId;
@@ -1847,11 +2233,13 @@ function startPolling() {
         // Repainting ~20 rows every two seconds is cheap.
         renderDetailFor(openItem);
         await refreshModel3d(state.detailItemId);
+        await refreshAnimation(state.detailItemId);
       }
     }
 
     const building3d = state.items.some((i) => i.model3dStatus === 'running');
-    const stillPending = building3d || state.items.some((i) =>
+    const animating = state.items.some((i) => i.animationStatus === 'running');
+    const stillPending = building3d || animating || state.items.some((i) =>
       i.jobStatus === 'queued' || i.jobStatus === 'sent' || i.regenStatus === 'running');
     // An empty list is not "nothing is pending". generate-npc.py rewrites the
     // whole manifest at the very end of a regen and the server answers [] for a

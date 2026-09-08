@@ -121,9 +121,15 @@ test('renderDetailTraits renders the current values and the right buttons', asyn
     const js = await appJs(t);
     const detailTraits = { innerHTML: '' };
     const renderDetailTraits = liftFunction(js, 'renderDetailTraits', {
-        el: { detailTraits },
+        el: { detailTraits, scopeLegend: {} },
         TRAIT_KEY_EXCLUDE: ['name', 'Given names', 'Family names'],
         escapeHtml,
+        // The scope labelling and the Animation row (see traitScopeOf and
+        // animationTraitRow in app.js) are not what this test is about, so
+        // they are stubbed to nothing rather than lifted.
+        traitScopeOf: () => 'both',
+        scopePill: () => '',
+        animationTraitRow: () => '',
         traitControlCells: liftFunction(js, 'traitControlCells', {
             createState: { rawRerollableTraits: ['Outfit'] },
             escapeHtml,
