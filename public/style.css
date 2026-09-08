@@ -518,7 +518,7 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   right: 0.4rem;
 }
 .card .badge.error { background: var(--danger); }
-/* Dark text on the amber, not white: white on this amber is 3.6:1 and the
+/* Dark text on the amber, not white: white on this amber is 2.7:1 and the
    pill is 11px tall. The dark-on-amber pair is 6.8:1 and reads as a warning
    label should. */
 .card .badge.pending { background: var(--warn); color: var(--on-warn); }
@@ -878,7 +878,7 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
    once, on the argument that twenty-odd outlines read as a wall; the answer
    that survived contact with users is that a wall of buttons is what the
    column actually is, and dimming it only hid the affordance. The blue is
-   muted rather than the full #3d6ef0 of a primary action so the gutter still
+   muted rather than the full #3566e6 of a primary action so the gutter still
    sits behind the trait values it belongs to, and brightens to that primary
    blue on hover or focus.
 
@@ -1513,7 +1513,7 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   top: calc(3.1rem + var(--sp-4));
   max-height: calc(100vh - 3.1rem - var(--sp-8));
   overflow-y: auto;
-  padding-right: 2px;
+  padding: 0 4px;
 }
 .table-heading-row {
   overflow-wrap: anywhere;
@@ -1537,6 +1537,13 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   background: var(--selected-bg);
   color: #ffffff;
   box-shadow: inset 3px 0 0 var(--accent-border);
+}
+/* .active's inset marker is (0,2,0) and would otherwise replace :focus-visible's
+   ring outright, leaving the selected table with no focus affordance at all -
+   the global outline: none has already taken the browser's own away. Both
+   shadows, so the selected row still says selected while focused. */
+.table-heading-row.active:focus-visible {
+  box-shadow: inset 3px 0 0 var(--accent-border), var(--focus-ring);
 }
 .table-group-header { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: var(--track-caps); color: var(--text-3); margin: var(--sp-3) 0 var(--sp-1); }
 .table-group-header:first-child { margin-top: 0; }

@@ -894,7 +894,9 @@ function updateToolbar() {
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text ?? '';
-  return div.innerHTML;
+  // The text-node serializer escapes & < > but not the double quote, which is
+  // the one that matters when the result lands in a title="..." attribute.
+  return div.innerHTML.replace(/"/g, '&quot;');
 }
 
 /** item.when is generate-npc.py's "%Y-%m-%d %H:%M:%S" local-time string - parse
