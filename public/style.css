@@ -243,7 +243,7 @@ button, a, label, select, input {
    <option> styling is limited and ignored outright on some platforms, so the
    label also carries a "[disabled]" suffix - this is the hint, not the
    mechanism. */
-.trait-option-disabled { color: #8b93a1; font-style: italic; }
+.trait-option-disabled { color: var(--text-4); font-style: italic; }
 /* A bullet ruled out by the Pronouns setting rather than by the Tables tab - a
    woman-only Outfit while the run is set to he/him. It sits next to the rule
    above because the two look alike at a glance and mean opposite things: that
@@ -310,7 +310,7 @@ main { padding: 1rem 1.25rem 5rem; }
   font-weight: 600;
   cursor: pointer;
 }
-#import-btn:disabled { background: #2c2f38; color: #6b7280; cursor: default; }
+#import-btn:disabled { background: #2c2f38; color: var(--text-disabled); cursor: default; }
 
 button.danger {
   background: #c0392b;
@@ -322,7 +322,7 @@ button.danger {
   cursor: pointer;
 }
 button.danger:hover { background: #a5311f; }
-button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7280; cursor: default; }
+button.danger:disabled { background: #2c2f38; border-color: #363b47; color: var(--text-disabled); cursor: default; }
 
 .filters {
   display: flex;
@@ -370,15 +370,30 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   padding: 0 0.2rem;
 }
 .filter-row .filter-remove:hover { color: #e6e6e6; }
-#add-filter {
-  background: #262a33;
-  border: 1px solid #363b47;
-  color: #e6e6e6;
-  padding: 0.4rem 0.8rem;
-  border-radius: 6px;
+/* The three "add a row" buttons share one rule: the two override-row ones on
+   the Create tabs shipped with no rule at all and painted as the browser's
+   grey default in the middle of a dark form. */
+#add-filter,
+#add-override,
+#add-ship-override {
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  height: var(--control-h);
+  padding: 0 0.8rem;
+  border-radius: var(--r-md);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
+#add-filter:hover:not(:disabled),
+#add-override:hover:not(:disabled),
+#add-ship-override:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: var(--line-hover);
+}
+#add-filter:disabled,
+#add-override:disabled,
+#add-ship-override:disabled { opacity: 0.5; cursor: default; }
 
 .grid {
   display: grid;
@@ -424,23 +439,34 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   width: 1.15rem;
   height: 1.15rem;
 }
+/* The pill itself, wherever it appears. Only .card ever styled it before, so
+   the Imported badge on a Trait Imports row painted as bare text. .card adds
+   the corner; nothing else needs to. */
+.badge {
+  display: inline-block;
+  background: var(--ok);
+  color: #ffffff;
+  font-size: var(--fs-2xs);
+  line-height: 1.3;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
 .card .badge {
   position: absolute;
   top: 0.4rem;
   right: 0.4rem;
-  background: #1f9d55;
-  color: white;
-  font-size: 0.68rem;
-  padding: 0.15rem 0.4rem;
-  border-radius: 999px;
 }
-.card .badge.error { background: #c0392b; }
-.card .badge.pending { background: #b7791f; }
+.card .badge.error { background: var(--danger); }
+/* Dark text on the amber, not white: white on this amber is 3.6:1 and the
+   pill is 11px tall. The dark-on-amber pair is 6.8:1 and reads as a warning
+   label should. */
+.card .badge.pending { background: var(--warn); color: var(--on-warn); }
 /* Traits edited since the art was made. Purple because the four meanings
    already spoken for are green (Imported), amber (pending), red (failed) and
    blue (New), and this is a fifth: not an error and not work in progress, but
    a render the user still has to ask for. */
-.card .badge.stale { background: #7d5ba6; }
+.card .badge.stale { background: var(--stale); }
 /* Generated since the user last opened it. Not another arm of the if/else
    chain that picks the badge above: a brand-new NPC can equally be mid-regen
    or have just failed a 3D build, and those are independent facts, so this
@@ -452,28 +478,39 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .card .badge.new {
   right: auto;
   left: 1.85rem;
-  background: #2b6cb0;
+  background: var(--info);
 }
 /* So a new card is findable at a glance under a name-asc sort, where the
    default newest-first clustering doesn't help, without hunting for pills. */
-.card.is-new { border-color: #3b7fc4; }
+.card.is-new { border-color: var(--info-border); }
 
 /* A spaceship's portrait is a wide hull shot, not a headshot - a square crop
    of one loses more of the subject than the same crop does on an NPC
    portrait. More specific than the plain `.card img` rule above it, so it
    overrides the aspect-ratio for a spaceship card's thumbnail alone. */
 .card--spaceship .thumb { aspect-ratio: 16 / 9; }
+/* Two lines, then an ellipsis: enough to tell a destroyer from a cruiser at
+   a glance, and the sheet has the rest. */
+.card .ship-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin-top: var(--sp-1);
+  line-height: 1.35;
+}
 
 /* The hex-footprint pill (1◇/2◇/3◇/5◇, from item.tokenHexes) - its own
-   corner, bottom-left, so it never collides with the top corners' status and
-   New badges. Grey rather than any of their four colours: a footprint is a
-   fact about the ship, not a status. */
+   slot, top-left under the select checkbox (0.4rem + 1.15rem tall + a gap), so
+   it never collides with the New tag beside the box or the status badge
+   opposite, and never sits on the body text. Grey rather than any of their
+   four colours: a footprint is a fact about the ship, not a status. */
 .card .badge.hex-badge {
-  top: auto;
+  top: 1.9rem;
   right: auto;
-  bottom: 0.4rem;
+  bottom: auto;
   left: 0.4rem;
-  background: #384357;
+  background: var(--neutral-badge);
 }
 
 .empty { color: #9aa1ad; margin-top: 2rem; }
@@ -540,7 +577,7 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 }
 .detail-info h2 { margin: 0 0 0.15rem; }
 .detail-info p { margin: 0 0 0.75rem; color: #9aa1ad; }
-.detail-generated { margin-top: -0.5rem; font-size: 0.8rem; color: #6b7280; }
+.detail-generated { margin-top: -0.5rem; font-size: 0.8rem; color: var(--text-4); }
 .detail-title-row { display: flex; align-items: baseline; gap: 0.9rem; }
 .detail-title-row h2 { flex: 1; }
 .detail-title-row .danger { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
@@ -549,7 +586,7 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .detail-shortcuts {
   margin: 0.15rem 0 0;
   font-size: 0.72rem;
-  color: #6b7280;
+  color: var(--text-4);
   letter-spacing: 0.02em;
 }
 
@@ -615,10 +652,15 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 #set-trait-release-row {
   display: block;
   margin-top: 0.7rem;
-  font-size: 0.85rem;
-  color: #d7dae0;
+  font-size: var(--fs-md);
+  color: var(--text);
   cursor: pointer;
 }
+/* Same guard .banner[hidden] carries, for the same reason: the display above
+   is an author declaration and beats the browser's [hidden] outright, which
+   left an unlabelled checkbox sitting under the list for every value that
+   conflicts with nothing. */
+#set-trait-release-row[hidden] { display: none; }
 #delete-confirm-list {
   margin: 0 0 0.75rem;
   padding-left: 1.2rem;
@@ -629,14 +671,25 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1rem; }
 .confirm-actions button {
-  background: #262a33;
-  border: 1px solid #363b47;
-  color: #e6e6e6;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
   padding: 0.5rem 1rem;
-  border-radius: 6px;
+  border-radius: var(--r-md);
   cursor: pointer;
-  font-size: 0.88rem;
+  font-size: var(--fs-md);
 }
+.confirm-actions button:hover { background: var(--surface-3); border-color: var(--line-hover); }
+/* button.danger is earlier in this file at the same specificity, so the grey
+   above was winning on source order and the one irreversible button in the
+   app looked exactly like Cancel. Restated here, after it, on purpose. */
+.confirm-actions button.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #ffffff;
+  font-weight: 600;
+}
+.confirm-actions button.danger:hover { background: var(--danger-hover); border-color: var(--danger-hover); }
 /* The cascade dialog's go button carries the Re-roll buttons' own blue, so it
    reads as the continuation of the click that raised it rather than as a
    second, unrelated choice. It is deliberately not the delete dialog's red:
@@ -688,17 +741,17 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   font-size: 0.82rem;
 }
 #regen-btn:disabled,
-#model3d-btn:disabled { background: #2c2f38; color: #6b7280; cursor: default; }
+#model3d-btn:disabled { background: #2c2f38; color: var(--text-disabled); cursor: default; }
 /* The one button on the sheet with something outstanding to do. Amber rather
    than a brighter blue: the panel's default blue is already the "go" colour, so
    a louder blue would read as the same button rather than a changed one, and
    amber is what the pending badge on the card already means. */
-#regen-btn.accent { background: #b7791f; }
-#regen-btn.accent:hover { background: #d18f2a; }
+#regen-btn.accent { background: var(--warn); color: var(--on-warn); }
+#regen-btn.accent:hover { background: var(--warn-hover); }
 /* The same amber, on the sentence that explains it. Bold because it sits above
    three rows of radio labels at the same size and would otherwise read as a
    fourth one. */
-.regen-stale { color: #b7791f; font-weight: 600; margin: 0 0 0.5rem; font-size: 0.8rem; }
+.regen-stale { color: var(--warn-text); font-weight: 600; margin: 0 0 0.5rem; font-size: 0.8rem; }
 .regen-status { margin: 0.5rem 0 0; font-size: 0.8rem; color: #b3bac6; }
 #detail-traits { border-collapse: collapse; font-size: 0.85rem; }
 #detail-traits td { padding: 0.15rem 0.6rem 0.15rem 0; vertical-align: top; }
@@ -782,7 +835,7 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .set-trait-btn:disabled {
   background: #2c2f38;
   border-color: #2c2f38;
-  color: #6b7280;
+  color: var(--text-disabled);
   cursor: default;
 }
 /* The wrapper around a button disabled because this NPC predates raw bullets
@@ -906,7 +959,7 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   height: 2rem;
 }
 .form-field input:disabled { opacity: 0.5; }
-.hint { color: #6b7280; font-size: 0.75rem; font-weight: normal; }
+.hint { color: var(--text-4); font-size: 0.75rem; font-weight: normal; }
 .form-row {
   display: flex;
   flex-wrap: wrap;
@@ -926,7 +979,10 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   cursor: pointer;
   font-size: 0.88rem;
 }
-#create-generate-btn { background: #3d6ef0; border-color: #3d6ef0; font-weight: 600; }
+#create-generate-btn,
+#create-ship-generate-btn { background: var(--accent); border-color: var(--accent); font-weight: 600; }
+#create-generate-btn:hover:not(:disabled),
+#create-ship-generate-btn:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 .create-actions button:disabled { opacity: 0.5; cursor: default; }
 .job-log {
   margin-top: 0.8rem;
@@ -1039,7 +1095,7 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   border-radius: 4px;
   font-size: 0.78rem;
 }
-.filter-row .override-search::placeholder { color: #6b7280; }
+.filter-row .override-search::placeholder { color: var(--text-4); }
 
 /* "50 of 192 match "black"." - the answer to a keystroke, sitting between the
    box that was typed into and the list that changed because of it.
@@ -1052,7 +1108,7 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .override-search-note {
   font-size: 0.72rem;
   line-height: 1.4;
-  color: #8b93a1;
+  color: var(--text-4);
   margin: -0.05rem 0 0;
   overflow-wrap: anywhere;
 }
@@ -1376,7 +1432,7 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   margin: 0.6rem 0 0;
   font-size: 0.75rem;
   line-height: 1.45;
-  color: #8b93a1;
+  color: var(--text-4);
 }
 .table-bullet-text { flex: 1; }
 
@@ -1392,7 +1448,7 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
   gap: 0.15rem 0.7rem;
   margin: -0.1rem 0 0.5rem 10rem;
   font-size: 0.72rem;
-  color: #8b93a1;
+  color: var(--text-4);
 }
 .table-bullet-flags .flag-toggle {
   display: inline-flex;
@@ -1446,14 +1502,25 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .preset-download:hover, .preset-download:focus-visible { background: #2c2f38; border-color: #3d6ef0; }
 .preset-download:visited { color: #8fb3ff; }
 .preset-actions { display: flex; gap: 0.6rem; margin-top: 0.6rem; align-items: center; }
+/* #preset-save-btn joins the label it sits beside on the Tables tab - it had
+   no rule of its own and painted native grey next to a styled Import. */
+#preset-save-btn,
 .preset-import-label {
-  background: #262a33;
-  border: 1px solid #363b47;
-  color: #e6e6e6;
-  padding: 0.5rem 0.9rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  height: var(--control-h);
+  padding: 0 0.9rem;
+  border-radius: var(--r-md);
+  font-size: var(--fs-md);
   cursor: pointer;
+}
+#preset-save-btn:hover,
+.preset-import-label:hover {
+  background: var(--surface-3);
+  border-color: var(--line-hover);
 }
 .preset-preview { margin-top: 0.8rem; background: #1c1f26; border-radius: 6px; padding: 0.7rem; }
 .preset-preview-not-found { color: #e0a458; }
@@ -1484,5 +1551,5 @@ button.danger:disabled { background: #2c2f38; border-color: #363b47; color: #6b7
 .model3d-files {
   margin: 0.5rem 0 0;
   font-size: 0.75rem;
-  color: #7f8794;
+  color: var(--text-4);
 }

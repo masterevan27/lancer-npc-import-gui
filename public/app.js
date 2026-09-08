@@ -862,12 +862,17 @@ function render() {
 
     const body = document.createElement('div');
     body.className = 'body';
+    // A ship's Ship type and Size are whole sentences, not a two-word role
+    // and a one-word category, so they take two clamped text lines rather
+    // than the NPC's role line and uppercase pill - the pill turned a Size
+    // bullet into a five-line uppercase blob. The full text is in the title
+    // and on the sheet.
     body.innerHTML = `<div class="name">${escapeHtml(item.name)}</div>
       <div class="sub">${escapeHtml(item.callsign || '')}</div>
       ${item.traits?.Role ? `<div class="role">${escapeHtml(item.traits.Role)}</div>` : ''}
       ${item.roleCategory ? `<div class="role-category">${escapeHtml(item.roleCategory)}</div>` : ''}
-      ${item.traits?.['Ship type'] ? `<div class="role">${escapeHtml(item.traits['Ship type'])}</div>` : ''}
-      ${item.traits?.Size ? `<div class="role-category">${escapeHtml(item.traits.Size)}</div>` : ''}`;
+      ${item.traits?.['Ship type'] ? `<div class="role ship-line" title="${escapeHtml(item.traits['Ship type'])}">${escapeHtml(item.traits['Ship type'])}</div>` : ''}
+      ${item.traits?.Size ? `<div class="sub ship-line" title="${escapeHtml(item.traits.Size)}">${escapeHtml(item.traits.Size)}</div>` : ''}`;
     card.appendChild(body);
 
     card.addEventListener('click', () => openDetail(item));
