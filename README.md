@@ -455,22 +455,22 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test --test-concurrency=4 --test-timeout=120000 "test/*.test.js"
 ```
 
-Expect `tests 594` with one known failure (see below), in about fifteen
-seconds. No install step; the suite spawns real `server.js` child processes against synthetic fixture directories,
-never your real `config.json` or tables. Each test file binds a **fixed,
-distinct** port because `node --test` runs files concurrently — a new test file
-needs a port no other file uses.
+Expect `tests 601`, all passing, in about twenty seconds. No install step; the
+suite spawns real `server.js` child processes against synthetic fixture
+directories, never your real `config.json` or tables. Each test file binds a
+**fixed, distinct** port because `node --test` runs files concurrently — a new
+test file needs a port no other file uses.
 
-**One test fails on a fresh checkout, and it is telling the truth.**
-`every flag the live tables use has a checkbox` (`test/tableFlags.test.js`)
-compares `lib/tableFlags.js`'s vocabulary against the *live* tables in a
-`lancer-art-generator` checked out beside this repo, and it currently reports six
-flags with no checkbox: `Faction: unaffiliated` and `Glow placement:`
-`ground` / `wall` / `air` / `screens` / `signage`. That drift predates the
-spaceship work — it reproduces on the commit before that merge — and closing it
-is a product decision about which flags deserve a checkbox, not a mechanical fix.
-The test skips entirely when no generator sits beside the repo, so a green run
-elsewhere does not mean the drift is gone.
+**One test reads outside the repo, and a green run does not always mean what it
+looks like.** `every flag the live tables use has a checkbox`
+(`test/tableFlags.test.js`) compares `lib/tableFlags.js`'s vocabulary against
+the *live* tables in a `lancer-art-generator` checked out beside this repo. It
+skips entirely when no generator sits beside one, so a green run elsewhere —
+CI included — is not evidence the vocabularies agree. Two hermetic tests beside
+it (`Glow placement's prop gates each have a checkbox` and `Faction's
+'unaffiliated' marker has a checkbox`) pin the six flags that check last caught
+drifting, so dropping those again fails everywhere rather than nowhere; they
+are a backstop for the known cases, not a replacement for the live comparison.
 
 **The concurrency cap is not decoration; leave it on.** `node --test`
 defaults its concurrency to the machine's CPU count, and every file here spawns
@@ -542,7 +542,7 @@ CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs
 (a 4-vCPU runner already defaults below this machine's cap), and a
 `timeout-minutes: 10` on the job — but without the glob, so it also picks up
 `test/helpers/testServer.js` as a file
-with no tests in it. Expect one more there, `tests 595`, for a helper that
+with no tests in it. Expect one more there, `tests 602`, for a helper that
 declares no tests and therefore cannot fail. Both numbers move whenever a test
 is added; they are worth updating together.
 

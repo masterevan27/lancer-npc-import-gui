@@ -198,6 +198,34 @@ test('tables with no flag vocabulary get no checkboxes', () => {
     }
 });
 
+/*
+ * The drift check at the bottom of this file is the real guard, but it runs
+ * only where a generator sits beside the repo - so it is silent in CI and on
+ * any checkout without one. These two name the flags that check caught, so a
+ * regression that drops them again fails everywhere rather than nowhere.
+ *
+ * Both sets are read by generate-npc.py against the live tables: the five Glow
+ * placement prop gates through PLACEMENT_REQUIRES/PLACEMENT_FORBIDS in
+ * filter_by_placement_prop(), and Faction's 'unaffiliated' through
+ * filter_by_affiliation(). A flag the generator reads but this module does not
+ * document gets no checkbox, which leaves it invisible in the Tables tab and
+ * refused by setBulletFlag() - the quiet failure the vocabulary exists to
+ * prevent.
+ */
+test("Glow placement's prop gates each have a checkbox", () => {
+    for (const flag of ['scene', 'ground', 'wall', 'air', 'screens', 'signage']) {
+        assert.ok(knownFlags('Glow placement').includes(flag), flag);
+    }
+});
+
+test("Faction's 'unaffiliated' marker has a checkbox", () => {
+    // A marker rather than a preference, the same shape 'none' has on Weapon
+    // and 'bare' on Headgear: nothing is dropped FOR it. It is what
+    // filter_by_affiliation() matches on to cut a work-for-nobody Role's
+    // Faction pool down to the two non-affiliations.
+    assert.ok(knownFlags('Faction').includes('unaffiliated'));
+});
+
 test('every documented flag has a non-empty gloss', () => {
     for (const [table, flags] of Object.entries(TABLE_FLAGS)) {
         for (const [flag, gloss] of Object.entries(flags)) {

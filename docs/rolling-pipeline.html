@@ -1244,10 +1244,12 @@ footer {
           The generator matches flags literally and ignores anything it does not recognise, so
           <code>|| Figure</code> or <code>|| hand</code> fails only in the finished image.
           That is the entire argument for a checkbox per known flag rather than a text box.
-          <b>This is currently drifted and the suite says so</b> — <code>tableFlags.test.js</code>'s
-          "every flag the live tables use has a checkbox" reports six without one. It skips
-          entirely when no generator sits beside the repo, so a green run elsewhere does not
-          mean the drift is gone.
+          <code>tableFlags.test.js</code>'s "every flag the live tables use has a checkbox"
+          is what holds the two in step. It once reported six flags without one — Faction's
+          <code>unaffiliated</code> and the five Glow placement prop gates — which are now
+          documented and checkboxed. It skips entirely when no generator sits beside the repo,
+          so a green run elsewhere is not evidence the drift is gone; two hermetic tests beside
+          it pin those six by name as a backstop.
         </p>
       </div>
     </li>
