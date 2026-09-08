@@ -1468,15 +1468,17 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.9rem;
-  margin-bottom: 0.75rem;
+  font-size: var(--fs-md);
+  margin-bottom: var(--sp-4);
 }
 .tables-kind-select select {
-  background: #1c1f26;
-  color: #e6e8ec;
-  border: 1px solid #363b47;
-  border-radius: 6px;
-  padding: 0.3rem 0.5rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  height: var(--control-h);
+  border-radius: var(--r-sm);
+  padding: 0 0.5rem;
+  font-size: var(--fs-sm);
 }
 
 .tables-layout {
@@ -1491,53 +1493,83 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .table-heading-list {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: var(--sp-1);
   flex: 0 0 260px;
   min-width: 0;
+  /* Stays put while the bullet panel scrolls: Outfit is 117 rows and the
+     navigation was gone after twenty. .tables-layout's align-items:
+     flex-start is what lets a flex child stick. The top offset is the
+     topbar's height plus main's padding; a banner up at the same time
+     overlaps it by the banner's height, which is tolerable for something
+     that is dismissed. */
+  position: sticky;
+  top: calc(3.1rem + var(--sp-4));
+  max-height: calc(100vh - 3.1rem - var(--sp-8));
+  overflow-y: auto;
+  padding-right: 2px;
 }
 .table-heading-row {
   overflow-wrap: anywhere;
 }
 .table-heading-row {
   text-align: left;
-  background: #1c1f26;
-  border: 1px solid #363b47;
-  color: #d7dae0;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
   padding: 0.4rem 0.6rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
+  border-radius: var(--r-md);
+  font-size: var(--fs-md);
   cursor: pointer;
 }
-.table-heading-row.active { border-color: #7c8ba1; background: #262a33; color: #fff; }
-.table-group-header {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #7c8ba1;
-  margin: 0.6rem 0 0.1rem;
+.table-heading-row:hover:not(.active) { background: var(--surface-2); border-color: var(--line-hover); }
+/* The selected table: a tinted fill, the accent border, and a 3px bar down
+   the left inside the border so it reads as selected from the corner of the
+   eye - the old grey-on-grey needed a second look. */
+.table-heading-row.active {
+  border-color: var(--accent-border);
+  background: var(--selected-bg);
+  color: #ffffff;
+  box-shadow: inset 3px 0 0 var(--accent-border);
 }
+.table-group-header { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: var(--track-caps); color: var(--text-3); margin: var(--sp-3) 0 var(--sp-1); }
 .table-group-header:first-child { margin-top: 0; }
 .table-heading-row.variant { margin-left: 0.9rem; }
 .table-bullet-panel { flex: 1; min-width: 0; }
+/* The two section titles on this tab were the browser's default h2 (24px
+   with 20px margins). One size below the sheet title, no top margin, so the
+   table's name lines up with the first group header beside it. */
+.table-bullet-panel h2,
+.presets-panel h2 {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-xl);
+  line-height: var(--lh-tight);
+}
+.preset-preview h3 { margin: 0 0 var(--sp-2); font-size: var(--fs-md); }
+/* A divided list on the panel's own ground rather than a box per bullet: at
+   117 rows plus a flag strip under each, the boxes were the loudest thing
+   on the tab. The hover fill gives the row back when the pointer is on it. */
 .table-bullet-row {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  background: #1c1f26;
-  border-radius: 6px;
+  background: none;
+  border-radius: var(--r-sm);
   padding: 0.4rem 0.6rem;
-  margin-bottom: 0.3rem;
-  font-size: 0.85rem;
-  color: #d7dae0;
+  margin-bottom: 0;
+  font-size: var(--fs-md);
+  color: var(--text);
 }
+.table-bullet-row:hover { background: var(--surface); }
+.table-bullet-list > .table-bullet-row:not(:first-child) { border-top: 1px solid var(--line); }
 .table-bullet-row .weight-input {
   width: 3rem;
-  background: #262a33;
-  border: 1px solid #363b47;
-  color: #e6e6e6;
-  padding: 0.15rem 0.3rem;
-  border-radius: 4px;
-  font-size: 0.8rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  padding: 0 0.3rem;
+  height: var(--control-h-sm);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
   text-align: center;
 }
 .table-bullet-row .weight-input:disabled { opacity: 0.5; }
@@ -1548,13 +1580,13 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   flex: 0 0 3.2rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
-  color: #b8c0cc;
-  font-size: 0.8rem;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
 }
 /* The local weight-share estimate, before the sampled figure lands. Dimmed and
    tilde-prefixed so that changing to the settled number reads as an estimate
    resolving rather than a number moving on its own. */
-.chance-cell.estimate { color: #7c8ba1; font-style: italic; }
+.chance-cell.estimate { color: #93a3bb; font-style: italic; }
 .chance-note {
   margin: 0.6rem 0 0;
   font-size: 0.75rem;
@@ -1573,8 +1605,8 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   flex-wrap: wrap;
   align-items: center;
   gap: 0.15rem 0.7rem;
-  margin: -0.1rem 0 0.5rem 10rem;
-  font-size: 0.72rem;
+  margin: -0.1rem 0 0.4rem 10rem;
+  font-size: var(--fs-xs);
   color: var(--text-4);
 }
 .table-bullet-flags .flag-toggle {
@@ -1587,16 +1619,16 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .table-bullet-flags .flag-toggle input { margin: 0; cursor: pointer; }
 /* A set flag earns full contrast; the rest stay dim so a row of eight
    unchecked boxes does not compete with the bullet text above it. */
-.table-bullet-flags .flag-toggle:has(input:checked) { color: #d7dae0; }
+.table-bullet-flags .flag-toggle:has(input:checked) { color: var(--text); }
 .table-bullet-flags .flag-toggle input:disabled { opacity: 0.5; }
 /* A theme tag is shown, not offered: '@' tags are an open set the tables file
    grows freely, so there is nothing to enumerate as checkboxes. Edits here
    preserve them untouched. */
 .table-bullet-flags .flag-theme {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #7c8ba1;
-  background: #262a33;
-  border-radius: 3px;
+  color: var(--text-3);
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
   padding: 0 0.3rem;
 }
 
@@ -1604,31 +1636,46 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .table-bullet-flags { margin-left: 0.6rem; }
 }
 
-.presets-panel { margin-top: 1.5rem; border-top: 1px solid #363b47; padding-top: 1rem; }
+.presets-panel { margin-top: var(--sp-8); border-top: 1px solid var(--line); padding-top: var(--sp-5); }
 .preset-row {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
-  background: #1c1f26;
-  border-radius: 6px;
-  padding: 0.4rem 0.6rem;
-  margin-bottom: 0.3rem;
-  font-size: 0.85rem;
+  gap: var(--sp-3);
+  background: none;
+  border-top: 1px solid var(--line);
+  padding: var(--sp-2) 0.6rem;
+  margin-bottom: 0;
+  font-size: var(--fs-md);
 }
+.preset-row:first-child { border-top: 0; }
+.preset-row:hover { background: var(--surface); }
 .preset-name { flex: 1; }
-.preset-date { color: #9aa1ad; font-size: 0.78rem; }
+.preset-date { color: var(--text-3); font-size: var(--fs-xs); }
 .preset-download {
-  color: #8fb3ff;
+  color: var(--accent-text);
   text-decoration: none;
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   padding: 0.3rem 0.6rem;
-  border: 1px solid #363b47;
-  border-radius: 4px;
-  background: #262a33;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
 }
-.preset-download:hover, .preset-download:focus-visible { background: #2c2f38; border-color: #3d6ef0; }
-.preset-download:visited { color: #8fb3ff; }
-.preset-actions { display: flex; gap: 0.6rem; margin-top: 0.6rem; align-items: center; }
+.preset-download:hover, .preset-download:focus-visible { background: var(--surface-3); border-color: var(--accent-border); }
+.preset-download:visited { color: var(--accent-text); }
+/* Delete on a list row is the quiet form of the danger button: five solid
+   red buttons down the list made every preset look like an emergency. It
+   turns solid only under the pointer, which is when it is about to matter. */
+.preset-row button.danger {
+  height: auto;
+  background: none;
+  border-color: var(--line-strong);
+  color: var(--danger-text);
+  padding: 0.3rem 0.6rem;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.preset-row button.danger:hover { background: var(--danger); border-color: var(--danger); color: #ffffff; }
+.preset-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); align-items: center; }
 /* #preset-save-btn joins the label it sits beside on the Tables tab - it had
    no rule of its own and painted native grey next to a styled Import. */
 #preset-save-btn,
@@ -1649,9 +1696,9 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   background: var(--surface-3);
   border-color: var(--line-hover);
 }
-.preset-preview { margin-top: 0.8rem; background: #1c1f26; border-radius: 6px; padding: 0.7rem; }
-.preset-preview-not-found { color: #e0a458; }
-.preset-preview-actions { display: flex; gap: 0.6rem; margin-top: 0.6rem; }
+.preset-preview { margin-top: var(--sp-3); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--sp-3); }
+.preset-preview-not-found { color: var(--warn-text); }
+.preset-preview-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); }
 
 /* The 3D panel reuses .regen-panel's frame and rows, and its button joins
    #regen-btn's rule above - it is the same kind of control block sitting
