@@ -184,12 +184,12 @@ button, a, label, select, input {
 .banner {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.6rem 1.25rem;
-  background: #1d3324;
-  border-bottom: 1px solid #2f6b45;
-  color: #d6f2e0;
-  font-size: 0.9rem;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-5);
+  background: var(--banner-ok-bg);
+  border-bottom: 1px solid var(--banner-ok-line);
+  color: var(--banner-ok-text);
+  font-size: var(--fs-md);
 }
 /* The `display: flex` above is an author declaration, so it beats the browser's
    own `[hidden] { display: none }` before specificity is ever consulted - origin
@@ -204,25 +204,32 @@ button, a, label, select, input {
 .banner[hidden] { display: none; }
 
 .banner button {
-  background: #2f6b45;
-  border: 1px solid #3f8a5b;
+  background: var(--banner-ok-btn);
+  border: 1px solid var(--banner-ok-btn-hover);
   color: #eafff2;
-  padding: 0.3rem 0.8rem;
-  border-radius: 6px;
+  padding: 0 0.8rem;
+  height: var(--control-h-sm);
+  border-radius: var(--r-md);
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
 }
-.banner button:hover { background: #3f8a5b; }
+.banner button:hover { background: var(--banner-ok-btn-hover); }
 .banner .banner-dismiss {
   margin-left: auto;
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
-  color: #9ec5ad;
+  border-radius: var(--r-md);
+  color: var(--banner-ok-dismiss);
   font-size: 1.2rem;
   line-height: 1;
-  padding: 0 0.3rem;
+  padding: 0;
 }
-.banner .banner-dismiss:hover { background: none; color: #eafff2; }
+.banner .banner-dismiss:hover { background: rgba(255, 255, 255, 0.08); color: #eafff2; }
 
 /* The failure colours, worn by the regen banner when the job it is announcing
    died rather than finished. The green above reads as "your art is ready" at a
@@ -231,14 +238,14 @@ button, a, label, select, input {
    who is not looking straight at it. Same layout, different palette, so a
    failure is distinguishable without reading it. */
 .banner.error {
-  background: #33201d;
-  border-bottom-color: #6b3a2f;
-  color: #f2ded6;
+  background: var(--banner-err-bg);
+  border-bottom-color: var(--banner-err-line);
+  color: var(--banner-err-text);
 }
-.banner.error button { background: #6b3a2f; border-color: #8a4f3f; color: #fff0ea; }
-.banner.error button:hover { background: #8a4f3f; }
-.banner.error .banner-dismiss { background: none; color: #c5a89e; }
-.banner.error .banner-dismiss:hover { background: none; color: #fff0ea; }
+.banner.error button { background: var(--banner-err-btn); border-color: var(--banner-err-btn-hover); color: #fff0ea; }
+.banner.error button:hover { background: var(--banner-err-btn-hover); }
+.banner.error .banner-dismiss { background: none; color: var(--banner-err-dismiss); }
+.banner.error .banner-dismiss:hover { background: rgba(255, 255, 255, 0.08); color: #fff0ea; }
 
 /* A bullet switched off on the Tables tab, still offered here because
    --set-trait bypasses the roll pool and forcing one is legitimate. Native
@@ -280,7 +287,7 @@ button, a, label, select, input {
 .categories button.active { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
 .categories button:disabled { opacity: 0.4; cursor: default; }
 
-main { padding: 1rem 1.25rem 5rem; }
+main { padding: var(--sp-4) var(--sp-5) 5rem; }
 .tab-panel[hidden] { display: none; }
 
 .toolbar {
@@ -358,10 +365,10 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .filter-row {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  background: #1c1f26;
-  border: 1px solid #363b47;
-  border-radius: 6px;
+  gap: var(--sp-1);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
   padding: 0.25rem 0.4rem;
 }
 .filter-row select,
@@ -641,9 +648,9 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .image-zoom img {
   max-width: 90vw;
   max-height: 90vh;
-  border-radius: 8px;
-  background: #0e0f13;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  border-radius: var(--r-lg);
+  background: var(--bg-sunken);
+  box-shadow: var(--shadow-dialog);
 }
 @keyframes image-zoom-in {
   from { opacity: 0; }
@@ -743,8 +750,8 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   padding-left: 1.2rem;
   max-height: 30vh;
   overflow: auto;
-  font-size: 0.88rem;
-  color: #e6e6e6;
+  font-size: var(--fs-md);
+  color: var(--text);
 }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1rem; }
 .confirm-actions button {
@@ -804,15 +811,15 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .regen-row label { display: flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
 #regen-seed-input {
   width: 6.5rem;
-  background: #262a33;
-  border: 1px solid #363b47;
-  color: #e6e6e6;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
   padding: 0.2rem 0.4rem;
-  border-radius: 4px;
-  font-size: 0.82rem;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
 }
 #regen-seed-input:disabled { opacity: 0.5; }
-.regen-current-seed { color: #9aa1ad; flex: 1; }
+.regen-current-seed { color: var(--text-3); flex: 1; }
 #regen-btn,
 #model3d-btn {
   background: var(--accent);
@@ -1718,8 +1725,8 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
      background is unreadable - the checker is what makes the silhouette show. */
   background:
     repeating-conic-gradient(#20242c 0% 25%, #191c22 0% 50%) 50% / 12px 12px;
-  border: 1px solid #2c2f38;
-  border-radius: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
   cursor: zoom-in;
 }
 .model3d-files {
