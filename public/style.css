@@ -1372,48 +1372,56 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
    dressing its Import-tab counterpart has, so both painted as native light
    widgets on a dark page - tolerable while they were off on their own, obvious
    the moment a styled "Filter by" sat down beside them. The values below are
-   .sort-by select's and #filter-search's, copied rather than invented, so the
-   bar reads as one row of the same app. */
+   .sort-by select's, copied rather than invented; the search box shares
+   #filter-search's rule outright. */
 #trait-table-filter {
-  background: #262a33;
-  border: 1px solid #363b47;
-  color: #e6e6e6;
-  padding: 0.3rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.82rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  height: var(--control-h);
+  padding: 0 0.5rem;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
 }
-#trait-search {
-  background: #1c1f26;
-  border: 1px solid #363b47;
-  color: #e6e6e6;
-  padding: 0.4rem 0.7rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  min-width: 240px;
-}
-
-.trait-list { display: flex; flex-direction: column; gap: 0.4rem; }
+.trait-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 .trait-row {
   display: flex;
   align-items: center;
-  gap: 0.7rem;
-  background: #1c1f26;
-  border: 1px solid #2c2f38;
-  border-radius: 6px;
-  padding: 0.5rem 0.7rem;
+  gap: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--sp-2) var(--sp-3);
   cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease);
 }
-.trait-row.imported { opacity: 0.55; }
+.trait-row:hover { border-color: var(--line-hover); }
+/* Imported rows mute the bullet rather than the whole row: on a settled
+   library every row is imported, and at 55% the tab read as disabled. The
+   green pill already says why the text is grey. */
+.trait-row.imported .trait-bullet { color: var(--text-3); }
+.trait-row.imported .table-badge { opacity: 0.7; }
 .trait-row .table-badge {
   position: static;
-  background: #262a33;
-  color: #7c8ba1;
+  background: var(--surface-2);
+  color: #98a6bd;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   white-space: nowrap;
   flex-shrink: 0;
 }
 .trait-row .badge { position: static; }
-.trait-row .date-badge { background: #262a33; color: #7c8ba1; }
-.trait-bullet { flex: 1; font-size: 0.85rem; color: #d7dae0; }
+/* A date is a fact, not a status: plain quiet text, so the row carries one
+   pill for the table, one for Imported, and nothing else shaped like one. */
+.trait-row .date-badge {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.trait-bullet { flex: 1; font-size: var(--fs-md); color: var(--text); }
 
 .trait-detail-info h3 {
   margin: var(--sp-4) 0 var(--sp-1);
@@ -1427,14 +1435,15 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .trait-detail-info pre {
   white-space: pre-wrap;
   word-break: break-word;
-  background: #0e0f13;
-  border: 1px solid #2c2f38;
-  border-radius: 6px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
   padding: 0.6rem;
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   margin: 0;
+  line-height: 1.5;
 }
-.trait-detail-info p { margin: 0; font-size: 0.85rem; color: #d7dae0; }
+.trait-detail-info p { margin: 0; font-size: var(--fs-md); color: var(--text); }
 
 /* The reference image the candidate was read from. Capped by height rather
    than width because these are wide hero crops: bounding the width would let
@@ -1447,8 +1456,8 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   max-width: 100%;
   max-height: 200px;
   margin: 0.6rem 0 0;
-  border: 1px solid #2c2f38;
-  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
   cursor: zoom-in;
 }
 .trait-detail-image[hidden] { display: none; }
