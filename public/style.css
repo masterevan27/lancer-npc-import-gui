@@ -1,9 +1,140 @@
 * { box-sizing: border-box; }
+/* ---- Design tokens ----
+   One place for every colour, radius, size and timing the sheet uses, so a
+   value changes once. Contrast figures are WCAG ratios against the surface
+   named in the comment; every text token here clears 4.5:1 on the surfaces
+   it is used on except --text-disabled, which only ever labels a disabled
+   control (AA-exempt). See the spec for what each replaced. */
+:root {
+  --bg:            #14161b;
+  --bg-sunken:     #0e0f13;
+  --surface:       #1c1f26;
+  --surface-2:     #262a33;
+  --surface-3:     #2f343f;
+  --selected-bg:   #1e2637;
+
+  --line:          #2c2f38;
+  --line-strong:   #363b47;
+  --line-hover:    #454b5a;
+
+  --text:          #e6e6e6;
+  --text-2:        #b3bac6;
+  --text-3:        #9aa1ad;
+  --text-4:        #8a919e;
+  --text-disabled: #7a8291;
+  --text-on-accent: #ffffff;
+
+  --accent:        #3566e6;
+  --accent-hover:  #3d6ef0;
+  --accent-muted:  #2b4a9e;
+  --accent-soft:   #33406b;
+  --accent-text:   #7fb3ff;
+  --accent-ring:   rgba(127, 179, 255, 0.45);
+  --accent-border: #3d6ef0;
+
+  --ok:            #177a42;
+  --warn:          #d18f2a;
+  --on-warn:       #1a1200;
+  --warn-hover:    #e0a458;
+  --warn-text:     #e0a458;
+  --danger:        #c0392b;
+  --danger-hover:  #a5311f;
+  --danger-text:   #e8a798;
+  --info:          #2b6cb0;
+  --info-border:   #3b7fc4;
+  --stale:         #7d5ba6;
+  --neutral-badge: #384357;
+
+  --banner-ok-bg:       #1d3324;
+  --banner-ok-line:     #2f6b45;
+  --banner-ok-text:     #d6f2e0;
+  --banner-ok-btn:      #2f6b45;
+  --banner-ok-btn-hover: #3f8a5b;
+  --banner-ok-dismiss:  #b9dcc7;
+  --banner-err-bg:      #33201d;
+  --banner-err-line:    #6b3a2f;
+  --banner-err-text:    #f2ded6;
+  --banner-err-btn:     #6b3a2f;
+  --banner-err-btn-hover: #8a4f3f;
+  --banner-err-dismiss: #d9b9ae;
+
+  --r-sm:   4px;
+  --r-md:   6px;
+  --r-lg:   8px;
+  --r-xl:   12px;
+  --r-pill: 999px;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  --fs-2xs:  0.68rem;
+  --fs-xs:   0.75rem;
+  --fs-sm:   0.8125rem;
+  --fs-md:   0.875rem;
+  --fs-lg:   1rem;
+  --fs-xl:   1.25rem;
+  --fs-2xl:  1.5rem;
+  --lh-tight: 1.25;
+  --lh-body:  1.45;
+  --track-caps: 0.08em;
+
+  --control-h:    2rem;
+  --control-h-sm: 1.75rem;
+
+  --shadow-card:   0 6px 18px rgba(0, 0, 0, 0.45);
+  --shadow-dialog: 0 24px 64px rgba(0, 0, 0, 0.6);
+
+  --t-fast: 120ms;
+  --t-base: 180ms;
+  --ease:   cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-text);
+}
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: #14161b;
-  color: #e6e6e6;
+  line-height: var(--lh-body);
+  background: var(--bg);
+  color: var(--text);
+}
+/* Buttons and inputs otherwise pick up the browser's own control font, which
+   on Windows is a different face at 13.33px from the page's. Only the family
+   is inherited: sizes are set per rule below so nothing silently grows. */
+button, input, select, textarea { font-family: inherit; }
+/* One focus treatment for the keyboard. The browser's own ring is a white
+   outline that vanishes against light art and reads as an error on a dark
+   surface; a two-tone ring (page colour, then the accent) stays visible on
+   every ground in the sheet. Inputs take the accent on their own border
+   instead so the ring does not fight the border they already have. */
+:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+input[type="checkbox"],
+input[type="radio"] { accent-color: var(--accent); }
+/* Hover and focus changes ease rather than snap. Cards get their own, longer
+   transition in .card. Anyone who has asked their OS for less motion gets
+   none at all. */
+button, a, label, select, input {
+  transition: background-color var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease),
+              box-shadow var(--t-fast) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
 }
 
 .topbar {
