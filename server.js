@@ -62,6 +62,7 @@ const traitOdds = require('./lib/traitOdds');
 const traitChoices = require('./lib/traitChoices');
 const applyTrait = require('./lib/applyTrait');
 const animate = require('./lib/animate');
+const backgrounds = require('./lib/backgrounds');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -206,6 +207,17 @@ const { generate3dScript: GENERATE_3D_SCRIPT } = DERIVED_PATHS;
 // animate-portrait.py takes an image, not a kind, so it too belongs to no
 // kind here; which kinds may reach it is supports.animate in the registry.
 const { animatePortraitScript: ANIMATE_PORTRAIT_SCRIPT } = DERIVED_PATHS;
+
+// The Backgrounds tab's four paths. A background is not a kind - no manifest
+// entry, no traits, no Foundry import - so it has no registry row to read
+// these off, and they are destructured here the way the two kindless scripts
+// above are. See lib/backgrounds.js for why the folder is the source of truth.
+const {
+    generateArtScript: GENERATE_ART_SCRIPT,
+    backgroundsDir: BACKGROUNDS_DIR,
+    backgroundPromptsDir: BACKGROUND_PROMPTS_DIR,
+    backgroundTablesPath: BACKGROUND_TABLES_PATH,
+} = DERIVED_PATHS;
 
 // The kind registry - see lib/kinds.js for what varies between an NPC and a
 // spaceship and why it is resolved here rather than as scattered constants.
@@ -1375,6 +1387,182 @@ function animationView(item) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Backgrounds                                                         */
+/* ------------------------------------------------------------------ */
+
+const BACKGROUND_LOG_LIMIT = 20000;   // chars of stdout+stderr kept per job
+const BACKGROUND_LIST_LIMIT = 200000; // chars of --list output kept per catalogue
+const BACKGROUND_WALK_DEPTH = 6;
+
+const BACKGROUND_CONTENT_TYPES = {
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+};
+
+/** Every render and animate job this tab has started, keyed by its own id. */
+const backgroundJobs = new Map();
+
+/** Which job is animating each still, so a second click on one is a 409. */
+const backgroundAnimateByRel = new Map();
+
+function backgroundCatalogueFiles() {
+    try {
+        return fs.readdirSync(BACKGROUND_PROMPTS_DIR)
+            .filter((file) => backgrounds.isCatalogue(file))
+            .sort();
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Which of the three pieces the tab needs are not here, as sentences. Checked
+ * per request the way kinds.available() is and for the same reason: dropping
+ * generate-art.py into place should not need a server restart to be noticed,
+ * and this route is fetched on a tab visit, not polled.
+ */
+function backgroundsMissing() {
+    const missing = [];
+    if (!fs.existsSync(GENERATE_ART_SCRIPT)) {
+        missing.push(`generate-art.py not found at ${GENERATE_ART_SCRIPT}`);
+    }
+    if (!fs.existsSync(ANIMATE_PORTRAIT_SCRIPT)) {
+        missing.push(`animate-portrait.py not found at ${ANIMATE_PORTRAIT_SCRIPT}`);
+    }
+    if (!backgroundCatalogueFiles().length) {
+        missing.push(`no *${backgrounds.CATALOGUE_SUFFIX} found in ${BACKGROUND_PROMPTS_DIR}`);
+    }
+    return missing;
+}
+
+function backgroundsAvailable() {
+    return backgroundsMissing().length === 0;
+}
+
+/**
+ * One catalogue's entries, from the script's own --list rather than a second
+ * markdown parser here - see lib/backgrounds.js's parseListOutput for why.
+ * One child process per catalogue file; the route runs them concurrently.
+ *
+ * Every failure resolves to an empty list rather than rejecting: the picker
+ * is the only thing that depends on this, and an empty entry list with a
+ * visible "no entries" state beats a 500 on the whole tab.
+ */
+function readCatalogueEntries(file) {
+    const full = path.join(BACKGROUND_PROMPTS_DIR, file);
+    return new Promise((resolve) => {
+        let child;
+        try {
+            child = spawn(config.pythonExecutable,
+                [GENERATE_ART_SCRIPT, '--prompts', full, '--list'],
+                { cwd: path.dirname(GENERATE_ART_SCRIPT) });
+        } catch {
+            return resolve([]);
+        }
+        let out = '';
+        child.stdout.on('data', (chunk) => {
+            if (out.length < BACKGROUND_LIST_LIMIT) out += chunk.toString();
+        });
+        child.stderr.on('data', () => { /* --list's diagnostics are not the picker's business */ });
+        child.on('error', () => resolve([]));
+        child.on('close', () => {
+            let text = '';
+            try {
+                text = fs.readFileSync(full, 'utf8');
+            } catch { /* names and excerpts degrade to blank, which the client handles */ }
+            resolve(backgrounds.attachHeadings(backgrounds.parseListOutput(out), text));
+        });
+    });
+}
+
+/**
+ * Every still under backgroundsDir, as '/'-separated relative paths.
+ *
+ * Depth-capped because this walks a folder a GM owns by hand and a link loop
+ * there should not hang a page load. Dotfiles are skipped, which is what
+ * keeps .backgrounds-manifest.json out of the gallery, and so is this
+ * module's own animation output: a loop belongs on its still's card, not as a
+ * card of its own.
+ */
+function walkBackgrounds(dir = BACKGROUNDS_DIR, rel = '', depth = 0, out = []) {
+    if (depth > BACKGROUND_WALK_DEPTH) return out;
+    let entries = [];
+    try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+        return out;
+    }
+    for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue;
+        const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+            walkBackgrounds(path.join(dir, entry.name), childRel, depth + 1, out);
+            continue;
+        }
+        if (!backgrounds.IMAGE_EXTENSIONS.includes(path.extname(entry.name).toLowerCase())) continue;
+        if (backgrounds.isAnimationFile(entry.name)) continue;
+        out.push(childRel);
+    }
+    return out;
+}
+
+function backgroundAbs(rel) {
+    return path.join(BACKGROUNDS_DIR, ...String(rel).split('/'));
+}
+
+function readBackgroundSidecar(sidecarRel) {
+    try {
+        return backgrounds.parseSidecar(fs.readFileSync(backgroundAbs(sidecarRel), 'utf8'));
+    } catch {
+        return {}; // no sidecar - no loop yet, which is not an error
+    }
+}
+
+/**
+ * One gallery card: the still, whatever loop sits beside it, and whatever
+ * this server's own job is doing to it. Both urls carry the file's mtime as
+ * the cache-buster /api/animation-image's does.
+ */
+function backgroundItemView(rel) {
+    const mtime = fileVersion(backgroundAbs(rel));
+    if (mtime === null) return null; // deleted between the walk and here
+    const files = backgrounds.animationFilesFor(rel);
+    const builtAt = fileVersion(backgroundAbs(files.webp));
+    const sidecar = readBackgroundSidecar(files.sidecar);
+    const jobId = backgroundAnimateByRel.get(rel);
+    const job = jobId ? backgroundJobs.get(jobId) : null;
+    return {
+        rel,
+        name: backgrounds.displayName(path.basename(rel)),
+        mtime,
+        url: `/api/backgrounds/image?rel=${encodeURIComponent(rel)}&v=${mtime}`,
+        // Only ever present with a loop on disk - a stale nothing is nothing.
+        animation: builtAt === null ? null : {
+            webp: files.webp,
+            url: `/api/backgrounds/image?rel=${encodeURIComponent(files.webp)}&v=${builtAt}`,
+            description: sidecar.description || null,
+            seed: Number.isInteger(sidecar.seed) ? sidecar.seed : null,
+            builtAt,
+            stale: backgrounds.isStale(sidecar, mtime),
+        },
+        status: job ? job.status : null,
+        error: job && job.status === 'error' ? job.error : null,
+    };
+}
+
+/**
+ * The motion prompts, read off the tables file on every call - the Tables tab
+ * edits that file, and a list cached at startup would keep offering a bullet
+ * it had just switched off. The same reason animationDescriptions has.
+ */
+function backgroundMotionPrompts() {
+    try {
+        return backgrounds.motionPromptsFrom(tableBullets.readTables(BACKGROUND_TABLES_PATH));
+    } catch {
+        return [];
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* Create NPC                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -2476,7 +2664,15 @@ async function handleApi(req, res, url) {
         // why it is answered per request rather than frozen at boot: dropping
         // generate-spaceship.py into place should not need a server restart to
         // be noticed, and this route is fetched once at page load, not polled.
-        return sendJson(res, 200, { categories, kinds: Object.keys(available(KINDS)) });
+        return sendJson(res, 200, {
+            categories,
+            kinds: Object.keys(available(KINDS)),
+            // Features are what kinds cannot be. A background has no manifest
+            // entry, no traits and no registry row, so it cannot ride `kinds`
+            // - but the question the client is asking is the same one, and so
+            // is the per-request filesystem check that answers it.
+            features: backgroundsAvailable() ? ['backgrounds'] : [],
+        });
     }
 
     if (url.pathname === '/api/items' && req.method === 'GET') {
@@ -2715,6 +2911,43 @@ async function handleApi(req, res, url) {
         const file = animationPaths(item).webp;
         if (!fs.existsSync(file)) return sendJson(res, 404, { error: 'no such image' });
         res.writeHead(200, { 'Content-Type': 'image/webp', 'Cache-Control': 'no-store' });
+        fs.createReadStream(file).pipe(res);
+        return;
+    }
+
+    if (url.pathname === '/api/backgrounds' && req.method === 'GET') {
+        const missing = backgroundsMissing();
+        if (missing.length) {
+            // Answered rather than 404'd, so the client can say which piece is
+            // missing instead of showing an empty tab with no explanation.
+            return sendJson(res, 200, {
+                available: false, missing, dir: BACKGROUNDS_DIR,
+                catalogues: [], motionPrompts: [], items: [],
+            });
+        }
+        const files = backgroundCatalogueFiles();
+        const entries = await Promise.all(files.map((file) => readCatalogueEntries(file)));
+        return sendJson(res, 200, {
+            available: true,
+            missing: [],
+            dir: BACKGROUNDS_DIR,
+            catalogues: files.map((file, i) => ({
+                file, label: backgrounds.catalogueLabel(file), entries: entries[i],
+            })),
+            motionPrompts: backgroundMotionPrompts(),
+            items: walkBackgrounds()
+                .map((rel) => backgroundItemView(rel))
+                .filter(Boolean)
+                .sort((a, b) => b.mtime - a.mtime),
+        });
+    }
+
+    if (url.pathname === '/api/backgrounds/image' && req.method === 'GET') {
+        const file = backgrounds.resolveInside(BACKGROUNDS_DIR, url.searchParams.get('rel'));
+        if (!file) return sendJson(res, 400, { error: 'rel must be a path inside the backgrounds folder' });
+        const type = BACKGROUND_CONTENT_TYPES[path.extname(file).toLowerCase()];
+        if (!type || !fs.existsSync(file)) return sendJson(res, 404, { error: 'no such image' });
+        res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
         fs.createReadStream(file).pipe(res);
         return;
     }
