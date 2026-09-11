@@ -160,3 +160,41 @@ test('derives animate-portrait.py beside generate-npc.py, and its own key wins',
     assert.strictEqual(split.animatePortraitScript, path.join('E:', 'wan', 'animate-portrait.py'));
     assert.strictEqual(split.generateNpcScript, path.join(REPO, 'generate-npc.py'));
 });
+
+test('derives the four background paths from npcManifestPath alone', () => {
+    const p = derivePaths({ npcManifestPath: path.join(REPO, '.generated-npcs.json') });
+    assert.strictEqual(p.generateArtScript, path.join(REPO, 'generate-art.py'));
+    assert.strictEqual(p.backgroundsDir, path.join(REPO, 'output', 'backgrounds'));
+    assert.strictEqual(p.backgroundPromptsDir, path.join(REPO, 'prompts'));
+    assert.strictEqual(p.backgroundTablesPath,
+        path.join(REPO, 'prompts', 'scene-and-spaceship-tables.md'));
+});
+
+test('generateArtScript and backgroundsDir follow a relocated generateNpcScript', () => {
+    // The rule this file follows: moving the generator moves all four scripts
+    // and the output root together, rather than leaving them at the manifest.
+    const moved = derivePaths({
+        npcManifestPath: path.join(REPO, '.generated-npcs.json'),
+        generateNpcScript: path.join('D:', 'gen', 'generate-npc.py'),
+    });
+    assert.strictEqual(moved.generateArtScript, path.join('D:', 'gen', 'generate-art.py'));
+    assert.strictEqual(moved.backgroundsDir, path.join('D:', 'gen', 'output', 'backgrounds'));
+});
+
+test('the background prompt and table paths follow a relocated npcTablesPath', () => {
+    const moved = derivePaths({
+        npcManifestPath: path.join(REPO, '.generated-npcs.json'),
+        npcTablesPath: path.join('D:', 'elsewhere', 'tables.md'),
+    });
+    assert.strictEqual(moved.backgroundPromptsDir, path.join('D:', 'elsewhere'));
+    assert.strictEqual(moved.backgroundTablesPath,
+        path.join('D:', 'elsewhere', 'scene-and-spaceship-tables.md'));
+});
+
+test('an explicit backgroundsDir wins over the derived one', () => {
+    const p = derivePaths({
+        npcManifestPath: path.join(REPO, '.generated-npcs.json'),
+        backgroundsDir: path.join('E:', 'Backgrounds'),
+    });
+    assert.strictEqual(p.backgroundsDir, path.join('E:', 'Backgrounds'));
+});
