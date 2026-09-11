@@ -1393,6 +1393,10 @@ function animationView(item) {
 const BACKGROUND_LOG_LIMIT = 20000;   // chars of stdout+stderr kept per job
 const BACKGROUND_LIST_LIMIT = 200000; // chars of --list output kept per catalogue
 const BACKGROUND_WALK_DEPTH = 6;
+// Overridable so a test can pin a hung --list without a real 15s wait; a
+// config.json value is a startup-time constant either way, the same as
+// STAGE_TIMEOUT_MS.
+const BACKGROUND_LIST_TIMEOUT_MS = Number(config.backgroundListTimeoutMs) || 15000;
 
 const BACKGROUND_CONTENT_TYPES = {
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
@@ -1458,19 +1462,47 @@ function readCatalogueEntries(file) {
         } catch {
             return resolve([]);
         }
+        let timer = null;
+        let settled = false;
+        // One funnel for every exit, the stageOne pattern: a timeout racing
+        // the child's own close is a fresh way to double-resolve otherwise.
+        const settle = (entries) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(entries);
+        };
         let out = '';
+        let errText = '';
         child.stdout.on('data', (chunk) => {
             if (out.length < BACKGROUND_LIST_LIMIT) out += chunk.toString();
         });
-        child.stderr.on('data', () => { /* --list's diagnostics are not the picker's business */ });
-        child.on('error', () => resolve([]));
+        // Kept, unlike before: an operator staring at "no entries" with zero
+        // diagnostics has nowhere else to look. Bounded the same way a job's
+        // own log is.
+        child.stderr.on('data', (chunk) => { errText = (errText + chunk.toString()).slice(-BACKGROUND_LOG_LIMIT); });
+        child.on('error', () => settle([]));
         child.on('close', () => {
             let text = '';
             try {
                 text = fs.readFileSync(full, 'utf8');
             } catch { /* names and excerpts degrade to blank, which the client handles */ }
-            resolve(backgrounds.attachHeadings(backgrounds.parseListOutput(out), text));
+            const entries = backgrounds.attachHeadings(backgrounds.parseListOutput(out), text);
+            if (!entries.length && errText.trim()) {
+                console.warn(`[${PLUGIN_ID}] ${file} --list produced no entries: ${errText.trim()}`);
+            }
+            settle(entries);
         });
+        // A hanging --list (a blocking import, a Python waiting on something)
+        // would otherwise hang GET /api/backgrounds forever and leak the
+        // child - this route is fetched on every tab visit and after every
+        // job completion. Resolves to [] like every other failure here.
+        timer = setTimeout(() => {
+            child.kill();
+            console.warn(`[${PLUGIN_ID}] ${file} --list did not finish within `
+                + `${BACKGROUND_LIST_TIMEOUT_MS / 1000}s${errText.trim() ? `: ${errText.trim()}` : ''}`);
+            settle([]);
+        }, BACKGROUND_LIST_TIMEOUT_MS);
     });
 }
 
@@ -1655,7 +1687,15 @@ function startBackgroundAnimateJob({ rel, description, seedMode, seed, pingpong 
     if (!still) {
         return { ok: false, status: 400, error: 'rel must be a path inside the backgrounds folder' };
     }
-    if (!fs.existsSync(still)) return { ok: false, status: 404, error: 'no such background' };
+    // isFile, not existsSync: rel: '.' resolves to BACKGROUNDS_DIR itself (by
+    // design - resolveInside returns the root for it), and existsSync is true
+    // for that directory too. Without this, animate-portrait.py gets spawned
+    // pointed at a directory instead of refusing with a 404.
+    let stillIsFile = false;
+    try {
+        stillIsFile = fs.statSync(still).isFile();
+    } catch { /* not there, which is the same 404 as before */ }
+    if (!stillIsFile) return { ok: false, status: 404, error: 'no such background' };
     if (!fs.existsSync(ANIMATE_PORTRAIT_SCRIPT)) {
         return {
             ok: false, status: 400,
@@ -1666,12 +1706,12 @@ function startBackgroundAnimateJob({ rel, description, seedMode, seed, pingpong 
     if (runningId && backgroundJobs.get(runningId)?.status === 'running') {
         return { ok: false, status: 409, error: 'this background is already being animated' };
     }
+    // chainAnimations always supplies a real one (it bails on an empty pool
+    // itself, before ever calling this), so an empty description here is a
+    // direct /api/backgrounds/animate call that simply left it out - not a
+    // tables-file problem, and the message must not suggest otherwise.
     if (typeof description !== 'string' || !description) {
-        return {
-            ok: false, status: 400,
-            error: `${path.basename(BACKGROUND_TABLES_PATH)} has no enabled `
-                + `'## ${backgrounds.MOTION_TABLE}' bullets to draw a description from`,
-        };
+        return { ok: false, status: 400, error: 'description is required to animate a background' };
     }
 
     const files = backgrounds.animationFilesFor(rel);
@@ -3158,9 +3198,23 @@ async function handleApi(req, res, url) {
         const file = backgrounds.resolveInside(BACKGROUNDS_DIR, url.searchParams.get('rel'));
         if (!file) return sendJson(res, 400, { error: 'rel must be a path inside the backgrounds folder' });
         const type = BACKGROUND_CONTENT_TYPES[path.extname(file).toLowerCase()];
-        if (!type || !fs.existsSync(file)) return sendJson(res, 404, { error: 'no such image' });
+        // existsSync alone is true for a directory too - backgroundsDir is a
+        // folder the GM owns by hand, so a directory that happens to end in
+        // .png is not exotic. isFile() is what a stream can actually open.
+        let isFile = false;
+        try {
+            isFile = fs.statSync(file).isFile();
+        } catch { /* not there, which is the same 404 as before */ }
+        if (!type || !isFile) return sendJson(res, 404, { error: 'no such image' });
         res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
-        fs.createReadStream(file).pipe(res);
+        // A directory would still make createReadStream emit EISDIR even
+        // after the isFile() check above lost a race with something deleting
+        // and recreating the path; pipe() does not forward stream errors, and
+        // nothing here installs an uncaughtException handler, so this stream
+        // must catch its own.
+        fs.createReadStream(file)
+            .on('error', () => res.destroy())
+            .pipe(res);
         return;
     }
 
@@ -3203,8 +3257,12 @@ async function handleApi(req, res, url) {
         let seed = null;
         if (body.seed !== null && body.seed !== undefined && body.seed !== '') {
             seed = Number(body.seed);
-            if (!Number.isInteger(seed) || seed < 0) {
-                return sendJson(res, 400, { error: 'seed must be a non-negative integer, or null' });
+            // The same cap /api/backgrounds/animate and /api/animation
+            // enforce: Number.isInteger(1e21) is true, but String(1e21) is
+            // "1e+21", which argparse's int() rejects on the Python side, so
+            // an unbounded seed turns into a crash instead of this 400.
+            if (!Number.isInteger(seed) || seed < 0 || seed > 2 ** 32 - 1) {
+                return sendJson(res, 400, { error: 'seed must be an integer between 0 and 4294967295, or null' });
             }
         }
 

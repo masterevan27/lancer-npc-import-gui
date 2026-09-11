@@ -164,6 +164,10 @@ test('backgroundPills names the loop, the staleness and the running job', async 
     assert.deepEqual(pills({ animation: { stale: true }, status: null }), ['Animated', 'Stale']);
     assert.deepEqual(pills({ animation: null, status: 'running' }), ['Animating…'],
         'a stale nothing is nothing, but a running job still shows');
+    assert.deepEqual(pills({ animation: null, status: 'error', error: 'boom' }), ['Failed'],
+        'a chained loop that failed must not render silently under the render\'s own success line');
+    assert.deepEqual(pills({ animation: { stale: false }, status: 'error', error: 'boom' }), ['Failed', 'Animated'],
+        'a stale failure still shows the loop it failed to replace');
 });
 
 test('pickBackgroundMotion never repeats the prompt already showing', async (t) => {
@@ -288,4 +292,93 @@ test('a stale animate completion cannot orphan a second, still-running poll', as
     await job2.onDone({ status: 'done' });
     assert.equal(state.animateTimer, null);
     assert.deepEqual(opened, [item.rel]);
+});
+
+test('watchBackgroundGalleryUntilSettled keeps refreshing until nothing is still running', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+
+    // A chained render's onDone sees every item still 'running' - chained
+    // animate jobs start before the render itself flips to 'done'. Faking
+    // setInterval/clearInterval the way the race test above fakes
+    // pollBackgroundJob: the test drives ticks itself instead of waiting on
+    // the real 2-second interval.
+    const state = {
+        items: [{ rel: 'a.png', status: 'running' }],
+        galleryWatchTimer: null,
+    };
+    const intervalCbs = [];
+    const cleared = [];
+    let loadCalls = 0;
+    const helpers = {
+        backgroundsState: state,
+        loadBackgrounds: async () => {
+            loadCalls += 1;
+            if (loadCalls >= 2) state.items = [{ rel: 'a.png', status: 'done' }];
+        },
+        setInterval: (cb) => { intervalCbs.push(cb); return intervalCbs.length; },
+        clearInterval: (id) => { cleared.push(id); },
+    };
+
+    const watch = liftFunction(js, 'watchBackgroundGalleryUntilSettled', helpers);
+    watch();
+    assert.equal(intervalCbs.length, 1, 'a running item must start exactly one watch interval');
+
+    await intervalCbs[0](); // tick 1: loadBackgrounds still says running
+    assert.equal(cleared.length, 0, 'must keep polling while an item is still running');
+    assert.equal(loadCalls, 1);
+
+    await intervalCbs[0](); // tick 2: loadBackgrounds now says the chain landed
+    assert.deepEqual(cleared, [1], 'must stop the interval once nothing is running');
+    assert.equal(state.galleryWatchTimer, null, 'must hand back its own timer slot');
+
+    // A second call after settling must not think it is already watching.
+    watch();
+    assert.equal(intervalCbs.length, 1, 'nothing is running any more, so a second call starts nothing');
+});
+
+test('watchBackgroundGalleryUntilSettled does nothing when nothing is running', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+
+    const state = { items: [{ rel: 'a.png', status: 'done' }], galleryWatchTimer: null };
+    const setIntervalCalls = [];
+    const watch = liftFunction(js, 'watchBackgroundGalleryUntilSettled', {
+        backgroundsState: state,
+        loadBackgrounds: async () => {},
+        setInterval: (cb) => { setIntervalCalls.push(cb); return 1; },
+        clearInterval: () => {},
+    });
+    watch();
+    assert.equal(setIntervalCalls.length, 0, 'a settled gallery must not start an interval at all');
+});
+
+test('watchBackgroundGalleryUntilSettled does not stack a second interval while one is running', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+
+    const state = { items: [{ rel: 'a.png', status: 'running' }], galleryWatchTimer: null };
+    const setIntervalCalls = [];
+    const watch = liftFunction(js, 'watchBackgroundGalleryUntilSettled', {
+        backgroundsState: state,
+        loadBackgrounds: async () => {},
+        setInterval: (cb) => { setIntervalCalls.push(cb); return setIntervalCalls.length; },
+        clearInterval: () => {},
+    });
+    watch();
+    watch();
+    watch();
+    assert.equal(setIntervalCalls.length, 1, 'a second render finishing mid-watch must not start a duplicate');
+});
+
+test('startBackgroundRender watches the gallery after its own refresh, source assertion', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    const body = js.slice(js.indexOf('async function startBackgroundRender('));
+    assert.match(body.slice(0, 2500), /loadBackgrounds\(\)\s*\.then\(\(\) => watchBackgroundGalleryUntilSettled\(\)\)/,
+        'onDone must watch for a chain still landing after its own one-shot refresh');
 });

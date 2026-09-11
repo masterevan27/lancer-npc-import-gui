@@ -5534,6 +5534,10 @@ const backgroundsState = {
   motion: null,
   renderTimer: null,
   animateTimer: null,
+  // Set while watchBackgroundGalleryUntilSettled is re-polling the gallery
+  // for a chain still landing - see that function for why loadBackgrounds()
+  // alone, called once, is not enough.
+  galleryWatchTimer: null,
   // The jobId of the poll whose onDone is still allowed to touch shared panel
   // state. A poll's tick can be mid-await when a newer poll replaces it (a
   // close, then a reopen, then a second Animate before the first tick lands),
@@ -5706,6 +5710,41 @@ function pollBackgroundJob(jobId, { statusEl, logEl, button, running, onDone }) 
   return timer;
 }
 
+/**
+ * Keeps re-fetching /api/backgrounds after a render's onDone already called
+ * loadBackgrounds() once, for as long as any item is still 'running'.
+ *
+ * chainAnimations starts every animate job synchronously inside the render's
+ * own close handler, before job.status flips to 'done' - so the render
+ * poll's onDone always sees the chain still going, every chained item comes
+ * back 'running', and nothing else in this tab refreshes the gallery on its
+ * own (only switchTab and the two onDone paths do). Without this the pills
+ * freeze at "Animating…" - or, for a loop that failed, freeze on no pill at
+ * all - until the user leaves the tab and comes back.
+ *
+ * Pure interval polling of the whole gallery rather than watching each chain
+ * jobId, because the gallery already has a status route for that
+ * (pollBackgroundJob) and this only needs to know when nothing is running
+ * any more, not to report on any one job individually.
+ */
+function watchBackgroundGalleryUntilSettled() {
+  if (backgroundsState.galleryWatchTimer) return; // already watching
+  if (!backgroundsState.items.some((item) => item.status === 'running')) return;
+  let ticks = 0;
+  backgroundsState.galleryWatchTimer = setInterval(async () => {
+    ticks += 1;
+    try {
+      await loadBackgrounds();
+    } catch { /* try again on the next tick */ }
+    const stillRunning = backgroundsState.items.some((item) => item.status === 'running');
+    // Same 20-minute bound pollBackgroundJob gives up after.
+    if (!stillRunning || ticks > 600) {
+      clearInterval(backgroundsState.galleryWatchTimer);
+      backgroundsState.galleryWatchTimer = null;
+    }
+  }, 2000);
+}
+
 async function startBackgroundRender() {
   if (!backgroundsState.prefix) {
     elBackgrounds.renderStatus.textContent = 'Choose a catalogue entry first.';
@@ -5761,7 +5800,9 @@ async function startBackgroundRender() {
         elBackgrounds.renderStatus.textContent =
           `Rendered ${job.produced} image${job.produced === 1 ? '' : 's'}.${loops}${failed}`;
       }
-      loadBackgrounds().catch(() => { /* the gallery refreshes on the next visit */ });
+      loadBackgrounds()
+        .then(() => watchBackgroundGalleryUntilSettled())
+        .catch(() => { /* the gallery refreshes on the next visit */ });
     },
   });
 }
@@ -5792,6 +5833,7 @@ elBackgrounds.renderBtn.addEventListener('click', () => {
 function backgroundPills(item) {
   const pills = [];
   if (item.status === 'running') pills.push('Animating…');
+  if (item.error) pills.push('Failed');
   if (item.animation) pills.push('Animated');
   if (item.animation && item.animation.stale) pills.push('Stale');
   return pills;

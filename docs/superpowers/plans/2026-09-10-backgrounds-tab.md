@@ -31,7 +31,7 @@
 | `config.example.json` (modify) | The four new keys, empty. |
 | `lib/backgrounds.js` (create) | The pure half: `--list` parsing, heading attachment, both argv builders, catalogue and still naming, sidecar re-exports, `resolveInside`. No `fs`, no `spawn`. |
 | `server.js` (modify) | Five routes, two job starters, the recursive walk, `features` on `/api/categories`. |
-| `public/index.html` (modify) | The tab button and the `#tab-backgrounds` panel, both carrying `data-feature="backgrounds"`. |
+| `public/index.html` (modify) | The tab button carrying `data-feature="backgrounds"`; the `#tab-backgrounds` panel does not - `elBackgrounds` reads its ids at load, so the panel must not be removable. |
 | `public/app.js` (modify) | `applyFeatureAvailability`, `backgroundsState`, `elBackgrounds`, the three panel regions. |
 | `public/style.css` (modify) | Gallery card grid and pills. |
 | `test/paths.test.js` (modify) | The four derivations and their overrides. |

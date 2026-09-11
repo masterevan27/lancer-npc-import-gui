@@ -94,7 +94,10 @@ const ANIMATE_STUB = [
  * name absolute paths. Independent of startTestServer's own tmp dir, and
  * removed by the caller's t.after.
  */
-function makeFixture({ withArt = true, withAnimate = true, withCatalogue = true } = {}) {
+function makeFixture({
+    withArt = true, withAnimate = true, withCatalogue = true,
+    artSource = GENERATE_ART_STUB, listTimeoutMs,
+} = {}) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'import-gui-bg-'));
     const promptsDir = path.join(dir, 'prompts');
     fs.mkdirSync(promptsDir, { recursive: true });
@@ -106,7 +109,7 @@ function makeFixture({ withArt = true, withAnimate = true, withCatalogue = true 
     const backgroundsDir = path.join(dir, 'output', 'backgrounds');
     fs.mkdirSync(path.join(backgroundsDir, 'LancerBackgrounds'), { recursive: true });
     const artScript = path.join(dir, 'generate-art.js');
-    if (withArt) fs.writeFileSync(artScript, GENERATE_ART_STUB);
+    if (withArt) fs.writeFileSync(artScript, artSource);
     const animateScript = path.join(dir, 'animate-portrait.js');
     if (withAnimate) fs.writeFileSync(animateScript, ANIMATE_STUB);
     return {
@@ -121,9 +124,23 @@ function makeFixture({ withArt = true, withAnimate = true, withCatalogue = true 
             backgroundsDir,
             backgroundPromptsDir: promptsDir,
             backgroundTablesPath: tablesPath,
+            ...(listTimeoutMs ? { backgroundListTimeoutMs: listTimeoutMs } : {}),
         },
     };
 }
+
+// Stands in for a --list that hangs forever - a blocking import, a Python
+// waiting on something. Never exits on its own; the server's own timeout is
+// what has to end it.
+const GENERATE_ART_HANG_STUB = [
+    "const args = process.argv.slice(2);",
+    "if (args.includes('--list')) {",
+    "    process.stderr.write('warming up the model\\n');",
+    '    setInterval(() => {}, 1000);',
+    '} else {',
+    '    process.exit(0);',
+    '}',
+].join('\n');
 
 async function startWithFixture(t, options) {
     const fixture = makeFixture(options);
@@ -236,6 +253,19 @@ test('GET /api/backgrounds is unavailable with no catalogue to pick from', async
     assert.ok(body.missing.some((m) => /background-art-prompts\.md/.test(m)));
 });
 
+test('GET /api/backgrounds does not hang when --list hangs, and still resolves to an empty entry list',
+    async (t) => {
+        const { server } = await startWithFixture(t, { artSource: GENERATE_ART_HANG_STUB, listTimeoutMs: 300 });
+        const started = Date.now();
+        const { status, body } = await getJson(server, '/api/backgrounds');
+        assert.equal(status, 200);
+        assert.ok(Date.now() - started < 10000,
+            'a hung --list must not hang the whole request - the server has to kill the child itself');
+        assert.equal(body.catalogues.length, 1);
+        assert.deepEqual(body.catalogues[0].entries, [],
+            'every failure resolves to an empty entry list, the module-wide contract');
+    });
+
 test('GET /api/categories carries the backgrounds feature when it is installed', async (t) => {
     const { server } = await startWithFixture(t);
     const { body } = await getJson(server, '/api/categories');
@@ -268,6 +298,22 @@ test('GET /api/backgrounds/image refuses a traversal and an unknown file', async
     assert.equal(up.status, 400);
     const gone = await getJson(server, '/api/backgrounds/image?rel=nope.png');
     assert.equal(gone.status, 404);
+});
+
+test('GET /api/backgrounds/image 404s a directory instead of crashing the server', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    // A directory whose name ends in an image extension - existsSync is true
+    // for it too, and createReadStream on a directory emits EISDIR, which an
+    // unforwarded pipe() error would otherwise take down the whole process.
+    fs.mkdirSync(path.join(fixture.backgroundsDir, 'Weird.png'), { recursive: true });
+
+    const res = await getJson(server, '/api/backgrounds/image?rel=Weird.png');
+    assert.equal(res.status, 404);
+
+    // The server must still be alive afterward - the real regression here
+    // is the process dying, not just this one response.
+    const { status } = await getJson(server, '/api/backgrounds');
+    assert.equal(status, 200);
 });
 
 /* ---- rendering ---- */
@@ -395,6 +441,43 @@ test('POST /api/backgrounds/animate 404s a still that is not there', async (t) =
     const { status } = await postJson(server, '/api/backgrounds/animate',
         { rel: 'nope.png', description: 'smoke drifts' });
     assert.equal(status, 404);
+});
+
+test('POST /api/backgrounds/animate 404s a directory rather than spawning on it', async (t) => {
+    const { server } = await startWithFixture(t);
+    // LancerBackgrounds is a real directory the fixture creates - existsSync
+    // is true for it, which is exactly what let this through before.
+    const { status } = await postJson(server, '/api/backgrounds/animate',
+        { rel: 'LancerBackgrounds', description: 'smoke drifts' });
+    assert.equal(status, 404);
+});
+
+test("POST /api/backgrounds/animate 404s rel: '.', which resolveInside returns as the root", async (t) => {
+    const { server } = await startWithFixture(t);
+    const { status } = await postJson(server, '/api/backgrounds/animate',
+        { rel: '.', description: 'smoke drifts' });
+    assert.equal(status, 404);
+});
+
+test('POST /api/backgrounds/animate refuses a missing description without blaming the tables file', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    writeStill(fixture, 'LancerBackgrounds/Canyon-Skirmish_00001_.png');
+    const { status, body } = await postJson(server, '/api/backgrounds/animate',
+        { rel: 'LancerBackgrounds/Canyon-Skirmish_00001_.png' });
+    assert.equal(status, 400);
+    assert.match(body.error, /description/i);
+    assert.ok(!/Background Animation/.test(body.error),
+        'a caller that simply omitted description was never told about the tables file');
+    assert.ok(!/scene-and-spaceship-tables/.test(body.error));
+});
+
+test('POST /api/backgrounds/render refuses a seed above the 32-bit cap animate already enforces', async (t) => {
+    const { server } = await startWithFixture(t);
+    const { status, body } = await postJson(server, '/api/backgrounds/render', {
+        catalogue: 'scene-background-art-prompts.md', prefix: 'Canyon-Skirmish', seed: 2 ** 32,
+    });
+    assert.equal(status, 400);
+    assert.match(body.error, /seed/);
 });
 
 test('POST /api/backgrounds/animate says where the script should have been', async (t) => {
