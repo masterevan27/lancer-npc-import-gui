@@ -371,3 +371,143 @@ test('GET /api/backgrounds/status 404s an unknown job', async (t) => {
     const { status } = await getJson(server, '/api/backgrounds/status?jobId=nope');
     assert.equal(status, 404);
 });
+
+/* ---- animating ---- */
+
+function readAnimateRuns(fixture) {
+    // The stub writes one line per run into backgroundsDir, as a dotfile the
+    // gallery walk skips - which is exactly what makes it safe to leave there.
+    const file = path.join(fixture.backgroundsDir, '.animate-argv.jsonl');
+    if (!fs.existsSync(file)) return [];
+    return fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+}
+
+test('POST /api/backgrounds/animate refuses a traversal in rel', async (t) => {
+    const { server } = await startWithFixture(t);
+    const { status, body } = await postJson(server, '/api/backgrounds/animate',
+        { rel: '../../secrets.txt', description: 'smoke drifts' });
+    assert.equal(status, 400);
+    assert.match(body.error, /inside the backgrounds folder/);
+});
+
+test('POST /api/backgrounds/animate 404s a still that is not there', async (t) => {
+    const { server } = await startWithFixture(t);
+    const { status } = await postJson(server, '/api/backgrounds/animate',
+        { rel: 'nope.png', description: 'smoke drifts' });
+    assert.equal(status, 404);
+});
+
+test('POST /api/backgrounds/animate says where the script should have been', async (t) => {
+    const { server, fixture } = await startWithFixture(t, { withAnimate: false });
+    writeStill(fixture, 'LancerBackgrounds/Canyon-Skirmish_00001_.png');
+    const { status, body } = await postJson(server, '/api/backgrounds/animate', {
+        rel: 'LancerBackgrounds/Canyon-Skirmish_00001_.png', description: 'smoke drifts',
+    });
+    assert.equal(status, 400);
+    assert.match(body.error, /animate-portrait\.py not found at /);
+});
+
+test('POST /api/backgrounds/animate refuses a malformed specific seed', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    writeStill(fixture, 'LancerBackgrounds/Canyon-Skirmish_00001_.png');
+    const { status, body } = await postJson(server, '/api/backgrounds/animate', {
+        rel: 'LancerBackgrounds/Canyon-Skirmish_00001_.png',
+        description: 'smoke drifts', seedMode: 'specific', seed: -3,
+    });
+    assert.equal(status, 400);
+    assert.match(body.error, /seed/);
+});
+
+test('an animate run writes the loop, the sidecar and --background', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    writeStill(fixture, 'LancerBackgrounds/Canyon-Skirmish_00001_.png');
+    const { status, body } = await postJson(server, '/api/backgrounds/animate', {
+        rel: 'LancerBackgrounds/Canyon-Skirmish_00001_.png',
+        description: 'smoke drifts slowly', seedMode: 'specific', seed: 99, pingpong: false,
+    });
+    assert.equal(status, 202);
+    const job = await waitForJob(server, body.jobId);
+    assert.equal(job.status, 'done');
+
+    const [argv] = readAnimateRuns(fixture);
+    assert.ok(argv.includes('--background'));
+    assert.ok(argv.includes('--no-pingpong'));
+    assert.equal(argv[argv.indexOf('-d') + 1], 'smoke drifts slowly');
+    assert.equal(argv[argv.indexOf('--seed') + 1], '99');
+
+    const sidecar = JSON.parse(fs.readFileSync(path.join(fixture.backgroundsDir,
+        'LancerBackgrounds', 'Canyon-Skirmish_00001_ Animated.json'), 'utf8'));
+    assert.equal(sidecar.description, 'smoke drifts slowly');
+    assert.equal(sidecar.seed, 99);
+    assert.equal(typeof sidecar.portraitVersion, 'number');
+});
+
+test("seedMode 'same' reuses the seed in the existing sidecar", async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    writeStill(fixture, 'LancerBackgrounds/Canyon-Skirmish_00001_.png');
+    fs.writeFileSync(path.join(fixture.backgroundsDir, 'LancerBackgrounds',
+        'Canyon-Skirmish_00001_ Animated.json'),
+        JSON.stringify({ description: 'old', seed: 1234, portraitVersion: 1 }));
+
+    const { body } = await postJson(server, '/api/backgrounds/animate', {
+        rel: 'LancerBackgrounds/Canyon-Skirmish_00001_.png',
+        description: 'rain falls', seedMode: 'same',
+    });
+    await waitForJob(server, body.jobId);
+    const [argv] = readAnimateRuns(fixture);
+    assert.equal(argv[argv.indexOf('--seed') + 1], '1234');
+});
+
+test('the loop reaches the gallery on the still it was made from', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    writeStill(fixture, 'LancerBackgrounds/Canyon-Skirmish_00001_.png');
+    const { body } = await postJson(server, '/api/backgrounds/animate', {
+        rel: 'LancerBackgrounds/Canyon-Skirmish_00001_.png', description: 'smoke drifts',
+    });
+    await waitForJob(server, body.jobId);
+
+    const { body: listing } = await getJson(server, '/api/backgrounds');
+    const item = listing.items.find((i) => i.rel === 'LancerBackgrounds/Canyon-Skirmish_00001_.png');
+    assert.ok(item.animation, 'the still should now carry its loop');
+    assert.equal(item.animation.description, 'smoke drifts');
+    assert.equal(listing.items.length, 1, 'the loop must not become a card of its own');
+});
+
+/* ---- the opt-in chain ---- */
+
+test('animateWhenDone starts one loop per new still, each with its own prompt', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    const { body } = await postJson(server, '/api/backgrounds/render', {
+        catalogue: 'scene-background-art-prompts.md', prefix: 'Canyon-Skirmish',
+        variants: 2, animateWhenDone: true,
+    });
+    const render = await waitForJob(server, body.jobId);
+    assert.equal(render.status, 'done');
+    assert.equal(render.produced, 2);
+    assert.equal(render.chain.length, 2, 'one animate job per still that landed');
+
+    for (const link of render.chain) {
+        const loop = await waitForJob(server, link.jobId);
+        assert.equal(loop.status, 'done', `chained loop for ${link.rel} failed: ${loop.error}`);
+        assert.equal(loop.rel, link.rel);
+    }
+
+    // The pool holds two enabled bullets and pickMotionPrompt avoids the one
+    // just used, so two variants must get two different prompts rather than
+    // sharing the one the panel happened to be showing.
+    const runs = readAnimateRuns(fixture);
+    assert.equal(runs.length, 2);
+    const prompts = runs.map((argv) => argv[argv.indexOf('-d') + 1]);
+    assert.notEqual(prompts[0], prompts[1]);
+    const seeds = runs.map((argv) => argv[argv.indexOf('--seed') + 1]);
+    assert.notEqual(seeds[0], seeds[1], 'each still gets its own seed');
+});
+
+test('a render without animateWhenDone chains nothing', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    const { body } = await postJson(server, '/api/backgrounds/render',
+        { catalogue: 'scene-background-art-prompts.md', prefix: 'Canyon-Skirmish' });
+    const render = await waitForJob(server, body.jobId);
+    assert.deepEqual(render.chain, []);
+    assert.equal(readAnimateRuns(fixture).length, 0);
+});

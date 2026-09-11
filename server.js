@@ -1644,11 +1644,134 @@ function startBackgroundRenderJob({
 }
 
 /**
- * Filled in by the animate task. Kept as a no-op here so the render job's
- * close handler has one shape whether or not the chain is wired.
+ * Spawns animate-portrait.py --background for one still.
+ *
+ * The sidecar is written on success only, and holds the still's mtime under
+ * `portraitVersion` - the same key animate.isStale reads, which is why that
+ * function needs no second version of itself here.
  */
-function chainAnimations(job, added, options) { // eslint-disable-line no-unused-vars
-    job.chain = [];
+function startBackgroundAnimateJob({ rel, description, seedMode, seed, pingpong }) {
+    const still = backgrounds.resolveInside(BACKGROUNDS_DIR, rel);
+    if (!still) {
+        return { ok: false, status: 400, error: 'rel must be a path inside the backgrounds folder' };
+    }
+    if (!fs.existsSync(still)) return { ok: false, status: 404, error: 'no such background' };
+    if (!fs.existsSync(ANIMATE_PORTRAIT_SCRIPT)) {
+        return {
+            ok: false, status: 400,
+            error: `animate-portrait.py not found at ${ANIMATE_PORTRAIT_SCRIPT}`,
+        };
+    }
+    const runningId = backgroundAnimateByRel.get(rel);
+    if (runningId && backgroundJobs.get(runningId)?.status === 'running') {
+        return { ok: false, status: 409, error: 'this background is already being animated' };
+    }
+    if (typeof description !== 'string' || !description) {
+        return {
+            ok: false, status: 400,
+            error: `${path.basename(BACKGROUND_TABLES_PATH)} has no enabled `
+                + `'## ${backgrounds.MOTION_TABLE}' bullets to draw a description from`,
+        };
+    }
+
+    const files = backgrounds.animationFilesFor(rel);
+    const out = backgroundAbs(files.webp);
+    const sidecarPath = backgroundAbs(files.sidecar);
+    const previous = readBackgroundSidecar(files.sidecar);
+
+    // The same three modes as /api/regenerate and /api/animation. 'same' with
+    // no loop yet is a fresh draw rather than an error: the panel defaults to
+    // it, and the first click should simply work.
+    const newSeed = seedMode === 'specific' ? seed
+        : seedMode === 'same' && Number.isInteger(previous.seed) ? previous.seed
+        : crypto.randomInt(0, 2 ** 32 - 1);
+
+    let args;
+    try {
+        args = backgrounds.animateArgs(ANIMATE_PORTRAIT_SCRIPT, {
+            still, out, description, seed: newSeed, pingpong: pingpong !== false,
+        });
+    } catch (err) {
+        return { ok: false, status: 400, error: err.message };
+    }
+
+    const jobId = crypto.randomUUID();
+    const job = {
+        kind: 'animate', rel, status: 'running', startedAt: Date.now(), log: '',
+        description, seed: newSeed,
+    };
+    backgroundJobs.set(jobId, job);
+    backgroundAnimateByRel.set(rel, jobId);
+
+    let child;
+    try {
+        child = spawn(config.pythonExecutable, args, { cwd: path.dirname(ANIMATE_PORTRAIT_SCRIPT) });
+    } catch (err) {
+        job.status = 'error';
+        job.error = err.message;
+        return { ok: true, jobId };
+    }
+
+    const collect = (chunk) => { job.log = (job.log + chunk.toString()).slice(-BACKGROUND_LOG_LIMIT); };
+    child.stdout.on('data', collect);
+    child.stderr.on('data', collect);
+    child.on('error', (err) => { job.status = 'error'; job.error = err.message; });
+    child.on('close', (code) => {
+        if (job.status === 'error') return;
+        job.doneAt = Date.now();
+        // The file has to be there, not merely an exit code of 0 - same
+        // reason the render job counts rather than trusts.
+        if (code !== 0 || !fs.existsSync(out)) {
+            job.status = 'error';
+            job.error = job.log.trim() || `animate-portrait.py exited with code ${code}`;
+            return;
+        }
+        job.status = 'done';
+        try {
+            fs.mkdirSync(path.dirname(sidecarPath), { recursive: true });
+            fs.writeFileSync(sidecarPath, JSON.stringify({
+                description,
+                seed: newSeed,
+                when: new Date().toISOString(),
+                portraitVersion: fileVersion(still),
+            }, null, 2));
+        } catch { /* the loop is on disk; a missing sidecar only loses the record */ }
+    });
+
+    return { ok: true, jobId };
+}
+
+/**
+ * The opt-in chain: one animate job per still the render actually produced,
+ * started from the render's own close handler on exit code 0.
+ *
+ * Each still gets its OWN motion prompt and its own seed rather than all
+ * sharing the one the panel was showing. The variants are different images,
+ * and giving them one description would spend the pool on the run where it is
+ * least likely to fit all of them. What was actually used lands in that
+ * still's own sidecar, so the gallery can always say what made each loop.
+ *
+ * The parent reports done once its own render finished; the client watches
+ * these ids separately, so a failed loop is visible as itself rather than
+ * retroactively failing a render that did produce a still.
+ */
+function chainAnimations(job, added, { pingpong }) {
+    const pool = backgroundMotionPrompts();
+    if (!pool.length) {
+        job.chainError = `${path.basename(BACKGROUND_TABLES_PATH)} has no enabled `
+            + `'## ${backgrounds.MOTION_TABLE}' bullets, so nothing was animated`;
+        return;
+    }
+    let last = null;
+    for (const rel of added) {
+        const description = backgrounds.pickMotionPrompt(pool, { exclude: last });
+        last = description;
+        const started = startBackgroundAnimateJob({
+            rel, description, seedMode: 'random', pingpong,
+        });
+        if (started.ok) job.chain.push({ rel, jobId: started.jobId });
+        else job.chainError = started.error;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -3096,6 +3219,36 @@ async function handleApi(req, res, url) {
         const result = startBackgroundRenderJob({
             catalogue, prefix, variants, seed, width, height,
             animateWhenDone: body.animateWhenDone ? { pingpong: body.pingpong !== false } : null,
+        });
+        return sendJson(res, result.ok ? 202 : result.status, result);
+    }
+
+    if (url.pathname === '/api/backgrounds/animate' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+
+        // Coerced, not refused, exactly as /api/regenerate and /api/animation
+        // treat an unrecognised mode - one rule for seed modes across the file.
+        const seedMode = ['same', 'specific', 'random'].includes(body.seedMode) ? body.seedMode : 'same';
+        let seed;
+        if (seedMode === 'specific') {
+            seed = Number(body.seed);
+            if (!Number.isInteger(seed) || seed < 0 || seed > 2 ** 32 - 1) {
+                return sendJson(res, 400, { error: 'seed must be an integer between 0 and 4294967295' });
+            }
+        }
+
+        const result = startBackgroundAnimateJob({
+            rel: typeof body.rel === 'string' ? body.rel : '',
+            description: typeof body.description === 'string' ? body.description.trim() : '',
+            seedMode,
+            seed,
+            pingpong: body.pingpong !== false,
         });
         return sendJson(res, result.ok ? 202 : result.status, result);
     }
