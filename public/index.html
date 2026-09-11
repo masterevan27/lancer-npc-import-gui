@@ -21,6 +21,14 @@
          when the script IS present, and so a failed or too-old /api/categories
          degrades to exactly today's UI rather than to a missing tab. -->
     <button type="button" data-tab="shipcreate" data-kind="spaceship">Create Spaceship</button>
+    <!-- data-feature is data-kind's sibling for things that are not kinds. A
+         background has no manifest entry, no traits and no registry row, so
+         it cannot ride `kinds`; applyFeatureAvailability removes every
+         [data-feature] node the server did not report in /api/categories'
+         `features`. On the button only, never on the panel below: elBackgrounds
+         reads the panel's ids as app.js loads, and removing the panel would
+         leave all of them null. The ship tab sets the same precedent. -->
+    <button type="button" data-tab="backgrounds" data-feature="backgrounds">Backgrounds</button>
     <button type="button" data-tab="traits">Trait Imports</button>
     <button type="button" data-tab="tables">Tables</button>
   </nav>
@@ -236,6 +244,53 @@
 
     <p class="regen-status" id="create-ship-status"></p>
     <pre class="job-log" id="create-ship-log" hidden></pre>
+  </div>
+</section>
+
+<section class="tab-panel" id="tab-backgrounds" hidden>
+  <p class="regen-status" id="bg-unavailable" hidden></p>
+
+  <div class="bg-render">
+    <h2>Render a background</h2>
+    <div class="filter-row">
+      <label>Catalogue <select id="bg-catalogue"></select></label>
+      <label>Variants <input type="number" id="bg-variants" min="1" max="8" value="1" /></label>
+      <label>Width <input type="number" id="bg-width" min="64" value="1920" /></label>
+      <label>Height <input type="number" id="bg-height" min="64" value="1080" /></label>
+    </div>
+    <div class="bg-entries" id="bg-entries"></div>
+    <div class="filter-row">
+      <label><input type="checkbox" id="bg-roll-seed" checked /> Roll a seed</label>
+      <label>Seed <input type="number" id="bg-seed" min="0" disabled /></label>
+      <label><input type="checkbox" id="bg-animate-when-done" /> Animate each still when it lands</label>
+      <label><input type="checkbox" id="bg-chain-pingpong" checked /> Ping-pong those loops</label>
+    </div>
+    <button type="button" id="bg-render-btn">Render</button>
+    <p class="regen-status" id="bg-render-status"></p>
+    <pre class="job-log" id="bg-render-log" hidden></pre>
+  </div>
+
+  <div class="bg-gallery" id="bg-gallery"></div>
+
+  <div class="bg-animate" id="bg-animate" hidden>
+    <h2 id="bg-animate-title"></h2>
+    <img class="bg-animate-still" id="bg-animate-still" alt="" />
+    <div class="bg-motion">
+      <textarea id="bg-motion-text" rows="3"></textarea>
+      <button type="button" id="bg-motion-reroll">Re-roll</button>
+    </div>
+    <div class="filter-row">
+      <label><input type="radio" name="bg-seed-mode" value="same" checked /> Same seed</label>
+      <label><input type="radio" name="bg-seed-mode" value="specific" /> This seed</label>
+      <input type="number" id="bg-animate-seed" min="0" disabled />
+      <label><input type="radio" name="bg-seed-mode" value="random" /> Roll one</label>
+      <label><input type="checkbox" id="bg-pingpong" checked /> Ping-pong</label>
+    </div>
+    <img class="bg-animate-loop" id="bg-animate-loop" alt="" hidden />
+    <button type="button" id="bg-animate-btn">Animate</button>
+    <button type="button" id="bg-animate-close">Close</button>
+    <p class="regen-status" id="bg-animate-status"></p>
+    <pre class="job-log" id="bg-animate-log" hidden></pre>
   </div>
 </section>
 

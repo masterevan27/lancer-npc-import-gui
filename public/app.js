@@ -601,12 +601,44 @@ function applyKindAvailability(kinds) {
   }
 }
 
+/**
+ * Removes the affordances of every feature this install cannot offer, given
+ * /api/categories' `features`.
+ *
+ * data-kind's sibling, one step sideways: a background is not a kind - no
+ * manifest entry, no traits, no registry row - so it cannot ride `kinds`, and
+ * anything in index.html carrying data-feature is an affordance for exactly
+ * that feature and nothing else.
+ *
+ * TWO ways to answer "leave everything alone", not the three
+ * applyKindAvailability has. A missing `features` field (a server too old to
+ * send one) and a non-array both mean change nothing, exactly as there. An
+ * EMPTY array does not, and that difference is deliberate: for kinds an empty
+ * list means no generator script whatsoever, which is a misconfiguration; for
+ * features it is the ordinary state of an install without generate-art.py,
+ * and honouring it is the entire point of the gate.
+ */
+function applyFeatureAvailability(features) {
+  if (!Array.isArray(features)) return;
+  const have = new Set(features);
+  for (const node of document.querySelectorAll('[data-feature]')) {
+    if (!have.has(node.dataset.feature)) node.remove();
+  }
+  // The same recovery applyKindAvailability has, and for the same reason: a
+  // removed tab button that was the active one would leave its panel open
+  // with no button to leave it by.
+  if (!document.querySelector('#tabs button.active')) {
+    document.querySelector('#tabs button[data-tab="import"]')?.click();
+  }
+}
+
 async function loadCategories() {
-  const { categories, kinds } = await api('/api/categories');
+  const { categories, kinds, features } = await api('/api/categories');
   // Before the early return below: an install with no generated content yet is
   // precisely the one that must not be offered a Create Spaceship tab it has
   // no generator for.
   applyKindAvailability(kinds);
+  applyFeatureAvailability(features);
   el.categories.innerHTML = '';
   if (!categories.length) {
     el.categories.textContent = 'No generated content found yet.';
@@ -2312,6 +2344,11 @@ function switchTab(tab) {
   if (tab === 'traits') refreshTraitCandidates().catch((err) => {
     elTraits.status.textContent = `Failed to load: ${err.message}`;
   });
+  if (tab === 'backgrounds') {
+    loadBackgrounds().catch((err) => {
+      elBackgrounds.renderStatus.textContent = `Failed to load: ${err.message}`;
+    });
+  }
   if (tab === 'tables') {
     loadTables().catch((err) => {
       elTables.empty.hidden = false;
@@ -5466,3 +5503,282 @@ function cancelPresetPreview() {
   elTables.preview.hidden = true;
 }
 elTables.cancelBtn.addEventListener('click', cancelPresetPreview);
+
+/* ==================================================================== */
+/* Backgrounds                                                           */
+/* ==================================================================== */
+
+/**
+ * Deliberately a parallel block rather than the Create form or the detail
+ * overlay made generic, in the shape shipCreateState established. Ten
+ * ui.*.test.js files lift functions out of this file by name and
+ * brace-matching, so parameterising render(), openDetail() or
+ * traitControlCells() would be a contract break needing its own review rather
+ * than a mechanical edit. Nothing here renames anything.
+ *
+ * A background has no manifest entry and no id: a still is its path relative
+ * to the server's backgrounds folder, and the folder is the source of truth.
+ * A file deleted in Explorer is gone from this tab on the next refresh, and
+ * one dropped in by hand appears.
+ */
+const backgroundsState = {
+  loaded: false,
+  available: false,
+  missing: [],
+  catalogues: [],
+  motionPrompts: [],
+  items: [],
+  catalogue: '',
+  prefix: '',
+  selected: null, // the rel the Animate panel is open on
+  motion: null,
+  renderTimer: null,
+  animateTimer: null,
+};
+
+const elBackgrounds = {
+  unavailable: document.getElementById('bg-unavailable'),
+  catalogue: document.getElementById('bg-catalogue'),
+  entries: document.getElementById('bg-entries'),
+  variants: document.getElementById('bg-variants'),
+  width: document.getElementById('bg-width'),
+  height: document.getElementById('bg-height'),
+  rollSeed: document.getElementById('bg-roll-seed'),
+  seed: document.getElementById('bg-seed'),
+  animateWhenDone: document.getElementById('bg-animate-when-done'),
+  chainPingpong: document.getElementById('bg-chain-pingpong'),
+  renderBtn: document.getElementById('bg-render-btn'),
+  renderStatus: document.getElementById('bg-render-status'),
+  renderLog: document.getElementById('bg-render-log'),
+  gallery: document.getElementById('bg-gallery'),
+  panel: document.getElementById('bg-animate'),
+  panelTitle: document.getElementById('bg-animate-title'),
+  panelStill: document.getElementById('bg-animate-still'),
+  panelLoop: document.getElementById('bg-animate-loop'),
+  motionText: document.getElementById('bg-motion-text'),
+  motionReroll: document.getElementById('bg-motion-reroll'),
+  animateSeed: document.getElementById('bg-animate-seed'),
+  pingpong: document.getElementById('bg-pingpong'),
+  animateBtn: document.getElementById('bg-animate-btn'),
+  animateClose: document.getElementById('bg-animate-close'),
+  animateStatus: document.getElementById('bg-animate-status'),
+  animateLog: document.getElementById('bg-animate-log'),
+};
+
+async function loadBackgrounds() {
+  const data = await api('/api/backgrounds');
+  backgroundsState.available = !!data.available;
+  backgroundsState.missing = data.missing || [];
+  backgroundsState.catalogues = data.catalogues || [];
+  backgroundsState.motionPrompts = data.motionPrompts || [];
+  backgroundsState.items = data.items || [];
+  backgroundsState.loaded = true;
+  // Keep the chosen catalogue across a refresh when it is still there, and
+  // fall to the first one when it is not - a catalogue can be added or
+  // removed on disk between two visits to this tab.
+  if (!backgroundsState.catalogues.some((c) => c.file === backgroundsState.catalogue)) {
+    backgroundsState.catalogue = backgroundsState.catalogues.length
+      ? backgroundsState.catalogues[0].file : '';
+    backgroundsState.prefix = '';
+  }
+  renderBackgroundsPanel();
+}
+
+function renderBackgroundsPanel() {
+  elBackgrounds.unavailable.hidden = backgroundsState.available;
+  elBackgrounds.unavailable.textContent = backgroundsState.available
+    ? '' : `The Backgrounds tab needs: ${backgroundsState.missing.join('; ')}.`;
+  elBackgrounds.renderBtn.disabled = !backgroundsState.available;
+  renderBackgroundCatalogues();
+  renderBackgroundEntries();
+  renderBackgroundGallery();
+}
+
+function renderBackgroundCatalogues() {
+  elBackgrounds.catalogue.innerHTML = '';
+  for (const catalogue of backgroundsState.catalogues) {
+    const opt = document.createElement('option');
+    opt.value = catalogue.file;
+    opt.textContent = catalogue.label;
+    opt.selected = catalogue.file === backgroundsState.catalogue;
+    elBackgrounds.catalogue.appendChild(opt);
+  }
+}
+
+/**
+ * What one catalogue entry is called. The heading the server attached when it
+ * could find one, and the slug otherwise - attachHeadings is display-only, so
+ * a heading it missed degrades to the name --filter will actually be given.
+ */
+function backgroundEntryLabel(entry) {
+  return entry.name || entry.prefix;
+}
+
+function renderBackgroundEntries() {
+  elBackgrounds.entries.innerHTML = '';
+  const catalogue = backgroundsState.catalogues.find((c) => c.file === backgroundsState.catalogue);
+  const entries = catalogue ? catalogue.entries : [];
+  if (!entries.length) {
+    elBackgrounds.entries.textContent = backgroundsState.available
+      ? 'No entries in this catalogue.' : '';
+    return;
+  }
+  if (!entries.some((e) => e.prefix === backgroundsState.prefix)) {
+    backgroundsState.prefix = entries[0].prefix;
+  }
+  for (const entry of entries) {
+    const row = document.createElement('label');
+    row.className = 'bg-entry';
+
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'bg-entry';
+    radio.value = entry.prefix;
+    radio.checked = entry.prefix === backgroundsState.prefix;
+    radio.addEventListener('change', () => { backgroundsState.prefix = entry.prefix; });
+    row.appendChild(radio);
+
+    const title = document.createElement('span');
+    title.className = 'bg-entry-title';
+    title.textContent = backgroundEntryLabel(entry);
+    row.appendChild(title);
+
+    if (entry.role) {
+      const role = document.createElement('span');
+      role.className = 'bg-entry-role';
+      role.textContent = entry.role;
+      row.appendChild(role);
+    }
+
+    const excerpt = document.createElement('span');
+    excerpt.className = 'bg-entry-excerpt';
+    excerpt.textContent = entry.excerpt || '';
+    row.appendChild(excerpt);
+
+    elBackgrounds.entries.appendChild(row);
+  }
+}
+
+/**
+ * Polls one background job to a terminal state. Its own function rather than
+ * a fifth parameterisation of pollCreateJob: that one reads
+ * /api/create-status, drives a dry-run button this panel does not have, and
+ * is lifted by name in two existing tests.
+ */
+function pollBackgroundJob(jobId, { statusEl, logEl, button, running, onDone }) {
+  let ticks = 0;
+  const timer = setInterval(async () => {
+    ticks += 1;
+    let job;
+    try {
+      job = await api(`/api/backgrounds/status?jobId=${encodeURIComponent(jobId)}`);
+    } catch (err) {
+      clearInterval(timer);
+      button.disabled = false;
+      statusEl.textContent = `Lost track of the job: ${err.message}`;
+      return;
+    }
+    logEl.hidden = !job.log;
+    logEl.textContent = job.log || '';
+    if (job.status === 'running') {
+      statusEl.textContent = running;
+      // The same 20-minute safety net the other pollers have, and the same
+      // obligation to hand the button back when it fires - giving up on
+      // watching is a terminal path like any other.
+      if (ticks > 600) {
+        clearInterval(timer);
+        button.disabled = false;
+        statusEl.textContent =
+          'Stopped watching this run after 20 minutes — it may still be going; reload to check.';
+      }
+      return;
+    }
+    clearInterval(timer);
+    button.disabled = false;
+    onDone(job);
+  }, 2000);
+  return timer;
+}
+
+async function startBackgroundRender() {
+  if (!backgroundsState.prefix) {
+    elBackgrounds.renderStatus.textContent = 'Choose a catalogue entry first.';
+    return;
+  }
+  elBackgrounds.renderBtn.disabled = true;
+  elBackgrounds.renderStatus.textContent = 'Starting…';
+  elBackgrounds.renderLog.hidden = true;
+  elBackgrounds.renderLog.textContent = '';
+
+  const body = {
+    catalogue: backgroundsState.catalogue,
+    prefix: backgroundsState.prefix,
+    variants: Number(elBackgrounds.variants.value) || 1,
+    width: Number(elBackgrounds.width.value) || 1920,
+    height: Number(elBackgrounds.height.value) || 1080,
+    // null is a mode, not a missing value: it omits --seed and lets the
+    // script roll its own, which is the only other seed a render has.
+    seed: elBackgrounds.rollSeed.checked ? null : Number(elBackgrounds.seed.value),
+    animateWhenDone: elBackgrounds.animateWhenDone.checked,
+    pingpong: elBackgrounds.chainPingpong.checked,
+  };
+
+  let result;
+  try {
+    result = await api('/api/backgrounds/render', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    elBackgrounds.renderBtn.disabled = false;
+    elBackgrounds.renderStatus.textContent = `Couldn't start: ${err.message}`;
+    return;
+  }
+
+  backgroundsState.renderTimer = pollBackgroundJob(result.jobId, {
+    statusEl: elBackgrounds.renderStatus,
+    logEl: elBackgrounds.renderLog,
+    button: elBackgrounds.renderBtn,
+    running: 'Rendering… this takes minutes per image (ComfyUI must be running).',
+    onDone: (job) => {
+      if (job.status === 'error') {
+        elBackgrounds.renderStatus.textContent = job.error || 'The render failed.';
+      } else if (!job.produced) {
+        // Exit code 0 only means the script did not crash. Say what happened
+        // rather than claiming a still that is not there.
+        elBackgrounds.renderStatus.textContent = 'The run finished but produced no images.';
+      } else {
+        const loops = job.chain.length
+          ? ` ${job.chain.length} loop${job.chain.length === 1 ? '' : 's'} started.` : '';
+        const failed = job.chainError ? ` ${job.chainError}.` : '';
+        elBackgrounds.renderStatus.textContent =
+          `Rendered ${job.produced} image${job.produced === 1 ? '' : 's'}.${loops}${failed}`;
+      }
+      loadBackgrounds().catch(() => { /* the gallery refreshes on the next visit */ });
+    },
+  });
+}
+
+elBackgrounds.catalogue.addEventListener('change', () => {
+  backgroundsState.catalogue = elBackgrounds.catalogue.value;
+  backgroundsState.prefix = '';
+  renderBackgroundEntries();
+});
+
+elBackgrounds.rollSeed.addEventListener('change', () => {
+  elBackgrounds.seed.disabled = elBackgrounds.rollSeed.checked;
+  if (elBackgrounds.rollSeed.checked) elBackgrounds.seed.value = '';
+});
+
+elBackgrounds.renderBtn.addEventListener('click', () => {
+  startBackgroundRender().catch((err) => {
+    elBackgrounds.renderBtn.disabled = false;
+    elBackgrounds.renderStatus.textContent = `Couldn't start: ${err.message}`;
+  });
+});
+
+/** Replaced in full by the gallery task. */
+function renderBackgroundGallery() {
+  elBackgrounds.gallery.textContent = '';
+}

@@ -85,7 +85,7 @@ test('index.html carries the fifth tab and the Create Spaceship form', async (t)
         '#tab-shipcreate offers an Unarmed control, which is a person-only concept');
 });
 
-test('a fifth tab has no sixth: the tab bar names exactly these five', async (t) => {
+test('a fifth tab has no unplanned sixth: the tab bar names exactly these six', async (t) => {
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());
 
@@ -93,7 +93,10 @@ test('a fifth tab has no sixth: the tab bar names exactly these five', async (t)
     const nav = /<nav class="tabs" id="tabs">[\s\S]*?<\/nav>/.exec(html);
     assert.ok(nav, '#tabs is no longer a <nav>');
     const tabs = [...nav[0].matchAll(/data-tab="([\w-]+)"/g)].map((m) => m[1]);
-    assert.deepEqual(tabs, ['import', 'create', 'shipcreate', 'traits', 'tables']);
+    // Backgrounds is the Backgrounds tab's own deliberate, feature-gated
+    // sixth tab (see ui.backgrounds.test.js) - not the clutter this test was
+    // written to catch.
+    assert.deepEqual(tabs, ['import', 'create', 'shipcreate', 'backgrounds', 'traits', 'tables']);
 });
 
 test('the Tables tab carries a #tables-kind select', async (t) => {
@@ -268,7 +271,9 @@ test('loadCategories applies kind availability, and does it before its empty-lib
     const js = await fetchText(server, '/app.js');
     const body = /async function loadCategories\(\)[\s\S]*?\n\}/.exec(js);
     assert.ok(body, 'loadCategories is no longer a top-level async function');
-    assert.match(body[0], /const \{ categories, kinds \} = await api\('\/api\/categories'\)/,
+    // features joined the destructure in the Backgrounds task - the gate
+    // this test cares about is still `kinds`, so accept it alongside.
+    assert.match(body[0], /const \{ categories, kinds, features \} = await api\('\/api\/categories'\)/,
         'loadCategories no longer reads the `kinds` field off /api/categories');
     const applyAt = body[0].indexOf('applyKindAvailability(kinds)');
     const emptyReturnAt = body[0].indexOf('No generated content found yet.');
