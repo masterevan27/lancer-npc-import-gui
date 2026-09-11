@@ -55,6 +55,18 @@ Everything else in `config.example.json` is optional and derived by default:
   lives in the generator repo; set it only if you have moved that one file.
 - `animatePortraitScript` — `animate-portrait.py`, behind the detail sheet's
   **Animated portrait** panel. Same default and the same reason to set it.
+- `generateArtScript` — `generate-art.py`, behind the **Backgrounds** tab's
+  Render button. Same default as the two above and the same reason to set it.
+- `backgroundsDir` — every background still and loop the tab shows, and the
+  only folder it reads. Defaults to `output/backgrounds` under the generator
+  root. This one is worth pointing elsewhere: it is the folder you will want
+  beside SillyTavern, and the tab takes whatever is in it.
+- `backgroundPromptsDir` — where the scene catalogues live. Defaults to the
+  folder holding `npcTablesPath`, and every `*-background-art-prompts.md` in it
+  becomes a catalogue in the picker, so a new one needs no config edit.
+- `backgroundTablesPath` — the file whose `## Background Animation` table is
+  the motion-prompt pool. Defaults to `scene-and-spaceship-tables.md` beside
+  `npcTablesPath`.
 - `foundryNpcSubdir` — the folder imports are nested under inside
   `foundryDataRoot`. Default `LancerNPCs`.
 - `npcTablesPath` / `stagedImportsDir` — where the generator's own
@@ -119,7 +131,7 @@ node server.js
 
 and open <http://127.0.0.1:5089>.
 
-## The five tabs
+## The six tabs
 
 - **Import Generated Art** — pick a category, click a card to preview its
   portrait and token, check the ones you want, and **Import Selected**.
@@ -379,6 +391,38 @@ and open <http://127.0.0.1:5089>.
   Importing a ship writes it under `foundrySpaceshipSubdir` and hands the
   module the token's size in **grid units** rather than pixels, so a
   five-by-three ship arrives five by three instead of the size of a continent.
+- **Backgrounds** — Renders scene art from the generator's background catalogues and animates any
+  of it into a looping `.webp` for a SillyTavern chat background.
+
+  The tab only appears when this install can actually do both halves of that:
+  `generate-art.py` and `animate-portrait.py` are both on disk, and at least one
+  `*-background-art-prompts.md` is in the prompts folder. The check is per
+  request, so dropping a script into place does not need a server restart.
+
+  Backgrounds are not NPCs. There is no manifest entry, no id and no Foundry
+  import — a background is just a file in `backgroundsDir`, and the folder is
+  the source of truth. Delete one in Explorer and it is gone from the tab on the
+  next refresh; drop one in by hand and it appears. What the GUI remembers about
+  a loop (its motion prompt, its seed, and the still's mtime when it was made)
+  lives in a JSON sidecar beside the `.webp`.
+
+  **Render.** Pick a catalogue, pick an entry, and set variants, seed and size.
+  The entry list is the generator's own `--list` output, so it offers exactly
+  what it can select. A still is rendered, never regenerated in place, so the
+  seed is either one you pin or one the script rolls.
+
+  **Animate each still when it lands** chains an animation onto every image a
+  render produces. With more than one variant each still gets its own motion
+  prompt and its own seed, rather than all sharing the one the panel was
+  showing. The render reports done once the render finished; the loops are
+  watched separately, so a failed animation does not retroactively fail a render
+  that did produce a still.
+
+  **Animate.** Click a card. The motion prompt comes from the enabled bullets of
+  the `## Background Animation` table in `backgroundTablesPath`; Re-roll draws
+  another, and you can type your own. Ping-pong and the three seed modes work as
+  they do for an NPC's animated portrait. A card shows **Animated** when a loop
+  exists and **Stale** when the still has been re-rendered since.
 - **Trait Imports** — lists reference-image trait candidates staged by the
   `npc-trait-import` skill, sortable and dated, and appends the ones you approve
   as new bullets in `npc-generator-tables.md`. Search the bullets, narrow to one
