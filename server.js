@@ -1562,6 +1562,95 @@ function backgroundMotionPrompts() {
     }
 }
 
+/**
+ * Spawns generate-art.py for one catalogue entry.
+ *
+ * The before/after snapshot is startCreateJob's technique, taken for the
+ * reason it states: exit code 0 means the script did not crash, not that it
+ * wrote anything, and ComfyUI can drop a job. A run that produced nothing
+ * reports produced: 0 and a log tail rather than a success the gallery
+ * cannot show.
+ */
+function startBackgroundRenderJob({
+    catalogue, prefix, variants, seed, width, height, animateWhenDone,
+}) {
+    if (!fs.existsSync(GENERATE_ART_SCRIPT)) {
+        return { ok: false, status: 400, error: `generate-art.py not found at ${GENERATE_ART_SCRIPT}` };
+    }
+    let args;
+    try {
+        args = backgrounds.renderArgs(GENERATE_ART_SCRIPT, {
+            catalogue: path.join(BACKGROUND_PROMPTS_DIR, catalogue),
+            prefix,
+            backgroundsDir: BACKGROUNDS_DIR,
+            variants,
+            width,
+            height,
+            seed,
+        });
+    } catch (err) {
+        return { ok: false, status: 400, error: err.message };
+    }
+
+    // --download-to creates the tree itself, but the snapshot below has to be
+    // taken against a directory that exists or a first run reads as "one new
+    // file appeared" for every file the script wrote plus nothing it did not.
+    try {
+        fs.mkdirSync(BACKGROUNDS_DIR, { recursive: true });
+    } catch (err) {
+        return { ok: false, status: 500, error: `couldn't create ${BACKGROUNDS_DIR}: ${err.message}` };
+    }
+    const before = new Set(walkBackgrounds());
+
+    const jobId = crypto.randomUUID();
+    const job = {
+        kind: 'render', status: 'running', startedAt: Date.now(), log: '',
+        produced: null, chain: [], chainError: null,
+    };
+    backgroundJobs.set(jobId, job);
+
+    let child;
+    try {
+        child = spawn(config.pythonExecutable, args, { cwd: path.dirname(GENERATE_ART_SCRIPT) });
+    } catch (err) {
+        job.status = 'error';
+        job.error = err.message;
+        return { ok: true, jobId };
+    }
+
+    const collect = (chunk) => { job.log = (job.log + chunk.toString()).slice(-BACKGROUND_LOG_LIMIT); };
+    child.stdout.on('data', collect);
+    child.stderr.on('data', collect);
+    child.on('error', (err) => { job.status = 'error'; job.error = err.message; });
+    child.on('close', (code) => {
+        if (job.status === 'error') return; // already failed via the 'error' event
+        job.doneAt = Date.now();
+        if (code !== 0) {
+            job.status = 'error';
+            job.error = job.log.trim() || `generate-art.py exited with code ${code}`;
+            return;
+        }
+        const added = walkBackgrounds().filter((rel) => !before.has(rel));
+        job.produced = added.length;
+        if (animateWhenDone) chainAnimations(job, added, animateWhenDone);
+        // Flipped LAST, deliberately. The client stops polling the moment this
+        // stops being 'running', so a chain recorded after the flip would be
+        // invisible to the run that started it - and the status route would
+        // hand back a finished render with an empty chain.
+        job.status = 'done';
+    });
+
+    return { ok: true, jobId };
+}
+
+/**
+ * Filled in by the animate task. Kept as a no-op here so the render job's
+ * close handler has one shape whether or not the chain is wired.
+ */
+function chainAnimations(job, added, options) { // eslint-disable-line no-unused-vars
+    job.chain = [];
+}
+
 /* ------------------------------------------------------------------ */
 /* Create NPC                                                          */
 /* ------------------------------------------------------------------ */
@@ -2950,6 +3039,86 @@ async function handleApi(req, res, url) {
         res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
         fs.createReadStream(file).pipe(res);
         return;
+    }
+
+    if (url.pathname === '/api/backgrounds/render' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+
+        const catalogue = typeof body.catalogue === 'string' ? body.catalogue : '';
+        if (!backgroundCatalogueFiles().includes(catalogue)) {
+            return sendJson(res, 400, { error: `unknown catalogue "${catalogue}"` });
+        }
+
+        // Checked here too, not only inside startBackgroundRenderJob: without
+        // the script, readCatalogueEntries' spawn cannot produce the entry
+        // list below, and "unknown entry" would shadow the real problem.
+        if (!fs.existsSync(GENERATE_ART_SCRIPT)) {
+            return sendJson(res, 400, { error: `generate-art.py not found at ${GENERATE_ART_SCRIPT}` });
+        }
+
+        const variants = body.variants === undefined || body.variants === null
+            ? 1 : Number(body.variants);
+        if (!Number.isInteger(variants) || variants < 1 || variants > 8) {
+            return sendJson(res, 400, { error: 'variants must be an integer between 1 and 8' });
+        }
+
+        const width = body.width === undefined || body.width === null ? 1920 : Number(body.width);
+        const height = body.height === undefined || body.height === null ? 1080 : Number(body.height);
+        if (!Number.isInteger(width) || width < 1 || !Number.isInteger(height) || height < 1) {
+            return sendJson(res, 400, { error: 'width and height must be positive integers' });
+        }
+
+        // Two seed modes, not the three /api/regenerate has: a still is
+        // rendered, never regenerated in place, so there is no previous seed
+        // for "same" to mean. null omits the flag and the script rolls its own.
+        let seed = null;
+        if (body.seed !== null && body.seed !== undefined && body.seed !== '') {
+            seed = Number(body.seed);
+            if (!Number.isInteger(seed) || seed < 0) {
+                return sendJson(res, 400, { error: 'seed must be a non-negative integer, or null' });
+            }
+        }
+
+        // The prefix is checked against the script's own --list, which is the
+        // only list that agrees with what --filter can select.
+        const entries = await readCatalogueEntries(catalogue);
+        const prefix = typeof body.prefix === 'string' ? body.prefix : '';
+        if (!entries.some((entry) => entry.prefix === prefix)) {
+            return sendJson(res, 400, { error: `unknown entry "${prefix}" in ${catalogue}` });
+        }
+
+        const result = startBackgroundRenderJob({
+            catalogue, prefix, variants, seed, width, height,
+            animateWhenDone: body.animateWhenDone ? { pingpong: body.pingpong !== false } : null,
+        });
+        return sendJson(res, result.ok ? 202 : result.status, result);
+    }
+
+    if (url.pathname === '/api/backgrounds/status' && req.method === 'GET') {
+        const jobId = url.searchParams.get('jobId');
+        const job = jobId && backgroundJobs.get(jobId);
+        if (!job) return sendJson(res, 404, { error: 'unknown job' });
+        return sendJson(res, 200, {
+            status: job.status,
+            kind: job.kind,
+            rel: job.rel ?? null,
+            log: job.log,
+            error: job.error ?? null,
+            // How many stills landed, or null when it was not measured (still
+            // going, or the run failed). Told apart from a measured zero.
+            produced: job.produced ?? null,
+            // The animate jobs this render started, each watched separately so
+            // a failed loop is visible as itself rather than retroactively
+            // failing a render that did produce a still.
+            chain: job.chain ?? [],
+            chainError: job.chainError ?? null,
+        });
     }
 
     if (url.pathname === '/api/model-3d-image' && req.method === 'GET') {

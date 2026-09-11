@@ -269,3 +269,105 @@ test('GET /api/backgrounds/image refuses a traversal and an unknown file', async
     const gone = await getJson(server, '/api/backgrounds/image?rel=nope.png');
     assert.equal(gone.status, 404);
 });
+
+/* ---- rendering ---- */
+
+async function postJson(server, p, body) {
+    const res = await fetch(`${server.baseUrl}${p}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json() };
+}
+
+/** Polls a background job to a terminal state, the way the client does. */
+async function waitForJob(server, jobId, timeoutMs = 20000) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+        const { body } = await getJson(server,
+            `/api/backgrounds/status?jobId=${encodeURIComponent(jobId)}`);
+        if (body.status !== 'running') return body;
+        if (Date.now() > deadline) throw new Error(`job never finished: ${JSON.stringify(body)}`);
+        await new Promise((r) => setTimeout(r, 50));
+    }
+}
+
+test('POST /api/backgrounds/render refuses an unknown catalogue', async (t) => {
+    const { server } = await startWithFixture(t);
+    const { status, body } = await postJson(server, '/api/backgrounds/render',
+        { catalogue: 'nope.md', prefix: 'Canyon-Skirmish' });
+    assert.equal(status, 400);
+    assert.match(body.error, /unknown catalogue "nope\.md"/);
+});
+
+test('POST /api/backgrounds/render refuses an unknown prefix', async (t) => {
+    const { server } = await startWithFixture(t);
+    const { status, body } = await postJson(server, '/api/backgrounds/render',
+        { catalogue: 'scene-background-art-prompts.md', prefix: 'Not-An-Entry' });
+    assert.equal(status, 400);
+    assert.match(body.error, /unknown entry "Not-An-Entry"/);
+});
+
+test('POST /api/backgrounds/render refuses variants outside 1-8', async (t) => {
+    const { server } = await startWithFixture(t);
+    const { status, body } = await postJson(server, '/api/backgrounds/render',
+        { catalogue: 'scene-background-art-prompts.md', prefix: 'Canyon-Skirmish', variants: 12 });
+    assert.equal(status, 400);
+    assert.match(body.error, /variants/);
+});
+
+test('POST /api/backgrounds/render says where the script should have been', async (t) => {
+    const { server } = await startWithFixture(t, { withArt: false });
+    const { status, body } = await postJson(server, '/api/backgrounds/render',
+        { catalogue: 'scene-background-art-prompts.md', prefix: 'Canyon-Skirmish' });
+    assert.equal(status, 400);
+    assert.match(body.error, /generate-art\.py not found at /);
+});
+
+test('a render spawns the anchored filter and a manifest inside backgroundsDir', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    const { status, body } = await postJson(server, '/api/backgrounds/render', {
+        catalogue: 'scene-background-art-prompts.md', prefix: 'Canyon-Skirmish', seed: 11,
+    });
+    assert.equal(status, 202);
+    const job = await waitForJob(server, body.jobId);
+    assert.equal(job.status, 'done');
+    assert.equal(job.produced, 1);
+
+    const argv = JSON.parse(
+        fs.readFileSync(path.join(fixture.backgroundsDir, '.render-argv.json'), 'utf8'));
+    // A hyphen is not regex syntax outside a character class, so escapeRegExp
+    // leaves it alone and the anchors are the only addition.
+    assert.equal(argv[argv.indexOf('--filter') + 1], '^Canyon-Skirmish$');
+    assert.equal(argv[argv.indexOf('--manifest') + 1],
+        path.join(fixture.backgroundsDir, '.backgrounds-manifest.json'));
+    assert.equal(argv[argv.indexOf('--download-to') + 1], fixture.backgroundsDir);
+    assert.equal(argv[argv.indexOf('--seed') + 1], '11');
+});
+
+test('a render with a null seed omits --seed and lets the script roll one', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    const { body } = await postJson(server, '/api/backgrounds/render', {
+        catalogue: 'scene-background-art-prompts.md', prefix: 'Canyon-Skirmish', seed: null,
+    });
+    await waitForJob(server, body.jobId);
+    const argv = JSON.parse(
+        fs.readFileSync(path.join(fixture.backgroundsDir, '.render-argv.json'), 'utf8'));
+    assert.ok(!argv.includes('--seed'));
+});
+
+test('a finished render shows up in the gallery', async (t) => {
+    const { server } = await startWithFixture(t);
+    const { body } = await postJson(server, '/api/backgrounds/render',
+        { catalogue: 'scene-background-art-prompts.md', prefix: 'Canyon-Skirmish' });
+    await waitForJob(server, body.jobId);
+    const { body: listing } = await getJson(server, '/api/backgrounds');
+    assert.ok(listing.items.some((i) => i.rel === 'LancerBackgrounds/Canyon-Skirmish_00001_.png'));
+});
+
+test('GET /api/backgrounds/status 404s an unknown job', async (t) => {
+    const { server } = await startWithFixture(t);
+    const { status } = await getJson(server, '/api/backgrounds/status?jobId=nope');
+    assert.equal(status, 404);
+});
