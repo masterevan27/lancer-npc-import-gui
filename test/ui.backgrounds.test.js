@@ -124,3 +124,50 @@ test('backgroundEntryLabel falls back to the prefix when no heading was found', 
         'Canyon Skirmish — A Night Raid');
     assert.equal(label({ name: '', prefix: 'Canyon-Skirmish' }), 'Canyon-Skirmish');
 });
+
+test('backgroundPills names the loop, the staleness and the running job', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    const pills = liftFunction(js, 'backgroundPills');
+
+    assert.deepEqual(pills({ animation: null, status: null }), [],
+        'a still with no loop carries no pills');
+    assert.deepEqual(pills({ animation: { stale: false }, status: null }), ['Animated']);
+    assert.deepEqual(pills({ animation: { stale: true }, status: null }), ['Animated', 'Stale']);
+    assert.deepEqual(pills({ animation: null, status: 'running' }), ['Animating…'],
+        'a stale nothing is nothing, but a running job still shows');
+});
+
+test('pickBackgroundMotion never repeats the prompt already showing', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+
+    const two = liftFunction(js, 'pickBackgroundMotion', {
+        backgroundsState: { motionPrompts: ['smoke drifts', 'rain falls'] },
+    });
+    assert.equal(two('smoke drifts'), 'rain falls');
+
+    const one = liftFunction(js, 'pickBackgroundMotion', {
+        backgroundsState: { motionPrompts: ['smoke drifts'] },
+    });
+    assert.equal(one('smoke drifts'), 'smoke drifts', 'a pool of one is the only honest repeat');
+
+    const none = liftFunction(js, 'pickBackgroundMotion', {
+        backgroundsState: { motionPrompts: [] },
+    });
+    assert.equal(none(null), null);
+});
+
+test('the Animate panel posts the text it settled on, not a staged one', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    // There is no /api/backgrounds/description route: the motion prompt is
+    // chosen in the panel, shown nowhere else, and dies with the panel.
+    assert.ok(!js.includes('/api/backgrounds/description'),
+        'the client must not stage a description server-side');
+    const body = js.slice(js.indexOf('async function startBackgroundAnimate('));
+    assert.match(body.slice(0, 1200), /description: elBackgrounds\.motionText\.value/);
+});

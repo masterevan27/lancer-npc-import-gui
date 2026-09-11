@@ -5778,7 +5778,207 @@ elBackgrounds.renderBtn.addEventListener('click', () => {
   });
 });
 
-/** Replaced in full by the gallery task. */
-function renderBackgroundGallery() {
-  elBackgrounds.gallery.textContent = '';
+/**
+ * The pills one gallery card carries. Pure and top-level so the rule can be
+ * asserted without a DOM: `stale` is only ever read off an animation that
+ * exists, because a stale nothing is nothing.
+ */
+function backgroundPills(item) {
+  const pills = [];
+  if (item.status === 'running') pills.push('Animating…');
+  if (item.animation) pills.push('Animated');
+  if (item.animation && item.animation.stale) pills.push('Stale');
+  return pills;
 }
+
+function renderBackgroundGallery() {
+  elBackgrounds.gallery.innerHTML = '';
+  if (!backgroundsState.items.length) {
+    elBackgrounds.gallery.textContent = backgroundsState.available
+      ? 'No backgrounds rendered yet.' : '';
+    return;
+  }
+  for (const item of backgroundsState.items) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'bg-card';
+    card.dataset.rel = item.rel;
+
+    const img = document.createElement('img');
+    img.src = item.url;
+    img.alt = item.name;
+    img.loading = 'lazy';
+    card.appendChild(img);
+
+    const name = document.createElement('div');
+    name.className = 'bg-card-name';
+    name.textContent = item.name;
+    card.appendChild(name);
+
+    const pills = document.createElement('div');
+    pills.className = 'bg-card-pills';
+    for (const text of backgroundPills(item)) {
+      const pill = document.createElement('span');
+      pill.className = 'bg-pill';
+      pill.textContent = text;
+      pills.appendChild(pill);
+    }
+    card.appendChild(pills);
+
+    card.addEventListener('click', () => openBackgroundAnimate(item.rel));
+    elBackgrounds.gallery.appendChild(card);
+  }
+}
+
+function selectedBackground() {
+  return backgroundsState.items.find((i) => i.rel === backgroundsState.selected) || null;
+}
+
+/**
+ * One motion prompt from the pool the server shipped, never the one already
+ * showing while the pool holds another - a Re-roll that returns the same
+ * sentence reads as a button that did nothing.
+ *
+ * Rolled here rather than staged server-side, which is the one place this
+ * panel differs from the NPC animate panel: that one stages its description
+ * because it is a pseudo-trait rendered on the detail sheet and has to
+ * survive a reload. A background's motion prompt is chosen immediately before
+ * the render, is shown nowhere else, and dies with the panel - so the POST
+ * carries the text it settled on, and the sidecar still records exactly what
+ * was sent.
+ */
+function pickBackgroundMotion(exclude) {
+  const pool = backgroundsState.motionPrompts.filter(Boolean);
+  if (!pool.length) return null;
+  const others = pool.filter((p) => p !== exclude);
+  const from = others.length ? others : pool;
+  return from[Math.floor(Math.random() * from.length)];
+}
+
+function openBackgroundAnimate(rel) {
+  backgroundsState.selected = rel;
+  const item = selectedBackground();
+  if (!item) return;
+  // What the last loop used when there is one, else a fresh draw - the panel's
+  // first state should simply be usable.
+  backgroundsState.motion = (item.animation && item.animation.description)
+    || pickBackgroundMotion(null);
+  elBackgrounds.panel.hidden = false;
+  elBackgrounds.panelTitle.textContent = item.name;
+  elBackgrounds.panelStill.src = item.url;
+  elBackgrounds.panelStill.alt = item.name;
+  elBackgrounds.panelLoop.hidden = !item.animation;
+  elBackgrounds.panelLoop.src = item.animation ? item.animation.url : '';
+  elBackgrounds.motionText.value = backgroundsState.motion || '';
+  elBackgrounds.animateSeed.value = (item.animation && item.animation.seed !== null)
+    ? item.animation.seed : '';
+  elBackgrounds.animateStatus.textContent = '';
+  elBackgrounds.animateLog.hidden = true;
+  elBackgrounds.animateLog.textContent = '';
+}
+
+function closeBackgroundAnimate() {
+  // A close mid-poll must not leave that poll's interval running unseen:
+  // the next Animate click (on this item or another) starts its own via
+  // pollBackgroundJob, which carries no re-entrancy guard of its own, and
+  // two live intervals would both race to flip the same button and status
+  // line. Closing therefore also hands the button back, exactly as the
+  // poll's own completion path would have.
+  if (backgroundsState.animateTimer) {
+    clearInterval(backgroundsState.animateTimer);
+    backgroundsState.animateTimer = null;
+    elBackgrounds.animateBtn.disabled = false;
+  }
+  backgroundsState.selected = null;
+  backgroundsState.motion = null;
+  elBackgrounds.panel.hidden = true;
+}
+
+function backgroundSeedMode() {
+  const checked = document.querySelector('input[name="bg-seed-mode"]:checked');
+  return checked ? checked.value : 'same';
+}
+
+async function startBackgroundAnimate() {
+  const item = selectedBackground();
+  if (!item) return;
+  if (!elBackgrounds.motionText.value.trim()) {
+    elBackgrounds.animateStatus.textContent = 'Give it something to animate first.';
+    return;
+  }
+  // Guard against a second Animate click leaking the first poll's timer -
+  // pollBackgroundJob carries no re-entrancy guard of its own, so the call
+  // site owns it, the same way startBackgroundRender's disabled button
+  // already does for the render poll.
+  if (backgroundsState.animateTimer) {
+    clearInterval(backgroundsState.animateTimer);
+    backgroundsState.animateTimer = null;
+  }
+  elBackgrounds.animateBtn.disabled = true;
+  elBackgrounds.animateStatus.textContent = 'Starting…';
+  elBackgrounds.animateLog.hidden = true;
+  elBackgrounds.animateLog.textContent = '';
+
+  let result;
+  try {
+    result = await api('/api/backgrounds/animate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rel: item.rel,
+        description: elBackgrounds.motionText.value.trim(),
+        seedMode: backgroundSeedMode(),
+        seed: Number(elBackgrounds.animateSeed.value),
+        pingpong: elBackgrounds.pingpong.checked,
+      }),
+    });
+  } catch (err) {
+    elBackgrounds.animateBtn.disabled = false;
+    elBackgrounds.animateStatus.textContent = `Couldn't start: ${err.message}`;
+    return;
+  }
+
+  backgroundsState.animateTimer = pollBackgroundJob(result.jobId, {
+    statusEl: elBackgrounds.animateStatus,
+    logEl: elBackgrounds.animateLog,
+    button: elBackgrounds.animateBtn,
+    running: 'Animating… a Wan render takes a few minutes (ComfyUI must be running).',
+    onDone: async (job) => {
+      backgroundsState.animateTimer = null;
+      elBackgrounds.animateStatus.textContent =
+        job.status === 'error' ? (job.error || 'The animation failed.') : 'Done.';
+      try {
+        await loadBackgrounds();
+      } catch { /* the gallery refreshes on the next visit */ }
+      // Re-open on the same still so the new loop is the one showing, and
+      // only while the panel is still on it.
+      if (backgroundsState.selected === item.rel) openBackgroundAnimate(item.rel);
+    },
+  });
+}
+
+elBackgrounds.motionReroll.addEventListener('click', () => {
+  const next = pickBackgroundMotion(elBackgrounds.motionText.value.trim());
+  if (next === null) {
+    elBackgrounds.animateStatus.textContent =
+      'No enabled Background Animation bullets to draw from — check the Tables tab.';
+    return;
+  }
+  backgroundsState.motion = next;
+  elBackgrounds.motionText.value = next;
+});
+
+for (const radio of document.querySelectorAll('input[name="bg-seed-mode"]')) {
+  radio.addEventListener('change', () => {
+    elBackgrounds.animateSeed.disabled = backgroundSeedMode() !== 'specific';
+  });
+}
+
+elBackgrounds.animateBtn.addEventListener('click', () => {
+  startBackgroundAnimate().catch((err) => {
+    elBackgrounds.animateBtn.disabled = false;
+    elBackgrounds.animateStatus.textContent = `Couldn't start: ${err.message}`;
+  });
+});
+
+elBackgrounds.animateClose.addEventListener('click', closeBackgroundAnimate);
