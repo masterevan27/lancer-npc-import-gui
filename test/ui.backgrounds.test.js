@@ -37,6 +37,33 @@ function liftFunction(js, name, helpers = {}) {
         ...names.map((k) => helpers[k]));
 }
 
+/**
+ * Like liftFunction, but for an `async function` - liftFunction's brace
+ * match starts at `function `, which drops the `async` keyword and would
+ * turn every `await` inside the body into a syntax error. This keeps the
+ * keyword by wrapping the whole lifted text in a `return (...)` function
+ * expression instead of appending a bare `return name;`.
+ */
+function liftAsyncFunction(js, name, helpers = {}) {
+    const marker = `async function ${name}(`;
+    const start = js.indexOf(marker);
+    assert.notEqual(start, -1, `app.js no longer defines async function ${name}`);
+    let depth = 0;
+    let end = -1;
+    for (let i = js.indexOf('{', start); i < js.length; i += 1) {
+        if (js[i] === '{') depth += 1;
+        if (js[i] === '}') {
+            depth -= 1;
+            if (depth === 0) { end = i + 1; break; }
+        }
+    }
+    assert.notEqual(end, -1, `could not find the end of ${name}`);
+    const names = Object.keys(helpers);
+    // eslint-disable-next-line no-new-func
+    return new Function(...names, `return (${js.slice(start, end)});`)(
+        ...names.map((k) => helpers[k]));
+}
+
 /** A document with one [data-feature] node, recording what got removed. */
 function fakeDocument(features) {
     const removed = [];
@@ -170,4 +197,95 @@ test('the Animate panel posts the text it settled on, not a staged one', async (
         'the client must not stage a description server-side');
     const body = js.slice(js.indexOf('async function startBackgroundAnimate('));
     assert.match(body.slice(0, 1200), /description: elBackgrounds\.motionText\.value/);
+});
+
+test('a stale animate completion cannot orphan a second, still-running poll', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+
+    // The real-world trigger: open a still, click Animate (job1 starts),
+    // close the panel while job1's poll tick is mid-await, reopen the same
+    // still and click Animate again (job2 starts) before job1's in-flight
+    // tick resolves. clearInterval only cancels *future* ticks, so that
+    // tick still runs to completion and still calls job1's own onDone - and
+    // the rel alone cannot tell job1's now-stale completion from job2's,
+    // because reopening the very same still makes the rel match again.
+    const item = { rel: 'a.png', url: '/img/a.png', name: 'A', animation: null, status: null };
+    const state = {
+        items: [item],
+        selected: item.rel,
+        motionPrompts: [],
+        animateTimer: null,
+        animateJobId: null,
+    };
+    const el = {
+        motionText: { value: 'smoke drifts' },
+        animateSeed: { value: '' },
+        pingpong: { checked: true },
+        animateBtn: { disabled: false },
+        animateStatus: { textContent: '' },
+        animateLog: { hidden: false, textContent: '' },
+        panel: { hidden: false },
+    };
+
+    // pollBackgroundJob is faked out entirely: each call gets a distinct
+    // token standing in for the real setInterval id, and the test keeps
+    // every call's onDone so it can fire completions in whatever order it
+    // likes - independent of real timers, which is the whole point of the
+    // race under test.
+    let nextJobId = 1;
+    const polled = [];
+    function fakePollBackgroundJob(jobId, opts) {
+        const timer = { jobId };
+        polled.push({ jobId, timer, ...opts });
+        return timer;
+    }
+
+    const opened = [];
+    const helpers = {
+        backgroundsState: state,
+        elBackgrounds: el,
+        selectedBackground: () => state.items.find((i) => i.rel === state.selected) || null,
+        backgroundSeedMode: () => 'same',
+        api: async () => ({ jobId: nextJobId++ }),
+        pollBackgroundJob: fakePollBackgroundJob,
+        loadBackgrounds: async () => {},
+        openBackgroundAnimate: (rel) => opened.push(rel),
+    };
+
+    const start = liftAsyncFunction(js, 'startBackgroundAnimate', helpers);
+    const close = liftFunction(js, 'closeBackgroundAnimate', helpers);
+
+    await start();
+    assert.equal(polled.length, 1, 'the first Animate click should start exactly one poll');
+    const job1 = polled[0];
+    assert.equal(state.animateTimer, job1.timer, "the tracked timer is job1's");
+
+    // Close mid-poll, then reopen the same still (openBackgroundAnimate is
+    // faked out above, so the reopen is simulated the same way it happens
+    // for real: selected is set back to the still's rel).
+    close();
+    assert.equal(state.animateTimer, null, 'closing must hand back the timer slot');
+    assert.equal(el.animateBtn.disabled, false, 'closing must hand back the button too');
+    state.selected = item.rel;
+
+    // Animate again before job1's tick resolves - job2 starts.
+    await start();
+    assert.equal(polled.length, 2, 'a second Animate click should start a second poll');
+    const job2 = polled[1];
+    assert.equal(state.animateTimer, job2.timer, "the tracked timer is now job2's");
+
+    // job1's delayed tick now resolves - the exact race under review.
+    await job1.onDone({ status: 'done' });
+
+    assert.equal(state.animateTimer, job2.timer,
+        "job1's stale completion must not null out the reference to job2's still-running timer");
+    assert.deepEqual(opened, [],
+        "job1's stale completion must not reopen the panel on stale data while job2 is still running");
+
+    // job2's own, genuine completion still works exactly as before.
+    await job2.onDone({ status: 'done' });
+    assert.equal(state.animateTimer, null);
+    assert.deepEqual(opened, [item.rel]);
 });

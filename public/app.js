@@ -5534,6 +5534,12 @@ const backgroundsState = {
   motion: null,
   renderTimer: null,
   animateTimer: null,
+  // The jobId of the poll whose onDone is still allowed to touch shared panel
+  // state. A poll's tick can be mid-await when a newer poll replaces it (a
+  // close, then a reopen, then a second Animate before the first tick lands),
+  // so animateTimer alone is not enough to tell a live completion from a
+  // stale one - only this identity comparison can.
+  animateJobId: null,
 };
 
 const elBackgrounds = {
@@ -5938,12 +5944,23 @@ async function startBackgroundAnimate() {
     return;
   }
 
+  // Only this call's completion is allowed to touch shared panel state from
+  // here on. A poll's tick can be mid-await inside pollBackgroundJob when a
+  // newer poll replaces it (close, reopen, Animate again before the first
+  // tick lands) - clearInterval only cancels *future* ticks, so that
+  // in-flight one still resolves and still calls its own onDone. Comparing
+  // against the item's rel is not enough, because a reopen of the very same
+  // item makes the rel match again; the jobId is the only thing that tells
+  // a delayed, superseded completion from the one actually in progress.
+  backgroundsState.animateJobId = result.jobId;
+
   backgroundsState.animateTimer = pollBackgroundJob(result.jobId, {
     statusEl: elBackgrounds.animateStatus,
     logEl: elBackgrounds.animateLog,
     button: elBackgrounds.animateBtn,
     running: 'Animating… a Wan render takes a few minutes (ComfyUI must be running).',
     onDone: async (job) => {
+      if (backgroundsState.animateJobId !== result.jobId) return;
       backgroundsState.animateTimer = null;
       elBackgrounds.animateStatus.textContent =
         job.status === 'error' ? (job.error || 'The animation failed.') : 'Done.';
