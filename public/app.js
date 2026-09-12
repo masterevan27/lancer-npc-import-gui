@@ -5154,11 +5154,20 @@ const THREE_SEGMENT_TABLES = new Set(['Backdrop', 'Hair colour', 'Faction']);
 
 /* 'Hair colour (she) +' is three segments exactly as 'Hair colour' is, so the
    arity follows the base heading - the same rule lib/tableGroups.js already
-   uses to nest a variant under the table it extends. */
+   uses to nest a variant under the table it extends.
+
+   It also follows a GROUP's parent, via tablesState.parents: a group table's
+   own name gives no clue to its arity at all - '## Skies' referenced from
+   '## Backdrop' is not itself in THREE_SEGMENT_TABLES - so without this a
+   Skies bullet's second prose segment (its scene sentence) would be sliced
+   off and shown as a flag. Mirrors lib/tableFlags.js's isThreeSegment(),
+   which takes the same one-level parents lookup for the same reason. */
 function proseSegmentsOf(tableName) {
   const paren = String(tableName).indexOf(' (');
   const base = paren === -1 ? String(tableName) : String(tableName).slice(0, paren);
-  return THREE_SEGMENT_TABLES.has(base) ? 2 : 1;
+  if (THREE_SEGMENT_TABLES.has(base)) return 2;
+  const parent = tablesState.parents[tableName] || tablesState.parents[base];
+  return parent && THREE_SEGMENT_TABLES.has(parent) ? 2 : 1;
 }
 
 function bulletBody(tableName, text) {
@@ -5179,29 +5188,53 @@ function referenceTargetOfText(tableName, text) {
 /**
  * The share of the parent pool that enters this group: the reference row's
  * weight over the parent's enabled weight. 1 for a table that is not a group,
- * so a plain table's estimate is unchanged. The parent is looked up by the
- * group's base name, since 'Flight suits (she) +' is entered through the same
- * '=> Flight suits' its base is.
+ * so a plain table's estimate is unchanged.
  *
- * A DISABLED reference is 0, not weightShare()'s figure: weightShare excludes
- * disabled bullets from its denominator but not from a numerator handed to it
- * directly, so passing a disabled reference straight through would read the
- * group as still entering the parent's roll at its old weight, once the
- * reference's own checkbox has already taken it out.
+ * An EXACT match - some parent-family bullet whose reference names this table
+ * by its own full heading - is searched for FIRST, across the whole family,
+ * before any base-name fallback is tried. That ordering is the fix: a themed
+ * sibling like 'Flight suits (gundam)' is a group of its own, entered only by
+ * its own '=> Flight suits (gundam)' bullet, and checking a base-name match
+ * first (or stopping at the first parent's bullets) could let a neutral
+ * '=> Flight suits' answer for it instead - which is what read it as the
+ * base group's 0.5 share rather than its own 0.25.
+ *
+ * The base-name fallback below is only entered for a genuine PRONOUN variant
+ * of the group - 'Flight suits (she) +' is still folded into the group's own
+ * plain '=> Flight suits' bullet, the same fold variant_table() gives every
+ * pronoun variant of an ordinary table - and must never fire for a themed
+ * sibling, which is not a variant of anything.
  */
 function groupEntryShare(table) {
   const parentName = tablesState.parents[table.name];
   if (!parentName) return 1;
   const base = table.name.includes(' (') ? table.name.slice(0, table.name.indexOf(' (')) : table.name;
   const parents = tablesState.tables.filter((t) => t.name === parentName || t.name.startsWith(`${parentName} (`));
+
   for (const parent of parents) {
-    const reference = parent.bullets.find((b) => {
-      const target = referenceTargetOfText(parent.name, b.text);
-      return target === table.name || target === base;
-    });
+    const reference = parent.bullets.find((b) => referenceTargetOfText(parent.name, b.text) === table.name);
     if (reference) return reference.enabled ? weightShare(parent, reference) : 0;
   }
-  return 1;
+
+  // A pronoun subject in the heading - '(she)', '(he)', '(they)', with or
+  // without a trailing '+' - is the one signal that this is a VARIANT of the
+  // group rather than a sibling styled after it. A parenthesised heading with
+  // no pronoun in it, like '(gundam)', leaves isPronounVariant false and the
+  // fallback below never runs for it.
+  const subject = /\(([^()]*)\)\s*\+?\s*$/.exec(table.name);
+  const isPronounVariant = Boolean(subject) && ['she', 'he', 'they'].includes(subject[1].trim().toLowerCase());
+  if (isPronounVariant) {
+    for (const parent of parents) {
+      const reference = parent.bullets.find((b) => referenceTargetOfText(parent.name, b.text) === base);
+      if (reference) return reference.enabled ? weightShare(parent, reference) : 0;
+    }
+  }
+
+  // A group with a parent but no reference bullet found at all - removed,
+  // renamed, or a themed sibling with no base match to fall back on - is
+  // unreachable by any roll, the same treatment a disabled reference already
+  // gets above, not the "1" a plain non-group table reports.
+  return 0;
 }
 
 function bulletFlagsOf(tableName, text) {

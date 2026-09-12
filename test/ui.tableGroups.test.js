@@ -121,4 +121,24 @@ test('groupEntryShare: an enabled reference gives its real share, a disabled one
     assert.equal(context.groupEntryShare(flightSuits), 0);
 
     assert.equal(context.groupEntryShare(outfit), 1);
+
+    // A themed sibling reports its OWN share, not the neutral group's: before
+    // the fix, groupEntryShare matched the family's FIRST reference whose
+    // target was table.name OR the base, in file order - so 'Flight suits
+    // (gundam)' read Outfit's plain '=> Flight suits' bullet (found first) as
+    // if it answered for it too, reporting 0.5 instead of its real 0.25.
+    const siblingOutfit = {
+        name: 'Outfit',
+        bullets: [
+            { text: 'a jacket', weight: 1, enabled: true },
+            { text: '=> Flight suits', weight: 2, enabled: true },
+            { text: '=> Flight suits (gundam)', weight: 1, enabled: true },
+        ],
+    };
+    const siblingFlightSuits = { name: 'Flight suits', bullets: [] };
+    const siblingGundam = { name: 'Flight suits (gundam)', bullets: [] };
+    context.tablesState.parents = { 'Flight suits': 'Outfit', 'Flight suits (gundam)': 'Outfit' };
+    context.tablesState.tables = [siblingOutfit, siblingFlightSuits, siblingGundam];
+    assert.equal(context.groupEntryShare(siblingFlightSuits), 2 / 4);
+    assert.equal(context.groupEntryShare(siblingGundam), 1 / 4);
 });

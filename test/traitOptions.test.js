@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { traitOptionsFrom, readableLabel, variantSubjectOf } = require('../lib/traitOptions');
+const { parseTableFile } = require('../lib/tableBullets');
 
 const TABLES = [
     { name: 'Outfit', bullets: [
@@ -179,6 +180,44 @@ test('a group reached only from a gendered parent variant inherits that subject'
     assert.equal(tank.heading, 'Crop tops');
     assert.equal(tank.group, 'Crop tops');
     assert.equal(tank.variantSubject, 'she');
+});
+
+// The Task 7 fixture from test/api.tableGroups.test.js, parsed exactly as the
+// route parses it: an Outfit that references a plain group (Flight suits, an
+// x2 slot) AND a themed sibling group (Flight suits (gundam)) side by side.
+// This is I1's regression gate - before the fix, expanding the 'Flight
+// suits' reference fanned out with startsWith('Flight suits (') and swept up
+// 'Flight suits (gundam)' too, so 'a crimson flight suit' was offered twice:
+// once mislabelled group: 'Flight suits', once correctly group: 'Flight
+// suits (gundam)' through its own reference.
+const GROUPED_FIXTURE = [
+    '## Pronouns', '- she/her/her/woman', '',
+    '## Outfit', '- a jacket || civ', '- x2 => Flight suits', '- => Flight suits (gundam) || @gundam', '',
+    '## Outfit (she) +', '- => Crop tops', '',
+    '## Flight suits', '- a flight suit', '- a tan flight suit || mil', '',
+    '## Flight suits (she) +', '- a tailored flight suit', '',
+    '## Flight suits (gundam)', '- a crimson flight suit', '',
+    '## Crop tops', '- a crop top || civ', '',
+].join('\n');
+
+test('traitOptionsFrom over a parsed grouped file: no member doubles up, and a themed sibling keeps its own group', () => {
+    const options = traitOptionsFrom(parseTableFile(GROUPED_FIXTURE));
+
+    const values = options.Outfit.map((o) => o.value);
+    assert.deepEqual(values, [...new Set(values)],
+        'every member should appear exactly once, whichever reference reaches it');
+
+    const crimson = options.Outfit.find((o) => o.value === 'a crimson flight suit');
+    assert.ok(crimson, 'the themed sibling\'s own bullet must be offered');
+    assert.equal(crimson.group, 'Flight suits (gundam)',
+        'a themed sibling\'s members belong to ITS OWN group, not the neutral group it is styled after');
+
+    // Every heading a bullet only reaches through a reference is a slot, not
+    // a REQUIRED_TABLES entry - see the docstring above push() - so none of
+    // them may surface as a key of options on their own.
+    for (const heading of ['Flight suits', 'Flight suits (she) +', 'Flight suits (gundam)', 'Crop tops']) {
+        assert.ok(!Object.keys(options).includes(heading), `"${heading}" must not be a key of its own`);
+    }
 });
 
 test('a group\'s own she-variant keeps its subject when reached from a plain parent', () => {

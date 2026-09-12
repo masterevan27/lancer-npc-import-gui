@@ -89,6 +89,23 @@ test('a group table nests under the table that references it, after its variants
     assert.ok(!grouped.some((g) => g.group === 'Other'), 'a group is never an orphan');
 });
 
+test('a heading both listed in TABLE_GROUPS and referenced as another table\'s group is emitted once', () => {
+    // An unusual file, but nothing stops one: 'Role' and 'Faction' are both
+    // named in the SAME TABLE_GROUPS list (Identity), Role first. If Role
+    // also references Faction as a group, Faction is claimed as a NESTED row
+    // under Role before the root loop ever reaches Faction's own turn there -
+    // and the root loop must skip an already-claimed heading rather than
+    // pushing it a second time as a bare root row.
+    const role = { name: 'Role', bullets: [], references: ['Faction'] };
+    const faction = { name: 'Faction', bullets: [], references: [] };
+    const grouped = groupTables([role, faction]);
+    const identity = grouped.find((g) => g.group === 'Identity');
+    assert.deepEqual(identity.rows.map((r) => [r.table.name, r.isGroup, r.parent]), [
+        ['Role', false, null],
+        ['Faction', true, 'Role'],
+    ]);
+});
+
 test('a group referenced by a table absent from TABLE_GROUPS still nests, in Other', () => {
     const cloak = { name: 'Cloak', bullets: [], references: ['Long cloaks'] };
     const longCloaks = { name: 'Long cloaks', bullets: [], references: [] };
