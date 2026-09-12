@@ -219,6 +219,19 @@ test('partial output remains listable when the generator exits with an error', a
     assert.deepEqual(done.groups.find((group) => group.label === 'joy').files.map((file) => file.file), ['joy.webp']);
 });
 
+test('an asynchronous spawn error is not replaced by the later close event', async (t) => {
+    const missingExecutable = path.join(os.tmpdir(), `missing-python-${process.pid}-${Date.now()}`);
+    const { server } = await startWithStub(t, 'process.exit(0);', { pythonExecutable: missingExecutable });
+    seedItem(server);
+
+    const started = await post(server, '/api/expressions', { id: NPC_ID, labels: ['joy'] });
+    assert.equal(started.status, 202, JSON.stringify(started.body));
+    const done = await settle(server);
+    assert.equal(done.job.status, 'error');
+    assert.match(done.job.error, /missing-python|ENOENT/i);
+    assert.doesNotMatch(done.job.error, /exited with code/);
+});
+
 test('exact-file redo sends only --file and keeps the saved sprite visible', async (t) => {
     const { server, stubDir } = await startWithStub(t, WRITE_JOY_STUB);
     const folder = seedItem(server);

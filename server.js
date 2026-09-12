@@ -1612,7 +1612,7 @@ function startExpressionJob(item, options) {
         job.error = err.message;
     });
     child.on('close', (code) => {
-        if (!current() || job.status === 'canceled') return;
+        if (!current() || job.status === 'canceled' || job.status === 'error') return;
         job.doneAt = Date.now();
         job.stage = null;
         if (code === 0) {
@@ -1656,10 +1656,11 @@ function importExpressions(item, folderName) {
 
     const sourceNames = expressionFiles.listSprites(item.folderPath);
     const baseReal = fs.realpathSync(SILLYTAVERN_CHARACTERS_DIR);
-    const destination = path.join(SILLYTAVERN_CHARACTERS_DIR, folderName);
-    if (!expressionFiles.isInside(baseReal, path.resolve(destination))) {
-        return { ok: false, status: 400, error: 'destination must stay inside sillyTavernCharactersDir' };
-    }
+    // Operate in the configured directory's real path space. Comparing that
+    // real base to a lexical child of the configured path rejects an entirely
+    // valid config when the base itself is a junction/symlink.
+    const destination = path.join(baseReal, folderName);
+    const presentedDestination = path.join(SILLYTAVERN_CHARACTERS_DIR, folderName);
     try {
         if (fs.existsSync(destination)) {
             if (!fs.statSync(destination).isDirectory()) throw new Error('destination is not a folder');
@@ -1681,22 +1682,35 @@ function importExpressions(item, folderName) {
             const source = expressionFiles.resolveSprite(item.folderPath, name);
             if (source.error) continue;
             const target = path.join(destinationReal, name);
-            const exists = fs.existsSync(target);
-            if (exists) {
-                const targetStat = fs.statSync(target);
+            let targetEntry = null;
+            try {
+                targetEntry = fs.lstatSync(target);
+            } catch (err) {
+                if (err.code !== 'ENOENT') throw err;
+            }
+            if (targetEntry) {
+                // lstat, not exists/stat: existsSync follows a dangling link
+                // and reports it absent, after which copyFileSync follows it
+                // and creates the target outside this folder.
+                if (targetEntry.isSymbolicLink()) {
+                    throw new Error(`${name} is a symlink, not a safe destination file`);
+                }
+                if (!targetEntry.isFile()) {
+                    throw new Error(`${name} is not a safe file inside the destination`);
+                }
                 const targetReal = fs.realpathSync(target);
-                if (!targetStat.isFile() || !expressionFiles.isInside(destinationReal, targetReal)) {
+                if (!expressionFiles.isInside(destinationReal, targetReal)) {
                     throw new Error(`${name} is not a safe file inside the destination`);
                 }
             }
             fs.copyFileSync(source.real, target);
-            if (exists) replaced += 1;
+            if (targetEntry) replaced += 1;
             else copied += 1;
         }
     } catch (err) {
         return { ok: false, status: 400, error: `couldn't import expression sprites: ${err.message}` };
     }
-    return { ok: true, copied, replaced, path: destination };
+    return { ok: true, copied, replaced, path: presentedDestination };
 }
 
 /* ------------------------------------------------------------------ */

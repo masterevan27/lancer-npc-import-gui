@@ -104,3 +104,62 @@ test('an existing destination symlink that escapes the characters folder is reje
     assert.match(result.body.error, /outside|symlink|inside/);
     assert.deepEqual(fs.readdirSync(outside), []);
 });
+
+test('a dangling destination sprite symlink is rejected before copy can create its outside target', async (t) => {
+    const { server, expressions, base, external } = await fixture(t);
+    fs.writeFileSync(path.join(expressions, 'joy.webp'), 'JOY');
+    const destination = path.join(base, NPC_NAME);
+    fs.mkdirSync(destination);
+    const outsideTarget = path.join(external, 'outside-joy.webp');
+    try {
+        fs.symlinkSync(outsideTarget, path.join(destination, 'joy.webp'), 'file');
+    } catch (err) {
+        if (err.code === 'EPERM') return t.skip('creating file symlinks requires OS permission');
+        throw err;
+    }
+
+    const result = await postImport(server, { id: NPC_ID, folderName: NPC_NAME });
+    assert.equal(result.status, 400, JSON.stringify(result.body));
+    assert.match(result.body.error, /safe file|symlink/);
+    assert.equal(fs.existsSync(outsideTarget), false);
+});
+
+test('a configured characters-directory junction imports through its real target', async (t) => {
+    const external = fs.mkdtempSync(path.join(os.tmpdir(), 'expressions-import-link-'));
+    const realBase = path.join(external, 'characters-real');
+    const configuredBase = path.join(external, 'characters-link');
+    fs.mkdirSync(realBase);
+    try {
+        fs.symlinkSync(realBase, configuredBase, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (err) {
+        fs.rmSync(external, { recursive: true, force: true });
+        if (err.code === 'EPERM') return t.skip('creating directory symlinks requires OS permission');
+        throw err;
+    }
+    const server = await startTestServer({
+        tablesText: TABLES, port: PORT,
+        extraConfig: { sillyTavernCharactersDir: configuredBase },
+    });
+    const folder = path.join(server.dir, 'output', 'Pilots', NPC_NAME);
+    fs.mkdirSync(path.join(folder, 'expressions'), { recursive: true });
+    fs.writeFileSync(path.join(folder, `${NPC_NAME} Portrait.png`), 'portrait');
+    fs.writeFileSync(path.join(folder, `${NPC_NAME} Token.png`), 'token');
+    fs.writeFileSync(path.join(folder, 'expressions', 'joy.webp'), 'JOY');
+    fs.writeFileSync(server.manifestPath, JSON.stringify({
+        [folder]: {
+            id: NPC_ID, kind: 'npc', name: NPC_NAME, traits: { Role: 'an operator' },
+            portrait: `${NPC_NAME} Portrait.png`, token: `${NPC_NAME} Token.png`,
+        },
+    }));
+    t.after(async () => {
+        await server.stop();
+        fs.rmSync(external, { recursive: true, force: true });
+    });
+
+    const result = await postImport(server, { id: NPC_ID, folderName: NPC_NAME });
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.deepEqual(result.body, {
+        copied: 1, replaced: 0, path: path.join(configuredBase, NPC_NAME),
+    });
+    assert.equal(fs.readFileSync(path.join(realBase, NPC_NAME, 'joy.webp'), 'utf8'), 'JOY');
+});
