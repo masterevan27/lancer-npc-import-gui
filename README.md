@@ -55,7 +55,7 @@ Everything else in `config.example.json` is optional and derived by default:
   lives in the generator repo; set it only if you have moved that one file.
 - `animatePortraitScript` — `animate-portrait.py`, behind the detail sheet's
   **Animated portrait** panel. Same default and the same reason to set it.
-- `generateArtScript` — `generate-art.py`, behind the **Backgrounds** tab's
+- `generateArtScript` — `generate-art.py`, behind the **Create Background** tab's
   Render button. Same default as the two above and the same reason to set it.
 - `backgroundsDir` — every background still and loop the tab shows, and the
   only folder it reads. Defaults to `output/backgrounds` under the generator
@@ -141,6 +141,14 @@ and open <http://127.0.0.1:5089>.
   that produced its art, regenerate art on any of them, and **Delete Selected**
   to remove an NPC's generated files entirely (blocked while an import or regen
   is in flight; never touches an Actor already created in Foundry).
+  A **Backgrounds** category sits after the NPC and ship ones whenever the
+  Create Background tab is on offer or its folder already holds stills. Its
+  cards are the rendered scenes, wide rather than square, with a **Loop** badge
+  when an animated loop sits beside the still; opening one shows the still and
+  its loop, and **Open in Create Background** takes it to that tab's Animate
+  panel. They can be ticked and deleted like anything else, still, loop and
+  record together, but **Import Selected** stays off for them: there is no
+  Actor to make from a background.
   Each prompt on the detail sheet carries a **Copy** button, with a **Copy
   both** beneath the pair that puts them in the clipboard together, each under
   its own heading, since two unlabelled prompts are indistinguishable once they
@@ -194,8 +202,12 @@ and open <http://127.0.0.1:5089>.
   hair and clothing in a breeze, smoke or snow or a starfield moving behind a
   figure who holds still. The loop appears as a third image beside the
   portrait and token, and **Re-animate portrait** redoes just that one, with
-  the same three seed choices Regenerate offers; a portrait re-rendered after
-  its loop was made gets an amber notice and an amber button. The motion the
+  the same three seed choices Regenerate offers and a **Ping-pong the loop**
+  checkbox, on by default, that plays the loop forward then back rather than
+  cutting from its last frame to its first (off passes `--no-pingpong`, and the
+  choice is recorded with the loop so the checkbox follows it the next time the
+  sheet opens); a portrait re-rendered after its loop was made gets an amber
+  notice and an amber button. The motion the
   script is asked for is the **Animation** row of the trait table, drawn from
   the `## Animation` table in `npc-generator-tables.md` (the Tables tab edits
   it like any other): **Re-roll** draws another, **Set…** picks one, and
@@ -391,7 +403,7 @@ and open <http://127.0.0.1:5089>.
   Importing a ship writes it under `foundrySpaceshipSubdir` and hands the
   module the token's size in **grid units** rather than pixels, so a
   five-by-three ship arrives five by three instead of the size of a continent.
-- **Backgrounds** — Renders scene art from the generator's background catalogues and animates any
+- **Create Background** — Renders scene art from the generator's background catalogues and animates any
   of it into a looping `.webp` for a SillyTavern chat background.
 
   The tab only appears when this install can actually do both halves of that:
@@ -399,12 +411,23 @@ and open <http://127.0.0.1:5089>.
   `*-background-art-prompts.md` is in the prompts folder. The check is per
   request, so dropping a script into place does not need a server restart.
 
-  Backgrounds are not NPCs. There is no manifest entry, no id and no Foundry
-  import — a background is just a file in `backgroundsDir`, and the folder is
-  the source of truth. Delete one in Explorer and it is gone from the tab on the
-  next refresh; drop one in by hand and it appears. What the GUI remembers about
-  a loop (its motion prompt, its seed, and the still's mtime when it was made)
-  lives in a JSON sidecar beside the `.webp`.
+  Backgrounds are not NPCs. There is no manifest entry and no Foundry import —
+  a background is just a file in `backgroundsDir`, and the folder is the source
+  of truth. Delete one in Explorer and it is gone from the tab on the next
+  refresh; drop one in by hand and it appears. What the GUI remembers about a
+  loop (its motion prompt, its seed, whether it ping-pongs, and the still's
+  mtime when it was made) lives in a JSON sidecar beside the `.webp`. The one
+  id a background has is the `bg:<path>` the Import tab's **Backgrounds**
+  category wears it under, minted from the path on every listing so the folder
+  stays the only record; that is what lets a still carry a **New** tag, be
+  ticked and be deleted from the grid the way an NPC is.
+
+  A finished render raises the same banner an NPC or ship run does — "3 new
+  Backgrounds finished generating", visible from any tab, with **Show new
+  Backgrounds** jumping to that category on the Import tab. The tab's own
+  status line still reports the run in detail, including any loops it chained
+  and any that failed; a run that produced nothing, or failed, stays on the
+  status line alone.
 
   **Render.** Pick a catalogue, pick an entry, and set variants, seed and size.
   The entry list is the generator's own `--list` output, so it offers exactly

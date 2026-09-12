@@ -25,6 +25,14 @@ test('the argv names the portrait, the output, the description and the seed', ()
     ]);
 });
 
+test('ping-pong is the default, and only the opt-out reaches the argv', () => {
+    const opts = { portrait: 'p.png', out: 'o.webp', description: 'd', seed: 1 };
+    const tail = (argv) => argv.slice(argv.indexOf('--seed') + 2);
+    assert.deepEqual(tail(animate.animateArgs('s.py', opts)), [], 'absent means on, and on emits nothing');
+    assert.deepEqual(tail(animate.animateArgs('s.py', { ...opts, pingpong: true })), []);
+    assert.deepEqual(tail(animate.animateArgs('s.py', { ...opts, pingpong: false })), ['--no-pingpong']);
+});
+
 test('every argv field is required, seed included', () => {
     const ok = { portrait: 'p.png', out: 'o.webp', description: 'd', seed: 1 };
     for (const missing of ['portrait', 'out', 'description', 'seed']) {

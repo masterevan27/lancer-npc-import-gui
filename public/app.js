@@ -1,6 +1,13 @@
 /* Import GUI - vanilla JS, no build step. See server.js for the API this talks to. */
 
-const CATEGORY_LABELS = { npc: 'NPCs', mech: 'Mechs', spaceship: 'Spaceships' };
+const CATEGORY_LABELS = { npc: 'NPCs', mech: 'Mechs', spaceship: 'Spaceships', background: 'Backgrounds' };
+
+// The Import tab's category for background stills. Not a kind: no generator
+// vocabulary, no traits, no Foundry import - a card here is a file the
+// Create Background tab rendered, shown so it can be looked over and deleted
+// alongside the NPCs and ships. server.js's BACKGROUND_KIND is the same
+// string, and its backgroundGridItem is what makes one fit the grid.
+const BACKGROUND_KIND = 'background';
 
 // Which generator script the empty-grid message names, per category - so
 // "run generate-npc.py, then reload" does not point a GM browsing an empty
@@ -103,7 +110,9 @@ const el = {
   filterRows: document.getElementById('filter-rows'),
   addFilterBtn: document.getElementById('add-filter'),
   overlay: document.getElementById('detail-overlay'),
+  detailSheet: document.querySelector('#detail-overlay .detail'),
   detailClose: document.getElementById('detail-close'),
+  detailOpenBackground: document.getElementById('detail-open-background'),
   detailPortrait: document.getElementById('detail-portrait'),
   detailToken: document.getElementById('detail-token'),
   detailAnimated: document.getElementById('detail-animated'),
@@ -138,6 +147,7 @@ const el = {
   animateStale: document.getElementById('animate-stale'),
   animateDescription: document.getElementById('animate-description'),
   animateSeedInput: document.getElementById('animate-seed-input'),
+  animatePingpong: document.getElementById('animate-pingpong'),
   animateBuilt: document.getElementById('animate-built'),
   animateBtn: document.getElementById('animate-btn'),
   animateStatus: document.getElementById('animate-status'),
@@ -839,7 +849,9 @@ function render() {
   state.visibleItems = sortItems(state.items.filter(itemMatchesFilters));
   el.empty.textContent = state.items.length && !state.visibleItems.length
     ? 'No items match the current filters.'
-    : `Nothing here yet — run ${KIND_SCRIPTS[state.category] || 'the generator'}, then reload.`;
+    : state.category === BACKGROUND_KIND
+      ? 'Nothing here yet — render one on the Create Background tab.'
+      : `Nothing here yet — run ${KIND_SCRIPTS[state.category] || 'the generator'}, then reload.`;
   el.empty.hidden = state.visibleItems.length > 0;
 
   for (const item of state.visibleItems) {
@@ -847,7 +859,8 @@ function render() {
     card.className = 'card'
       + (item.imported ? ' imported' : '')
       + (item.isNew && !item.imported ? ' is-new' : '')
-      + (state.category === 'spaceship' ? ' card--spaceship' : '');
+      + (state.category === 'spaceship' ? ' card--spaceship' : '')
+      + (state.category === BACKGROUND_KIND ? ' card--background' : '');
 
     const img = document.createElement('img');
     img.className = 'thumb';
@@ -960,6 +973,18 @@ function render() {
       card.appendChild(hex);
     }
 
+    // A fourth independent badge, for backgrounds only: whether a loop sits
+    // beside the still is the one fact about a background worth a glance at
+    // the grid, the way a ship's footprint is. An NPC's loop is not badged
+    // because its card already has a role line and a category pill to carry.
+    if (item.kind === BACKGROUND_KIND && item.hasAnimation && item.animationStatus !== 'running') {
+      const loop = document.createElement('span');
+      loop.className = 'badge loop-badge';
+      loop.textContent = 'Loop';
+      loop.title = 'An animated loop has been made from this still';
+      card.appendChild(loop);
+    }
+
     const body = document.createElement('div');
     body.className = 'body';
     // A ship's Ship type and Size are whole sentences, not a two-word role
@@ -967,8 +992,10 @@ function render() {
     // than the NPC's role line and uppercase pill - the pill turned a Size
     // bullet into a five-line uppercase blob. The full text is in the title
     // and on the sheet.
+    // A background's second line is where it sits under backgroundsDir - the
+    // catalogue's output folder, usually - since it has no callsign to show.
     body.innerHTML = `<div class="name">${escapeHtml(item.name)}</div>
-      <div class="sub">${escapeHtml(item.callsign || '')}</div>
+      <div class="sub">${escapeHtml(item.kind === BACKGROUND_KIND ? (item.background?.rel || '') : (item.callsign || ''))}</div>
       ${item.traits?.Role ? `<div class="role">${escapeHtml(item.traits.Role)}</div>` : ''}
       ${item.roleCategory ? `<div class="role-category">${escapeHtml(item.roleCategory)}</div>` : ''}
       ${item.traits?.['Ship type'] ? `<div class="role ship-line" title="${escapeHtml(item.traits['Ship type'])}">${escapeHtml(item.traits['Ship type'])}</div>` : ''}
@@ -983,8 +1010,13 @@ function render() {
 }
 
 function updateToolbar() {
+  // Import stays disabled for backgrounds however many are ticked: there is
+  // no Actor to make from one, and a button that queues nothing with a reason
+  // in the status line is worse than one that says so before the click.
+  const noImport = state.category === BACKGROUND_KIND;
   el.importBtn.textContent = `Import Selected (${state.selected.size})`;
-  el.importBtn.disabled = state.selected.size === 0;
+  el.importBtn.disabled = state.selected.size === 0 || noImport;
+  el.importBtn.title = noImport ? 'Backgrounds have no Foundry import - select them to delete' : '';
   el.deleteBtn.textContent = `Delete Selected (${state.selected.size})`;
   el.deleteBtn.disabled = state.selected.size === 0;
   const notImported = state.visibleItems.filter((i) => !i.imported && i.importable);
@@ -1351,6 +1383,10 @@ function renderDetailPrompts(item) {
  * "already regenerating" window the server refuses a second job through.
  */
 function renderDetailFor(item) {
+  if (item.kind === BACKGROUND_KIND) {
+    renderBackgroundDetail(item);
+    return;
+  }
   renderDetailHeader(item);
   renderDetailTraits(item);
   renderDetailPrompts(item);
@@ -1358,7 +1394,72 @@ function renderDetailFor(item) {
   renderAnimationPanel(item, state.animationOwnerId === item.id ? state.animationView : null);
 }
 
+/**
+ * The sheet for a background: the still, the loop beside it when there is
+ * one, and one line saying what the loop is or that there is none. Nothing
+ * here reads the DOM, so the poll tick repaints it the way it repaints an
+ * NPC's - which is how "Animating…" turns into the loop without a reopen.
+ *
+ * The traits table, prompts and scope legend are hidden by the
+ * .detail--background class openDetail sets, rather than emptied: they
+ * belong to the next NPC opened and its renderers repaint them in full.
+ */
+function renderBackgroundDetail(item) {
+  renderDetailHeader(item);
+  const loop = item.animationUrl;
+  el.detailAnimatedFigure.hidden = !loop;
+  if (loop && el.detailAnimated.getAttribute('src') !== loop) el.detailAnimated.src = loop;
+  if (!loop) el.detailAnimated.removeAttribute('src');
+
+  const animation = item.background?.animation;
+  el.detailSub.textContent = item.animationStatus === 'running'
+    ? 'Animating…'
+    : item.animationStatus === 'error'
+      ? `Animation failed: ${item.animationError || 'unknown error'}`
+      : animation
+        ? `Loop: ${animation.description || 'no motion prompt recorded'}`
+          + `${Number.isInteger(animation.seed) ? ` · seed ${animation.seed}` : ''}`
+          + `${animation.stale ? ' · the still was re-rendered after this loop was made' : ''}`
+        : 'No loop yet — open it on the Create Background tab to animate it.';
+}
+
+/**
+ * openDetail for a background. The three panels are hidden here by hand
+ * rather than by their renderers, which are not run for a background and
+ * would otherwise leave whichever state the last NPC's sheet put them in.
+ */
+function openBackgroundDetail(item) {
+  el.detailPortrait.src = item.portraitUrl || '';
+  el.detailToken.removeAttribute('src');
+  el.regenPanel.hidden = true;
+  el.model3dPanel.hidden = true;
+  el.animatePanel.hidden = true;
+  renderBackgroundDetail(item);
+
+  state.detailItemId = item.id;
+  state.regenLastStatus = null;
+  state.regenRunningMessage = null;
+  state.animationView = null;
+  state.animationOwnerId = null;
+  state.animateLastStatus = item.animationStatus ?? null;
+
+  // The same "I have looked at this" the NPC sheet takes, for the same reason.
+  if (item.isNew) {
+    item.isNew = false;
+    markSeen([item.id]);
+    render();
+  }
+  el.overlay.hidden = false;
+}
+
 function openDetail(item) {
+  const isBackground = item.kind === BACKGROUND_KIND;
+  el.detailSheet.classList.toggle('detail--background', isBackground);
+  el.detailOpenBackground.hidden = !isBackground;
+  if (isBackground) {
+    openBackgroundDetail(item);
+    return;
+  }
   // portraitUrl/tokenUrl carry the source file's mtime as a version query
   // param (see itemView in server.js), so a Regenerate since this item was
   // last shown naturally produces a different src here - no manual
@@ -1397,6 +1498,9 @@ function openDetail(item) {
   document.querySelector('input[name="animate-seed-mode"][value="same"]').checked = true;
   el.animateSeedInput.disabled = true;
   el.animateSeedInput.value = '';
+  // Back to the default until refreshAnimation learns what this NPC's own
+  // loop used; the last sheet's choice is not this one's.
+  el.animatePingpong.checked = true;
   renderAnimationPanel(item, null);
   refreshAnimation(item.id);
 
@@ -1625,11 +1729,14 @@ function renderAnimationPanel(item, view) {
   const seedMode = document.querySelector('input[name="animate-seed-mode"]:checked')?.value;
   for (const radio of document.querySelectorAll('#animate-panel input[type="radio"]')) radio.disabled = running;
   el.animateSeedInput.disabled = running || seedMode !== 'specific';
+  el.animatePingpong.disabled = running;
 
+  // "· one way" only when the record says so: a loop from before the choice
+  // was recorded is not known to be either, and the default is the quiet one.
   el.animateBuilt.textContent = view?.builtAt
     ? `Animated ${new Date(view.builtAt).toLocaleString(undefined, {
       dateStyle: 'medium', timeStyle: 'short',
-    })}${Number.isInteger(view.seed) ? ` · seed ${view.seed}` : ''}`
+    })}${Number.isInteger(view.seed) ? ` · seed ${view.seed}` : ''}${view.pingpong === false ? ' · one way' : ''}`
     : built ? '' : 'No animation yet.';
 
   const justFinished = status === 'done' && state.animateLastStatus !== 'done';
@@ -1658,6 +1765,13 @@ async function refreshAnimation(id) {
     if (!res.ok) return;
     const view = await res.json();
     if (state.detailItemId !== id) return;
+    // The checkbox follows the loop on disk the first time this sheet learns
+    // about it, so "Same seed" and an untouched checkbox together reproduce
+    // the loop that is there. Only on a change of owner: a poll tick while
+    // the user has just unticked it must not tick it back.
+    if (state.animationOwnerId !== id && typeof view.pingpong === 'boolean') {
+      el.animatePingpong.checked = view.pingpong;
+    }
     state.animationView = view;
     state.animationOwnerId = id;
     const item = state.items.find((i) => i.id === id);
@@ -1796,7 +1910,7 @@ el.animateBtn.addEventListener('click', async () => {
   const id = state.detailItemId;
   if (!id) return;
   const seedMode = document.querySelector('input[name="animate-seed-mode"]:checked')?.value || 'same';
-  const body = { id, seedMode };
+  const body = { id, seedMode, pingpong: el.animatePingpong.checked };
   if (seedMode === 'specific') {
     const seed = Number(el.animateSeedInput.value);
     if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295) {
@@ -2162,7 +2276,7 @@ el.addFilterBtn.addEventListener('click', () => {
 
 el.importBtn.addEventListener('click', async () => {
   const ids = [...state.selected];
-  if (!ids.length) return;
+  if (!ids.length || state.category === BACKGROUND_KIND) return;
   el.importBtn.disabled = true;
   const { results } = await api('/api/import', {
     method: 'POST',
@@ -2207,6 +2321,27 @@ el.deleteBtn.addEventListener('click', async () => {
   }
   state.selected.clear();
   await refreshItems();
+});
+
+// The one action a background's sheet offers besides Delete: the Create
+// Background tab is where its Animate panel lives, so hand the still over to
+// it rather than growing a second copy of that panel here. loadBackgrounds()
+// is awaited because switchTab only starts it, and openBackgroundAnimate
+// needs the gallery list the panel reads the still out of.
+el.detailOpenBackground.addEventListener('click', async () => {
+  const item = state.items.find((i) => i.id === state.detailItemId);
+  const rel = item?.background?.rel;
+  if (!rel) return;
+  el.overlay.hidden = true;
+  el.imageZoom.hidden = true;
+  state.detailItemId = null;
+  switchTab('backgrounds');
+  try {
+    await loadBackgrounds();
+    openBackgroundAnimate(rel);
+  } catch (err) {
+    elBackgrounds.renderStatus.textContent = `Failed to load: ${err.message}`;
+  }
 });
 
 el.detailDeleteBtn.addEventListener('click', async () => {
@@ -2731,6 +2866,10 @@ function vocabFor(kind) {
  * risk a second, redundant fetch racing the eager one.
  */
 async function ensureVocab(kind) {
+  // No tables to fetch for a category that has no traits; /api/npc-tables
+  // would 400 on the unknown kind and the catch below would swallow it, but
+  // a request known to be pointless is better not made.
+  if (kind === BACKGROUND_KIND) return;
   const vocab = vocabFor(kind);
   if (vocab === createState || vocab.tablesLoaded) return;
   try {
@@ -5597,7 +5736,7 @@ async function loadBackgrounds() {
 function renderBackgroundsPanel() {
   elBackgrounds.unavailable.hidden = backgroundsState.available;
   elBackgrounds.unavailable.textContent = backgroundsState.available
-    ? '' : `The Backgrounds tab needs: ${backgroundsState.missing.join('; ')}.`;
+    ? '' : `The Create Background tab needs: ${backgroundsState.missing.join('; ')}.`;
   elBackgrounds.renderBtn.disabled = !backgroundsState.available;
   renderBackgroundCatalogues();
   renderBackgroundEntries();
@@ -5799,6 +5938,12 @@ async function startBackgroundRender() {
         const failed = job.chainError ? ` ${job.chainError}.` : '';
         elBackgrounds.renderStatus.textContent =
           `Rendered ${job.produced} image${job.produced === 1 ? '' : 's'}.${loops}${failed}`;
+        // The same banner an NPC or ship run raises, since the status line
+        // above is inside this tab and a render that finishes while the user
+        // is on another one would otherwise say nothing anywhere. The zero
+        // and error cases stay on the status line: the banner's own guard
+        // would drop a zero, and a failure is not "finished generating".
+        announceBatchComplete(job.produced, job.producedIds, BACKGROUND_KIND);
       }
       loadBackgrounds()
         .then(() => watchBackgroundGalleryUntilSettled())

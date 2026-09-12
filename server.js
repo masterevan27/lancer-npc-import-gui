@@ -766,7 +766,7 @@ function isSeen(id) {
  */
 function markSeen(ids) {
     ensureSeenLoaded();
-    const known = new Set(loadManifest().map((item) => item.id));
+    const known = new Set(knownIds());
     const at = Date.now();
     let changed = false;
     for (const id of ids) {
@@ -779,7 +779,21 @@ function markSeen(ids) {
 }
 
 function markAllSeen() {
-    return markSeen(loadManifest().map((item) => item.id));
+    return markSeen(knownIds());
+}
+
+/**
+ * Every id the seen store may hold: the manifest's, and one per background
+ * still on disk. Backgrounds have no manifest entry, so without the second
+ * half markSeen would drop the id the detail sheet posts for one and its New
+ * tag could never be cleared. The walk is a readdir per call, which is what
+ * backgroundItemView pays on every gallery load anyway.
+ */
+function knownIds() {
+    return [
+        ...loadManifest().map((item) => item.id),
+        ...walkBackgrounds().map((rel) => backgrounds.idFor(rel)),
+    ];
 }
 
 /**
@@ -812,7 +826,7 @@ function forgetSeen(ids) {
 /** Every id the user has not looked at yet, across all kinds. */
 function unseenIds() {
     ensureSeenLoaded();
-    return loadManifest().filter((item) => !seenIndex.has(item.id)).map((item) => item.id);
+    return knownIds().filter((id) => !seenIndex.has(id));
 }
 
 // Seed (or load) at startup rather than lazily on the first request. Lazily
@@ -1183,7 +1197,7 @@ function chosenDescription(sidecar) {
     return sidecar.pending || sidecar.description || null;
 }
 
-function startAnimateJob(item, { seedMode, seed }) {
+function startAnimateJob(item, { seedMode, seed, pingpong = true }) {
     const existing = animateJobsByItemId.get(item.id);
     if (existing?.status === 'running') {
         return { ok: false, status: 409, error: 'this portrait is already being animated' };
@@ -1234,14 +1248,14 @@ function startAnimateJob(item, { seedMode, seed }) {
     let args;
     try {
         args = animate.animateArgs(ANIMATE_PORTRAIT_SCRIPT, {
-            portrait, out: files.webp, description, seed: newSeed,
+            portrait, out: files.webp, description, seed: newSeed, pingpong,
         });
     } catch (err) {
         return { ok: false, status: 400, error: err.message };
     }
 
     const job = {
-        status: 'running', description, seed: newSeed,
+        status: 'running', description, seed: newSeed, pingpong,
         startedAt: Date.now(), log: '', stage: null,
     };
     animateJobsByItemId.set(item.id, job);
@@ -1292,8 +1306,12 @@ function startAnimateJob(item, { seedMode, seed }) {
         const { pending, ...kept } = readAnimationSidecar(item);
         void pending;
         try {
+            // `pingpong` is recorded beside the seed for the same reason the
+            // seed is: "Same seed" on the next click means "the loop I have,
+            // again", and a loop that played one way and comes back
+            // ping-ponged is not that loop.
             writeAnimationSidecar(item, {
-                ...kept, description, seed: newSeed,
+                ...kept, description, seed: newSeed, pingpong,
                 when: new Date().toISOString(),
                 portraitVersion: fileVersion(portrait),
             });
@@ -1373,6 +1391,9 @@ function animationView(item) {
         description: sidecar.description || null,
         pending: sidecar.pending || null,
         seed: Number.isInteger(sidecar.seed) ? sidecar.seed : null,
+        // null for a loop made before the choice was recorded, so the panel
+        // can tell "one way" from "unknown" and leave its checkbox alone.
+        pingpong: typeof sidecar.pingpong === 'boolean' ? sidecar.pingpong : null,
         when: sidecar.when || null,
         file: version === null ? null : path.basename(files.webp),
         url: version === null ? null
@@ -1582,6 +1603,70 @@ function backgroundItemView(rel) {
 }
 
 /**
+ * The Import tab's category id for backgrounds. Not a registry kind: a kind
+ * has a generator script, a manifest entry and traits, and a background has
+ * none of those (see the `features` comment on /api/categories). It is a
+ * category because the grid is the one place the user already goes to look
+ * over generated art and throw some of it away, and backgrounds were the one
+ * kind of art it could not show.
+ */
+const BACKGROUND_KIND = 'background';
+const BACKGROUND_LABEL = 'Backgrounds';
+
+/**
+ * One still as an /api/items row, so the grid can draw it with the code it
+ * draws NPCs and ships with. Every field the client reads off an item view is
+ * present and answers honestly for a file that is only a file: no traits, no
+ * seed, not importable, nothing to regenerate, and an empty `supports` so the
+ * sheet's regen, 3D and animate panels all stay hidden. The still stands in
+ * the portrait slot and the loop in the animation slot, which is where the
+ * grid looks for a thumbnail and an "Animating…" badge. The gallery view
+ * rides along under `background` for the sheet's own line about the loop.
+ */
+function backgroundGridItem(rel) {
+    const view = backgroundItemView(rel);
+    if (!view) return null;
+    const id = backgrounds.idFor(rel);
+    const files = backgrounds.animationFilesFor(rel);
+    return {
+        id, kind: BACKGROUND_KIND, name: view.name, callsign: '', traits: {}, seed: null,
+        roleCategory: null, when: null, importable: false, imported: false,
+        isNew: !isSeen(id), hasRawTraits: false, importedActorUuid: null, importedAt: null,
+        jobStatus: null, jobError: null, regenStatus: null, regenError: null,
+        has3d: false, model3dStatus: null, model3dError: null,
+        hasAnimation: !!view.animation,
+        animationUrl: view.animation ? view.animation.url : null,
+        animationStatus: view.status, animationError: view.error,
+        folderPath: path.dirname(backgroundAbs(rel)),
+        portraitFile: path.basename(rel),
+        tokenFile: view.animation ? path.basename(files.webp) : null,
+        portraitUrl: view.url, tokenUrl: null, portraitPrompt: null, tokenPrompt: null,
+        artStale: false, supports: {}, tokenHexes: null,
+        background: { rel, animation: view.animation },
+    };
+}
+
+/**
+ * The still, its loop and the loop's record, and the seen-store entry for
+ * the id - the same set deleteItem clears for an NPC, minus the manifest a
+ * background never had. Caller has already resolved `still` inside the
+ * folder and checked it is a file.
+ */
+function deleteBackground(rel, still) {
+    const files = backgrounds.animationFilesFor(rel);
+    for (const target of [still, backgroundAbs(files.webp), backgroundAbs(files.sidecar)]) {
+        try {
+            fs.rmSync(target, { force: true });
+        } catch (err) {
+            throw new Error(`couldn't delete files: ${err.message}`);
+        }
+    }
+    backgroundAnimateByRel.delete(rel);
+    ensureSeenLoaded();
+    if (seenIndex.delete(backgrounds.idFor(rel))) saveSeen();
+}
+
+/**
  * The motion prompts, read off the tables file on every call - the Tables tab
  * edits that file, and a list cached at startup would keep offering a bullet
  * it had just switched off. The same reason animationDescriptions has.
@@ -1664,6 +1749,12 @@ function startBackgroundRenderJob({
         }
         const added = walkBackgrounds().filter((rel) => !before.has(rel));
         job.produced = added.length;
+        // The Import tab's ids for what landed, so the banner can name the
+        // run and "Show new Backgrounds" can find it; and un-seen, for the
+        // reason the create job's forgetSeen gives - a still rendered over a
+        // path the store already holds is this run's output all the same.
+        job.producedIds = added.map((rel) => backgrounds.idFor(rel));
+        forgetSeen(job.producedIds);
         if (animateWhenDone) chainAnimations(job, added, animateWhenDone);
         // Flipped LAST, deliberately. The client stops polling the moment this
         // stops being 'running', so a chain recorded after the flip would be
@@ -2916,6 +3007,16 @@ async function handleApi(req, res, url) {
         // why it is answered per request rather than frozen at boot: dropping
         // generate-spaceship.py into place should not need a server restart to
         // be noticed, and this route is fetched once at page load, not polled.
+        // After the manifest rows, and on the same terms as them: a folder
+        // with stills in it is content the user already has, and stays listed
+        // even when the render script has gone; an empty folder is listed only
+        // while the tab that fills it is on offer, so a fresh install with the
+        // feature sees where its renders will land and one without it sees
+        // nothing about backgrounds at all.
+        const backgroundCount = walkBackgrounds().length;
+        if (backgroundCount > 0 || backgroundsAvailable()) {
+            categories.push({ id: BACKGROUND_KIND, count: backgroundCount, label: BACKGROUND_LABEL });
+        }
         return sendJson(res, 200, {
             categories,
             kinds: Object.keys(available(KINDS)),
@@ -2930,6 +3031,11 @@ async function handleApi(req, res, url) {
     if (url.pathname === '/api/items' && req.method === 'GET') {
         const category = url.searchParams.get('category');
         if (!category) return sendJson(res, 400, { error: 'category is required' });
+        if (category === BACKGROUND_KIND) {
+            const items = walkBackgrounds().map(backgroundGridItem).filter(Boolean)
+                .sort((a, b) => a.name.localeCompare(b.name));
+            return sendJson(res, 200, { items });
+        }
         const items = loadManifest()
             .filter((item) => item.kind === category)
             .map(itemView)
@@ -3032,6 +3138,29 @@ async function handleApi(req, res, url) {
         }
         const ids = Array.isArray(body.ids) ? body.ids : [];
         const results = ids.map((id) => {
+            const rel = backgrounds.relOf(id);
+            if (rel !== null) {
+                // The same guards /api/backgrounds/image applies before it
+                // opens anything: inside the folder, and a file rather than a
+                // directory that happens to end in .png.
+                const still = backgrounds.resolveInside(BACKGROUNDS_DIR, rel);
+                let isFile = false;
+                try {
+                    isFile = !!still && fs.statSync(still).isFile();
+                } catch { /* not there: the same 'unknown item' as a stale manifest id */ }
+                if (!isFile) return { id, deleted: false, reason: 'unknown item' };
+                const jobId = backgroundAnimateByRel.get(rel);
+                const job = jobId ? backgroundJobs.get(jobId) : null;
+                if (job?.status === 'running') {
+                    return { id, deleted: false, reason: 'a loop is being made from it - try again once it finishes' };
+                }
+                try {
+                    deleteBackground(rel, still);
+                } catch (err) {
+                    return { id, deleted: false, reason: err.message };
+                }
+                return { id, deleted: true };
+            }
             const item = findItem(id);
             if (!item) return { id, deleted: false, reason: 'unknown item' };
             const job = jobsByItemId.get(id);
@@ -3133,7 +3262,8 @@ async function handleApi(req, res, url) {
                 return sendJson(res, 400, { error: 'seed must be an integer between 0 and 4294967295' });
             }
         }
-        const result = startAnimateJob(item, { seedMode, seed });
+        // Opt-out only, as /api/backgrounds/animate reads it: absent is on.
+        const result = startAnimateJob(item, { seedMode, seed, pingpong: body.pingpong !== false });
         return sendJson(res, result.ok ? 202 : result.status, result);
     }
 
@@ -3324,6 +3454,8 @@ async function handleApi(req, res, url) {
             // How many stills landed, or null when it was not measured (still
             // going, or the run failed). Told apart from a measured zero.
             produced: job.produced ?? null,
+            // The Import tab ids of those stills, null on the same terms.
+            producedIds: job.producedIds ?? null,
             // The animate jobs this render started, each watched separately so
             // a failed loop is visible as itself rather than retroactively
             // failing a render that did produce a still.

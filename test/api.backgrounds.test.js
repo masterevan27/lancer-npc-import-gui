@@ -594,3 +594,168 @@ test('a render without animateWhenDone chains nothing', async (t) => {
     assert.deepEqual(render.chain, []);
     assert.equal(readAnimateRuns(fixture).length, 0);
 });
+
+/* ---- the Import tab's Backgrounds category ---- */
+
+const STILL = 'LancerBackgrounds/Canyon-Skirmish_00001_.png';
+const STILL_ID = `bg:${STILL}`;
+
+test('GET /api/categories lists Backgrounds after the manifest rows, with a count', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    writeStill(fixture, STILL);
+    writeStill(fixture, 'LancerBackgrounds/Dropship-Yard_00001_.png');
+    const { body } = await getJson(server, '/api/categories');
+    assert.deepEqual(body.categories.at(-1), { id: 'background', count: 2, label: 'Backgrounds' });
+    // Still a feature, not a kind: nothing generates a background through
+    // /api/create, so `kinds` must not grow.
+    assert.ok(!body.kinds.includes('background'));
+});
+
+test('GET /api/categories lists an empty Backgrounds row only while the tab is on offer', async (t) => {
+    const { server } = await startWithFixture(t);
+    const { body: withTab } = await getJson(server, '/api/categories');
+    assert.deepEqual(withTab.categories.at(-1), { id: 'background', count: 0, label: 'Backgrounds' });
+
+    // A second server on its own port: no script, and an empty folder.
+    const bareFixture = makeFixture({ withArt: false });
+    const bare = await startTestServer({
+        tablesText: TABLES_FIXTURE, port: PORT + 60, extraConfig: bareFixture.extraConfig,
+    });
+    t.after(() => {
+        bare.stop();
+        fs.rmSync(bareFixture.dir, { recursive: true, force: true });
+    });
+    const { body: without } = await getJson(bare, '/api/categories');
+    assert.ok(!without.categories.some((c) => c.id === 'background'),
+        'no script and no stills means no row at all');
+    // ...but stills the user already has stay listed even without the script.
+    writeStill(bareFixture, STILL);
+    const { body: content } = await getJson(bare, '/api/categories');
+    assert.deepEqual(content.categories.at(-1), { id: 'background', count: 1, label: 'Backgrounds' });
+});
+
+test('GET /api/items?category=background returns grid rows shaped like the manifest kinds', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    writeStill(fixture, STILL);
+    writeStill(fixture, 'LancerBackgrounds/Canyon-Skirmish_00001_ Animated.webp', 'WEBP');
+    writeStill(fixture, 'LancerBackgrounds/Canyon-Skirmish_00001_ Animated.json',
+        JSON.stringify({ description: 'smoke drifts', seed: 9 }));
+    const { status, body } = await getJson(server, '/api/items?category=background');
+    assert.equal(status, 200);
+    assert.equal(body.items.length, 1);
+    const [item] = body.items;
+    assert.equal(item.id, STILL_ID);
+    assert.equal(item.kind, 'background');
+    assert.equal(item.name, 'Canyon Skirmish', 'the gallery display name, not the filename');
+    // The fields the grid and the sheet read off every row, answered for a
+    // file that is only a file.
+    assert.deepEqual(item.traits, {});
+    assert.equal(item.seed, null);
+    assert.equal(item.importable, false);
+    assert.equal(item.imported, false);
+    assert.equal(item.isNew, true);
+    assert.deepEqual(item.supports, {});
+    assert.equal(item.tokenUrl, null);
+    assert.match(item.portraitUrl,
+        /^\/api\/backgrounds\/image\?rel=LancerBackgrounds%2FCanyon-Skirmish_00001_\.png&v=\d+$/);
+    assert.equal(item.hasAnimation, true);
+    assert.match(item.animationUrl, /Animated\.webp&v=\d+$/);
+    assert.equal(item.animationStatus, null);
+    assert.equal(item.folderPath, path.join(fixture.backgroundsDir, 'LancerBackgrounds'));
+    assert.equal(item.portraitFile, 'Canyon-Skirmish_00001_.png');
+    assert.equal(item.tokenFile, 'Canyon-Skirmish_00001_ Animated.webp');
+    assert.equal(item.background.rel, STILL);
+    assert.equal(item.background.animation.description, 'smoke drifts');
+    assert.equal(item.background.animation.seed, 9);
+});
+
+test("POST /api/seen clears a background's New tag, and /api/unseen counts it", async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    writeStill(fixture, STILL);
+    const { body: before } = await getJson(server, '/api/unseen');
+    assert.ok(before.ids.includes(STILL_ID));
+
+    const { status } = await postJson(server, '/api/seen', { ids: [STILL_ID] });
+    assert.equal(status, 200);
+    const { body } = await getJson(server, '/api/items?category=background');
+    assert.equal(body.items[0].isNew, false);
+    // An id for a still that is not on disk is dropped, as a stale manifest
+    // id is, rather than stored against whatever lands there later.
+    await postJson(server, '/api/seen', { ids: ['bg:LancerBackgrounds/nope.png'] });
+    writeStill(fixture, 'LancerBackgrounds/nope.png');
+    const { body: later } = await getJson(server, '/api/items?category=background');
+    assert.equal(later.items.find((i) => i.id === 'bg:LancerBackgrounds/nope.png').isNew, true);
+});
+
+test('POST /api/delete removes a background, its loop and its record through the bg: id', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    const still = writeStill(fixture, STILL);
+    const webp = writeStill(fixture, 'LancerBackgrounds/Canyon-Skirmish_00001_ Animated.webp', 'WEBP');
+    const sidecar = writeStill(fixture, 'LancerBackgrounds/Canyon-Skirmish_00001_ Animated.json', '{}');
+    const keep = writeStill(fixture, 'LancerBackgrounds/Dropship-Yard_00001_.png');
+    await postJson(server, '/api/seen', { ids: [STILL_ID] });
+
+    const { status, body } = await postJson(server, '/api/delete', {
+        ids: [STILL_ID, 'bg:../outside.png', 'bg:LancerBackgrounds', 'bg:LancerBackgrounds/missing.png'],
+    });
+    assert.equal(status, 200);
+    assert.deepEqual(body.results, [
+        { id: STILL_ID, deleted: true },
+        { id: 'bg:../outside.png', deleted: false, reason: 'unknown item' },
+        { id: 'bg:LancerBackgrounds', deleted: false, reason: 'unknown item' },
+        { id: 'bg:LancerBackgrounds/missing.png', deleted: false, reason: 'unknown item' },
+    ]);
+    for (const gone of [still, webp, sidecar]) assert.ok(!fs.existsSync(gone), `${gone} should be gone`);
+    assert.ok(fs.existsSync(keep), 'the neighbour must survive');
+    const { body: listing } = await getJson(server, '/api/items?category=background');
+    assert.deepEqual(listing.items.map((i) => i.id), ['bg:LancerBackgrounds/Dropship-Yard_00001_.png']);
+    // The seen entry went with it, so a re-render at the same path is new.
+    writeStill(fixture, STILL);
+    const { body: again } = await getJson(server, '/api/items?category=background');
+    assert.equal(again.items.find((i) => i.id === STILL_ID).isNew, true);
+});
+
+test('POST /api/delete refuses a background while a loop is being made from it', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    // An animate stub slow enough that the job is still running when the
+    // delete arrives, but one that does exit: its cwd is the fixture folder,
+    // and a child still alive at t.after would hold that folder open on
+    // Windows and fail the cleanup with EPERM.
+    fs.writeFileSync(fixture.extraConfig.animatePortraitScript, 'setTimeout(() => process.exit(0), 400);');
+    writeStill(fixture, STILL);
+    const { status } = await postJson(server, '/api/backgrounds/animate',
+        { rel: STILL, description: 'smoke drifts', seedMode: 'specific', seed: 1 });
+    assert.equal(status, 202);
+    const { body } = await postJson(server, '/api/delete', { ids: [STILL_ID] });
+    assert.equal(body.results[0].deleted, false);
+    assert.match(body.results[0].reason, /loop is being made/);
+    assert.ok(fs.existsSync(path.join(fixture.backgroundsDir, ...STILL.split('/'))));
+    // Let the stub exit before the fixture is removed.
+    const deadline = Date.now() + 5000;
+    for (;;) {
+        const { body: listing } = await getJson(server, '/api/backgrounds');
+        if (listing.items.find((i) => i.rel === STILL)?.status !== 'running') break;
+        if (Date.now() > deadline) throw new Error('the animate stub never exited');
+        await new Promise((r) => setTimeout(r, 50));
+    }
+});
+
+test('a finished render reports the Import tab ids of what it produced, and un-sees them', async (t) => {
+    const { server, fixture } = await startWithFixture(t);
+    // A still already seen at the path the stub is about to write over: the
+    // run's own output must come back New all the same.
+    writeStill(fixture, STILL);
+    await postJson(server, '/api/seen', { ids: [STILL_ID] });
+    fs.rmSync(path.join(fixture.backgroundsDir, ...STILL.split('/')));
+
+    const { body } = await postJson(server, '/api/backgrounds/render',
+        { catalogue: 'scene-background-art-prompts.md', prefix: 'Canyon-Skirmish', variants: 2 });
+    const job = await waitForJob(server, body.jobId);
+    assert.equal(job.produced, 2);
+    assert.deepEqual(job.producedIds, [
+        'bg:LancerBackgrounds/Canyon-Skirmish_00001_.png',
+        'bg:LancerBackgrounds/Canyon-Skirmish_00002_.png',
+    ]);
+    const { body: listing } = await getJson(server, '/api/items?category=background');
+    assert.ok(listing.items.every((i) => i.isNew), "a run's own output is new by definition");
+});

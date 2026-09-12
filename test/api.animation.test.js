@@ -235,6 +235,39 @@ test('the same seed is the last loop\'s seed, once there is one', async (t) => {
     assert.equal(argv[argv.indexOf('--seed') + 1], '5');
 });
 
+test('ping-pong is on unless the panel says otherwise, and the record keeps the choice', async (t) => {
+    const { stubDir, server: pending } = startWithStub(t, STUB);
+    const server = await pending;
+    t.after(() => server.stop());
+    const folder = seedNpc(server);
+    const argv = () => JSON.parse(fs.readFileSync(path.join(stubDir, 'argv.json'), 'utf8'));
+    const sidecar = () => JSON.parse(fs.readFileSync(
+        path.join(folder, `${NPC_NAME} Animated Portrait.json`), 'utf8'));
+
+    // A loop from before the choice existed reports it as unknown, not off.
+    const before = await (await fetch(`${server.baseUrl}/api/animation?id=${NPC_ID}`)).json();
+    assert.equal(before.pingpong, null);
+
+    await post(server, '/api/animation', { id: NPC_ID });
+    let done = await settle(server);
+    assert.ok(!argv().includes('--no-pingpong'), 'absent is on, and on sends no flag');
+    assert.equal(sidecar().pingpong, true);
+    assert.equal(done.pingpong, true);
+
+    await post(server, '/api/animation', { id: NPC_ID, pingpong: false });
+    done = await settle(server);
+    assert.equal(argv().at(-1), '--no-pingpong');
+    assert.equal(sidecar().pingpong, false);
+    assert.equal(done.pingpong, false);
+
+    // Anything that is not the literal false is on - a string "false" from a
+    // hand-written client must not silently switch the loop to one way.
+    await post(server, '/api/animation', { id: NPC_ID, pingpong: 'false' });
+    done = await settle(server);
+    assert.ok(!argv().includes('--no-pingpong'));
+    assert.equal(done.pingpong, true);
+});
+
 test('a failed render surfaces the script\'s own output and leaves no record', async (t) => {
     const { server: pending } = startWithStub(t, STUB_FAILS);
     const server = await pending;

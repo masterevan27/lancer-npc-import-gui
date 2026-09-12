@@ -28,7 +28,7 @@
          `features`. On the button only, never on the panel below: elBackgrounds
          reads the panel's ids as app.js loads, and removing the panel would
          leave all of them null. The ship tab sets the same precedent. -->
-    <button type="button" data-tab="backgrounds" data-feature="backgrounds">Backgrounds</button>
+    <button type="button" data-tab="backgrounds" data-feature="backgrounds">Create Background</button>
     <button type="button" data-tab="traits">Trait Imports</button>
     <button type="button" data-tab="tables">Tables</button>
   </nav>
@@ -281,8 +281,9 @@
     </div>
     <div class="filter-row">
       <label><input type="radio" name="bg-seed-mode" value="same" checked /> Same seed</label>
-      <label><input type="radio" name="bg-seed-mode" value="specific" /> This seed</label>
-      <input type="number" id="bg-animate-seed" min="0" disabled />
+      <label><input type="radio" name="bg-seed-mode" value="specific" /> This seed
+        <input type="number" id="bg-animate-seed" min="0" disabled />
+      </label>
       <label><input type="radio" name="bg-seed-mode" value="random" /> Roll one</label>
       <label><input type="checkbox" id="bg-pingpong" checked /> Ping-pong</label>
     </div>
@@ -404,6 +405,10 @@
     <div class="detail-info">
       <div class="detail-title-row">
         <h2 id="detail-name"></h2>
+        <!-- Backgrounds only (see openDetail): the Create Background tab
+             owns the Animate panel, so the sheet points there instead of
+             carrying a second copy of it. -->
+        <button id="detail-open-background" type="button" hidden>Open in Create Background</button>
         <button id="detail-delete-btn" class="danger" type="button">Delete…</button>
       </div>
       <p class="detail-shortcuts">&larr; &rarr; navigate &middot; Esc close</p>
@@ -488,6 +493,7 @@
             <input type="number" id="animate-seed-input" min="0" max="4294967295" disabled>
           </label>
           <label><input type="radio" name="animate-seed-mode" value="random"> Random seed</label>
+          <label><input type="checkbox" id="animate-pingpong" checked> Ping-pong the loop</label>
         </div>
         <div class="regen-row">
           <span id="animate-built" class="regen-current-seed"></span>

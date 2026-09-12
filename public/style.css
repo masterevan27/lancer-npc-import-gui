@@ -381,6 +381,19 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   border-radius: var(--r-sm);
   font-size: var(--fs-sm);
 }
+/* The Backgrounds tab hand-writes .filter-row with wrapping labels, which the
+   Filters tab's JS-built chip rows never have, so nothing above laid a label
+   out: its text sat on the baseline while the row centred each box, and the
+   Seed box read as dropped next to its neighbours. The rule .regen-row and
+   .form-row already carry, for the same reason. */
+.filter-row label { display: flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
+/* The control height and padding above are for boxes with text in them. A
+   checkbox stretched to 1.75rem and padded a rem wide is what made the
+   mismatch visible in the first place. */
+.filter-row input[type="checkbox"],
+.filter-row input[type="radio"] { height: auto; padding: 0; margin: 0; }
+#bg-seed,
+#bg-animate-seed { width: 6.5rem; }
 .filter-row .filter-value { min-width: 160px; }
 /* A real hit area: the glyph alone was ~12px wide. */
 .filter-row .filter-remove {
@@ -471,6 +484,29 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   background: var(--bg-sunken);
   transition: opacity var(--t-base) var(--ease);
 }
+/* A background still is a wide scene, not a square portrait: cropping it to
+   1:1 would show a third of it. The card is the same width as its neighbours
+   and simply shorter. */
+.card--background img { aspect-ratio: 16 / 9; }
+/* Same corner the hex badge takes on a ship card, for the same reason: the
+   status chain owns the top-right, so a second fact goes top-left. */
+.card .badge.loop-badge {
+  top: 1.9rem;
+  right: auto;
+  bottom: auto;
+  left: 0.4rem;
+  background: var(--neutral-badge);
+}
+/* The background sheet: no traits, prompts or token, and the two figures
+   that remain are the still and its loop. Hidden by class rather than by
+   emptying the elements, so the next NPC's renderers find them as they left
+   them. */
+.detail--background #detail-traits,
+.detail--background #detail-prompts,
+.detail--background #scope-legend,
+.detail--background .detail-images figure:nth-of-type(2) { display: none; }
+.detail--background .detail-images img { max-width: 44vw; }
+.detail-title-row #detail-open-background { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
 .card .body { padding: var(--sp-2) 10px 10px; }
 .card .name { font-weight: 600; font-size: 0.92rem; line-height: var(--lh-tight); }
 .card .sub { font-size: 0.78rem; line-height: 1.35; color: var(--text-3); margin-top: 2px; }

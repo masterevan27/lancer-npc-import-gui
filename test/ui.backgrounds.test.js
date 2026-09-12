@@ -379,6 +379,39 @@ test('startBackgroundRender watches the gallery after its own refresh, source as
     t.after(() => server.stop());
     const js = await fetchText(server, '/app.js');
     const body = js.slice(js.indexOf('async function startBackgroundRender('));
-    assert.match(body.slice(0, 2500), /loadBackgrounds\(\)\s*\.then\(\(\) => watchBackgroundGalleryUntilSettled\(\)\)/,
+    // The window covers the whole onDone, banner call and its comment included.
+    assert.match(body.slice(0, 3500), /loadBackgrounds\(\)\s*\.then\(\(\) => watchBackgroundGalleryUntilSettled\(\)\)/,
         'onDone must watch for a chain still landing after its own one-shot refresh');
+});
+
+test('the tab is named like its siblings, Create Background', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const html = await fetchText(server, '/index.html');
+    assert.match(html, /data-tab="backgrounds"[^>]*>Create Background<\/button>/,
+        'the tab button must read "Create Background", the shape Create NPC and Create Spaceship set');
+});
+
+test('the seed boxes sit inside their labels, and the row lays labels out', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const html = await fetchText(server, '/index.html');
+    // Both seed inputs are wrapped: the render row's in a plain "Seed" label,
+    // the animate panel's inside its own radio's label the way
+    // #animate-seed-input is - a bare sibling of the radio was what made it
+    // sit apart from "This seed".
+    assert.match(html, /<label>Seed <input type="number" id="bg-seed"[^>]*><\/label>/);
+    assert.match(html, /<label><input type="radio" name="bg-seed-mode" value="specific" \/> This seed\s*<input type="number" id="bg-animate-seed"[^>]*>\s*<\/label>/,
+        '#bg-animate-seed must be nested inside the "This seed" radio label');
+
+    const css = await fetchText(server, '/style.css');
+    // The two halves of the alignment fix: labels become centred flex rows
+    // (without this, text sits on the baseline while the row centres boxes),
+    // and the row's control height stops stretching checkboxes and radios.
+    assert.match(css, /\.filter-row label\s*\{[^}]*display:\s*flex[^}]*align-items:\s*center/,
+        '.filter-row label must lay out as a centred flex row');
+    assert.match(css, /\.filter-row input\[type="checkbox"\],\s*\.filter-row input\[type="radio"\]\s*\{[^}]*height:\s*auto/,
+        'checkboxes and radios must be exempt from the row control height');
+    assert.match(css, /#bg-seed,\s*#bg-animate-seed\s*\{[^}]*width:\s*6\.5rem/,
+        'the seed boxes must share the NPC seed boxes\' width');
 });

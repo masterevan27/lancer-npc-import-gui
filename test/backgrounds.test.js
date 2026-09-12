@@ -240,3 +240,13 @@ test('isStale compares the recorded still mtime against the file now', () => {
     assert.equal(backgrounds.isStale({ portraitVersion: 200 }, 200), false);
     assert.equal(backgrounds.isStale({}, 200), false, 'an old sidecar is not stale');
 });
+
+test("a background's Import tab id is its rel behind a prefix, and comes back exactly", () => {
+    const rel = 'LancerBackgrounds/Canyon Skirmish_00001_.png';
+    assert.equal(backgrounds.idFor(rel), `bg:${rel}`);
+    assert.equal(backgrounds.relOf(backgrounds.idFor(rel)), rel);
+    // Anything that is not one of ours is null, never a rel guessed at.
+    for (const other of ['npc-Jules-Sokolova-1', 'spaceship-Vega-1', 'bg:', '', null, undefined, 42]) {
+        assert.equal(backgrounds.relOf(other), null, `${String(other)} is not a background id`);
+    }
+});
