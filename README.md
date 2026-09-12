@@ -470,7 +470,15 @@ and open <http://127.0.0.1:5089>.
   Systems and Scene (a table the generator adds later that fits none of its
   kind's groups falls into a trailing Other rather than disappearing), with
   per-pronoun variants like `Hair (she) +` nested under the `Hair` heading
-  they extend. The generator's own documentation sections — `How the script
+  they extend. A **group** table — one that a table enters through a `- =>
+  Name` bullet, so that ten near-identical outfits weigh one slot — nests
+  under the table that references it and carries that table's flag
+  checkboxes. The reference row shows as `=> Name` with a **group ›** jump to
+  the group; it has no flags of its own. The Chances column of a group is
+  scaled by the reference's own share, and its note says which table rolls
+  it. Applying a preset saved before a group existed leaves the reference
+  alone, since that preset says nothing about the group. The generator's own
+  documentation sections — `How the script
 reads this file` and `Prompt templates` — read like tables (they use `- `
   bullets to explain the format) but aren't served as ones, so a stray click
   can't comment out a paragraph of prose or prefix it with a roll weight.
