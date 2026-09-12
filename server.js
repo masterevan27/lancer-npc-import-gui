@@ -56,7 +56,8 @@ const presets = require('./lib/presets');
 const createPresets = require('./lib/createPresets');
 const { derivePaths } = require('./lib/paths');
 const { buildKinds, kindFor, kindOf, requestKind, available, DEFAULT_KIND } = require('./lib/kinds');
-const { DEFAULT_EXPRESSION_LABELS } = require('./lib/expressions');
+const { DEFAULT_EXPRESSION_LABELS, classifyExpressionFiles, expressionArgs } = require('./lib/expressions');
+const expressionFiles = require('./lib/expression-files');
 const pronouns = require('./lib/pronouns');
 const traitOptions = require('./lib/traitOptions');
 const traitOdds = require('./lib/traitOdds');
@@ -150,6 +151,9 @@ const DEFAULT_CONFIG = {
     // relation to the generator's, and lib/paths.js only derives paths that
     // follow one another. Empty means the button stays off.
     sillyTavernBackgroundsDir: '',
+    // SillyTavern's data/<user>/characters folder. Expression sprites are
+    // copied only by the explicit expressions Import action.
+    sillyTavernCharactersDir: '',
     // Rolls behind each percentage on the Tables page. The trade is precision
     // against how long the number takes to settle after an edit: 20,000 rolls
     // is about six seconds and holds still at whole-percent precision, while
@@ -216,6 +220,10 @@ const DERIVED_PATHS = derivePaths(config);
 // directories - is now read off the kind the request resolved to, including
 // the trait-candidate routes that were the last holdouts.
 const { generate3dScript: GENERATE_3D_SCRIPT } = DERIVED_PATHS;
+const {
+    generateExpressionsScript: GENERATE_EXPRESSIONS_SCRIPT,
+    expressionTablesPath: EXPRESSION_TABLES_PATH,
+} = DERIVED_PATHS;
 // animate-portrait.py takes an image, not a kind, so it too belongs to no
 // kind here; which kinds may reach it is supports.animate in the registry.
 const { animatePortraitScript: ANIMATE_PORTRAIT_SCRIPT } = DERIVED_PATHS;
@@ -234,6 +242,8 @@ const {
 // Straight from config, not DERIVED_PATHS - see the key's comment above.
 const SILLYTAVERN_BACKGROUNDS_DIR = typeof config.sillyTavernBackgroundsDir === 'string'
     ? config.sillyTavernBackgroundsDir : '';
+const SILLYTAVERN_CHARACTERS_DIR = typeof config.sillyTavernCharactersDir === 'string'
+    ? config.sillyTavernCharactersDir : '';
 
 // The kind registry - see lib/kinds.js for what varies between an NPC and a
 // spaceship and why it is resolved here rather than as scattered constants.
@@ -441,6 +451,7 @@ function deleteItem(item) {
     jobsByItemId.delete(item.id);
     regenJobsByItemId.delete(item.id);
     animateJobsByItemId.delete(item.id);
+    expressionJobsByItemId.delete(item.id);
     if (importedIndex.delete(item.id)) saveIndex();
     // Forget that this NPC was ever looked at, too. Its id is
     // `npc-<slug>-<seed>` and so deterministic from its name and seed, which
@@ -911,6 +922,9 @@ function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, rel
     if (animateJobsByItemId.get(item.id)?.status === 'running') {
         return { ok: false, reason: 'the portrait is being animated - wait for it to finish' };
     }
+    if (expressionJobsByItemId.get(item.id)?.status === 'running') {
+        return { ok: false, reason: 'expression sprites are being rendered - wait for them to finish' };
+    }
 
     const newSeed = seedMode === 'specific' ? seed
         : seedMode === 'random' ? crypto.randomInt(0, 2 ** 32 - 1)
@@ -1240,6 +1254,9 @@ function startAnimateJob(item, { seedMode, seed, pingpong = true }) {
     if (regenJobsByItemId.get(item.id)?.status === 'running') {
         return { ok: false, status: 409, error: 'this NPC is being re-rendered; wait for it to finish' };
     }
+    if (expressionJobsByItemId.get(item.id)?.status === 'running') {
+        return { ok: false, status: 409, error: 'expression sprites are being rendered; wait for them to finish' };
+    }
     const portrait = itemFile(item, 'portrait');
     if (!portrait || !fs.existsSync(portrait)) {
         return { ok: false, status: 400, error: 'this NPC has no portrait on disk to animate' };
@@ -1424,6 +1441,262 @@ function animationView(item) {
         stage: job?.status === 'running' ? job.stage : null,
         error: job?.status === 'error' ? job.error : null,
     };
+}
+
+/* ------------------------------------------------------------------ */
+/* Expression sprites                                                  */
+/* ------------------------------------------------------------------ */
+
+const expressionJobsByItemId = new Map();
+const EXPRESSION_LOG_LIMIT = 8000;
+
+function expressionSupported(item) {
+    const kind = kindFor(KINDS, item && (item.kind || DEFAULT_KIND));
+    return !!kind?.supports.expressions;
+}
+
+function expressionJobView(job) {
+    return job ? {
+        jobId: job.jobId,
+        status: job.status,
+        stage: job.stage,
+        log: job.log,
+        error: job.error,
+    } : null;
+}
+
+function sillyTavernCharactersError() {
+    if (!SILLYTAVERN_CHARACTERS_DIR.trim()) {
+        return 'set sillyTavernCharactersDir in config.json to SillyTavern\'s data/<user>/characters folder';
+    }
+    try {
+        if (fs.statSync(SILLYTAVERN_CHARACTERS_DIR).isDirectory()) return null;
+    } catch { /* the configured path is missing or unreadable */ }
+    return `sillyTavernCharactersDir is not a folder: ${SILLYTAVERN_CHARACTERS_DIR}`;
+}
+
+function expressionImportTarget(item, folderName = item.name) {
+    const baseError = sillyTavernCharactersError();
+    const nameError = expressionFolderNameError(folderName);
+    return {
+        directory: SILLYTAVERN_CHARACTERS_DIR,
+        folderName,
+        path: SILLYTAVERN_CHARACTERS_DIR && !nameError
+            ? path.join(SILLYTAVERN_CHARACTERS_DIR, folderName) : '',
+        error: baseError || nameError,
+    };
+}
+
+function expressionView(item) {
+    const sidecar = expressionFiles.readSidecar(item.folderPath);
+    const grouped = classifyExpressionFiles(expressionFiles.listSprites(item.folderPath));
+    const portrait = itemFile(item, 'portrait');
+    const safePortrait = portrait && expressionFiles.resolveFileInside(item.folderPath, portrait);
+    const portraitMtime = safePortrait ? fs.statSync(safePortrait).mtimeMs : null;
+    const orderedLabels = [
+        ...DEFAULT_EXPRESSION_LABELS,
+        ...Object.keys(grouped).filter((label) => !DEFAULT_EXPRESSION_LABELS.includes(label)).sort(),
+    ];
+    const groups = orderedLabels.map((label) => ({
+        label,
+        files: (grouped[label] || []).map((file) => {
+            const entry = sidecar[file] && typeof sidecar[file] === 'object' && !Array.isArray(sidecar[file])
+                ? sidecar[file] : {};
+            const sourceMtime = entry.source && Number(entry.source.mtime);
+            return {
+                file,
+                ...entry,
+                stale: portraitMtime !== null && Number.isFinite(sourceMtime)
+                    ? Math.abs(sourceMtime - portraitMtime) > 0.01 : false,
+            };
+        }),
+    }));
+    return {
+        groups,
+        labels: DEFAULT_EXPRESSION_LABELS,
+        sidecar,
+        job: expressionJobView(expressionJobsByItemId.get(item.id)),
+        importTarget: expressionImportTarget(item),
+    };
+}
+
+function startExpressionJob(item, options) {
+    if (!expressionSupported(item)) {
+        return {
+            ok: false, status: 400,
+            error: `expression sprites are not supported for kind "${item.kind}"`,
+        };
+    }
+    let scriptStat;
+    try { scriptStat = fs.statSync(GENERATE_EXPRESSIONS_SCRIPT); } catch { /* reported below */ }
+    if (!scriptStat?.isFile()) {
+        return {
+            ok: false, status: 400,
+            error: `generate-expressions.py not found at ${GENERATE_EXPRESSIONS_SCRIPT}`,
+        };
+    }
+    if (expressionJobsByItemId.get(item.id)?.status === 'running') {
+        return { ok: false, status: 409, error: 'expression sprites are already being rendered' };
+    }
+    if (regenJobsByItemId.get(item.id)?.status === 'running') {
+        return { ok: false, status: 409, error: 'this NPC is being re-rendered; wait for it to finish' };
+    }
+    if (animateJobsByItemId.get(item.id)?.status === 'running') {
+        return { ok: false, status: 409, error: 'this portrait is being animated; wait for it to finish' };
+    }
+    const portrait = itemFile(item, 'portrait');
+    if (!portrait || !expressionFiles.resolveFileInside(item.folderPath, portrait)) {
+        return { ok: false, status: 400, error: 'this NPC has no safe portrait on disk to render expressions from' };
+    }
+    if (options.count !== undefined
+        && (!Number.isInteger(options.count) || options.count < 1 || options.count > 8)) {
+        return { ok: false, status: 400, error: 'count must be an integer between 1 and 8' };
+    }
+    if (options.file !== undefined && expressionFiles.resolveSprite(item.folderPath, options.file).error) {
+        return { ok: false, status: 400, error: 'file must name an existing safe expression sprite' };
+    }
+
+    let args;
+    try {
+        args = expressionArgs({
+            script: GENERATE_EXPRESSIONS_SCRIPT,
+            id: item.id,
+            manifest: config.npcManifestPath,
+            tables: EXPRESSION_TABLES_PATH,
+            labels: options.labels,
+            custom: options.custom,
+            count: options.count,
+            mode: options.mode,
+            keepBackground: options.keepBackground === true,
+            file: options.file,
+        });
+    } catch (err) {
+        return { ok: false, status: 400, error: err.message };
+    }
+
+    const jobId = crypto.randomUUID();
+    const job = {
+        jobId, status: 'running', stage: null, log: '', error: null,
+        startedAt: Date.now(), child: null, stdoutTail: '',
+    };
+    expressionJobsByItemId.set(item.id, job);
+    let child;
+    try {
+        child = spawn(config.pythonExecutable, args, { cwd: path.dirname(GENERATE_EXPRESSIONS_SCRIPT) });
+        job.child = child;
+    } catch (err) {
+        job.status = 'error';
+        job.error = err.message;
+        return { ok: true, job: expressionJobView(job) };
+    }
+
+    const current = () => expressionJobsByItemId.get(item.id)?.jobId === jobId;
+    const remember = (chunk) => {
+        if (!current()) return;
+        job.log = (job.log + chunk.toString()).slice(-EXPRESSION_LOG_LIMIT);
+    };
+    child.stdout.on('data', (chunk) => {
+        if (!current()) return;
+        remember(chunk);
+        const lines = (job.stdoutTail + chunk.toString()).split(/\r?\n/);
+        job.stdoutTail = lines.pop() || '';
+        const completed = lines.map((line) => line.trim()).filter(Boolean);
+        const partial = job.stdoutTail.trim();
+        if (partial || completed.length) job.stage = partial || completed[completed.length - 1];
+    });
+    child.stderr.on('data', remember);
+    child.on('error', (err) => {
+        if (!current() || job.status === 'canceled') return;
+        job.status = 'error';
+        job.stage = null;
+        job.error = err.message;
+    });
+    child.on('close', (code) => {
+        if (!current() || job.status === 'canceled') return;
+        job.doneAt = Date.now();
+        job.stage = null;
+        if (code === 0) {
+            job.status = 'done';
+        } else {
+            job.status = 'error';
+            job.error = job.log.trim() || `generate-expressions.py exited with code ${code}`;
+        }
+    });
+    return { ok: true, job: expressionJobView(job) };
+}
+
+function cancelExpressionJob(item) {
+    const job = expressionJobsByItemId.get(item.id);
+    if (!job || job.status !== 'running') {
+        return { ok: false, status: 409, error: 'no expression job is running for this NPC' };
+    }
+    job.status = 'canceled';
+    job.stage = null;
+    job.doneAt = Date.now();
+    try { job.child?.kill(); } catch { /* status is still canceled */ }
+    return { ok: true, job: expressionJobView(job) };
+}
+
+function expressionFolderNameError(folderName) {
+    if (typeof folderName !== 'string' || !folderName.trim()) return 'folderName must not be empty';
+    if (folderName.includes('/') || folderName.includes('\\') || folderName.includes('..')) {
+        return 'folderName must not contain path separators or ".."';
+    }
+    return null;
+}
+
+function importExpressions(item, folderName) {
+    const nameError = expressionFolderNameError(folderName);
+    if (nameError) return { ok: false, status: 400, error: nameError };
+    const baseError = sillyTavernCharactersError();
+    if (baseError) return { ok: false, status: 400, error: baseError };
+    if (!expressionSupported(item)) {
+        return { ok: false, status: 400, error: `expression sprites are not supported for kind "${item.kind}"` };
+    }
+
+    const sourceNames = expressionFiles.listSprites(item.folderPath);
+    const baseReal = fs.realpathSync(SILLYTAVERN_CHARACTERS_DIR);
+    const destination = path.join(SILLYTAVERN_CHARACTERS_DIR, folderName);
+    if (!expressionFiles.isInside(baseReal, path.resolve(destination))) {
+        return { ok: false, status: 400, error: 'destination must stay inside sillyTavernCharactersDir' };
+    }
+    try {
+        if (fs.existsSync(destination)) {
+            if (!fs.statSync(destination).isDirectory()) throw new Error('destination is not a folder');
+            const destinationReal = fs.realpathSync(destination);
+            if (!expressionFiles.isInside(baseReal, destinationReal)) {
+                throw new Error('destination symlink resolves outside sillyTavernCharactersDir');
+            }
+        } else {
+            fs.mkdirSync(destination);
+        }
+    } catch (err) {
+        return { ok: false, status: 400, error: `unsafe SillyTavern destination: ${err.message}` };
+    }
+    const destinationReal = fs.realpathSync(destination);
+    let copied = 0;
+    let replaced = 0;
+    try {
+        for (const name of sourceNames) {
+            const source = expressionFiles.resolveSprite(item.folderPath, name);
+            if (source.error) continue;
+            const target = path.join(destinationReal, name);
+            const exists = fs.existsSync(target);
+            if (exists) {
+                const targetStat = fs.statSync(target);
+                const targetReal = fs.realpathSync(target);
+                if (!targetStat.isFile() || !expressionFiles.isInside(destinationReal, targetReal)) {
+                    throw new Error(`${name} is not a safe file inside the destination`);
+                }
+            }
+            fs.copyFileSync(source.real, target);
+            if (exists) replaced += 1;
+            else copied += 1;
+        }
+    } catch (err) {
+        return { ok: false, status: 400, error: `couldn't import expression sprites: ${err.message}` };
+    }
+    return { ok: true, copied, replaced, path: destination };
 }
 
 /* ------------------------------------------------------------------ */
@@ -2950,6 +3223,7 @@ function itemView(item) {
     const regenJob = regenJobsByItemId.get(item.id);
     const model3dJob = model3dJobsByItemId.get(item.id);
     const animateJob = animateJobsByItemId.get(item.id);
+    const expressionJob = expressionJobsByItemId.get(item.id);
     const imported = importedIndex.get(item.id) || null;
     const portraitFile = itemFile(item, 'portrait');
     const tokenFile = itemFile(item, 'token');
@@ -2957,6 +3231,8 @@ function itemView(item) {
     // sheet asks /api/animation for the rest, the way the 3D panel does.
     const animationVersion = animationSupported(item) && item.folderPath
         ? fileVersion(animationPaths(item).webp) : null;
+    const expressionCount = expressionSupported(item) && item.folderPath
+        ? expressionFiles.listSprites(item.folderPath).length : 0;
     return {
         id: item.id,
         kind: item.kind,
@@ -3004,6 +3280,9 @@ function itemView(item) {
             : null,
         animationStatus: animateJob ? animateJob.status : null,
         animationError: animateJob?.status === 'error' ? animateJob.error : null,
+        hasExpressions: expressionCount > 0,
+        expressionCount,
+        expressionStatus: expressionJob ? expressionJob.status : null,
         // Where the art actually sits on disk. The browser is served
         // /api/image URLs and cannot resolve a local path, so this is text for
         // the user to read and copy - it is how they find the source files
@@ -3289,6 +3568,10 @@ async function handleApi(req, res, url) {
             if (regenJob?.status === 'running') {
                 return { id, deleted: false, reason: 'art is regenerating - try again once it finishes' };
             }
+            const expressionJob = expressionJobsByItemId.get(id);
+            if (expressionJob?.status === 'running') {
+                return { id, deleted: false, reason: 'expressions are rendering - try again once they finish' };
+            }
             try {
                 deleteItem(item);
             } catch (err) {
@@ -3322,6 +3605,110 @@ async function handleApi(req, res, url) {
 
         const result = startRegenJob(item, { which, seedMode, seed });
         return sendJson(res, result.ok ? 202 : 409, result);
+    }
+
+    if (url.pathname === '/api/expressions' && req.method === 'GET') {
+        const item = url.searchParams.get('id') && findItem(url.searchParams.get('id'));
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        if (!expressionSupported(item)) {
+            return sendJson(res, 400, { error: `expression sprites are not supported for kind "${item.kind}"` });
+        }
+        return sendJson(res, 200, expressionView(item));
+    }
+
+    if (url.pathname === '/api/expressions' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            return sendJson(res, 400, { error: 'request body must be an object' });
+        }
+        const item = body.id && findItem(body.id);
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        const result = startExpressionJob(item, body);
+        if (!result.ok) return sendJson(res, result.status, { error: result.error });
+        return sendJson(res, 202, result.job);
+    }
+
+    if (url.pathname === '/api/expressions/cancel' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            return sendJson(res, 400, { error: 'request body must be an object' });
+        }
+        const item = body.id && findItem(body.id);
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        const result = cancelExpressionJob(item);
+        if (!result.ok) return sendJson(res, result.status, { error: result.error });
+        return sendJson(res, 200, result.job);
+    }
+
+    if (url.pathname === '/api/expression-image' && req.method === 'GET') {
+        const item = url.searchParams.get('id') && findItem(url.searchParams.get('id'));
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        if (!expressionFiles.isSpriteBasename(url.searchParams.get('file'))) {
+            return sendJson(res, 400, { error: 'file must be a classified .webp sprite basename' });
+        }
+        const resolved = expressionFiles.resolveSprite(item.folderPath, url.searchParams.get('file'));
+        if (resolved.error) return sendJson(res, 404, { error: 'no such expression sprite' });
+        res.writeHead(200, { 'Content-Type': 'image/webp', 'Cache-Control': 'no-store' });
+        fs.createReadStream(resolved.file)
+            .on('error', () => {
+                if (!res.headersSent) sendJson(res, 404, { error: 'no such expression sprite' });
+                else res.destroy();
+            })
+            .pipe(res);
+        return;
+    }
+
+    if (url.pathname === '/api/expressions/file' && req.method === 'DELETE') {
+        const item = url.searchParams.get('id') && findItem(url.searchParams.get('id'));
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        const file = url.searchParams.get('file');
+        if (!expressionFiles.isSpriteBasename(file)) {
+            return sendJson(res, 400, { error: 'file must be a classified .webp sprite basename' });
+        }
+        if (expressionJobsByItemId.get(item.id)?.status === 'running') {
+            return sendJson(res, 409, { error: 'expression sprites are being rendered; wait for them to finish' });
+        }
+        const resolved = expressionFiles.resolveSprite(item.folderPath, file);
+        if (resolved.error) return sendJson(res, 404, { error: 'no such expression sprite' });
+        try {
+            fs.rmSync(resolved.file);
+            const sidecar = expressionFiles.readSidecar(item.folderPath);
+            delete sidecar[file];
+            expressionFiles.writeSidecarAtomic(item.folderPath, sidecar);
+        } catch (err) {
+            return sendJson(res, 500, { error: `couldn't delete expression sprite: ${err.message}` });
+        }
+        return sendJson(res, 200, { deleted: true, file });
+    }
+
+    if (url.pathname === '/api/expressions/import' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            return sendJson(res, 400, { error: 'request body must be an object' });
+        }
+        const item = body.id && findItem(body.id);
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        const result = importExpressions(item, body.folderName);
+        if (!result.ok) return sendJson(res, result.status, { error: result.error });
+        return sendJson(res, 200, { copied: result.copied, replaced: result.replaced, path: result.path });
     }
 
     if (url.pathname === '/api/model-3d' && req.method === 'GET') {
