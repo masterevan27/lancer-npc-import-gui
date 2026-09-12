@@ -88,3 +88,18 @@ test('a group table nests under the table that references it, after its variants
     ]);
     assert.ok(!grouped.some((g) => g.group === 'Other'), 'a group is never an orphan');
 });
+
+test('a group referenced by a table absent from TABLE_GROUPS still nests, in Other', () => {
+    const cloak = { name: 'Cloak', bullets: [], references: ['Long cloaks'] };
+    const longCloaks = { name: 'Long cloaks', bullets: [], references: [] };
+    const longCloaksShe = { name: 'Long cloaks (she) +', bullets: [], references: [] };
+    const grouped = groupTables([longCloaksShe, longCloaks, cloak]);
+    const other = grouped.find((g) => g.group === 'Other');
+    assert.deepEqual(other.rows.map((r) => [r.table.name, r.isVariant, r.isGroup, r.parent]), [
+        ['Cloak', false, false, null],
+        ['Long cloaks', false, true, 'Cloak'],
+        ['Long cloaks (she) +', true, true, 'Cloak'],
+    ]);
+    assert.ok(!other.rows.some((r) => r.isGroup === false && r.table.name.startsWith('Long cloaks')),
+        'the referenced group never surfaces as a plain, un-nested row');
+});
