@@ -146,3 +146,52 @@ test('a reference is expanded into its group\'s members, and the group is not a 
     ]);
     assert.ok(!options.Outfit.some((o) => o.value.startsWith('=>')), 'the reference itself is never a value');
 });
+
+test('a group\'s own bare replacement variant gates the group\'s base bullets, not the referencing table\'s', () => {
+    // 'Flight suits (she)' - no trailing '+' - REPLACES '## Flight suits' for
+    // she, the same rule a base table's own replacement variant follows. The
+    // group is reached through '## Outfit', but the replacement is a fact
+    // about the GROUP's family, not the referencing table's, so replacedFor
+    // must key off 'Flight suits', not 'Outfit'.
+    const tables = [
+        { name: 'Outfit', references: ['Flight suits'], bullets: [{ text: '=> Flight suits', weight: 1, enabled: true }] },
+        { name: 'Flight suits', references: [], bullets: [{ text: 'a canvas flight suit', weight: 1, enabled: true }] },
+        { name: 'Flight suits (she)', references: [], bullets: [{ text: 'a tailored flight suit', weight: 1, enabled: true }] },
+    ];
+    const options = traitOptionsFrom(tables);
+    const canvas = options.Outfit.find((o) => o.value === 'a canvas flight suit');
+    assert.deepEqual(canvas.replacedFor, ['she']);
+});
+
+test('a group reached only from a gendered parent variant inherits that subject', () => {
+    // The generator's trait_choices offers a group referenced from
+    // '## Outfit (she) +' to she NPCs only, even when the group's own
+    // heading - '## Crop tops' - carries no parenthesis of its own. The
+    // picker mirrors that: a member with no subject of its own falls back to
+    // the referencing heading's.
+    const tables = [
+        { name: 'Outfit', references: [], bullets: [{ text: 'a jacket || civ', weight: 1, enabled: true }] },
+        { name: 'Outfit (she) +', references: ['Crop tops'], bullets: [{ text: '=> Crop tops', weight: 1, enabled: true }] },
+        { name: 'Crop tops', references: [], bullets: [{ text: 'a cropped tank || civ', weight: 1, enabled: true }] },
+    ];
+    const options = traitOptionsFrom(tables);
+    const tank = options.Outfit.find((o) => o.value === 'a cropped tank || civ');
+    assert.equal(tank.heading, 'Crop tops');
+    assert.equal(tank.group, 'Crop tops');
+    assert.equal(tank.variantSubject, 'she');
+});
+
+test('a group\'s own she-variant keeps its subject when reached from a plain parent', () => {
+    // The member's own heading is more specific than where it was reached
+    // from, so it wins over the (here, absent) inherited subject.
+    const tables = [
+        { name: 'Outfit', references: ['Crop tops'], bullets: [{ text: '=> Crop tops', weight: 1, enabled: true }] },
+        { name: 'Crop tops', references: [], bullets: [{ text: 'a cropped tank || civ', weight: 1, enabled: true }] },
+        { name: 'Crop tops (she) +', references: [], bullets: [{ text: 'a fitted cropped tank', weight: 1, enabled: true }] },
+    ];
+    const options = traitOptionsFrom(tables);
+    const fitted = options.Outfit.find((o) => o.value === 'a fitted cropped tank');
+    assert.equal(fitted.heading, 'Crop tops (she) +');
+    assert.equal(fitted.group, 'Crop tops');
+    assert.equal(fitted.variantSubject, 'she');
+});

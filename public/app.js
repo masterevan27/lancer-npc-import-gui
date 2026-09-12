@@ -3131,7 +3131,7 @@ function populateOverrideValues(valueSelect, options, override, subject) {
     if (option.heading !== groupName) {
       groupName = option.heading;
       group = document.createElement('optgroup');
-      group.label = option.isVariant ? `${option.heading} (this pronoun set only)` : option.heading;
+      group.label = option.variantSubject ? `${option.heading} (this pronoun set only)` : option.heading;
       valueSelect.appendChild(group);
     }
     const reason = pronounBlockReason(option, subject);
