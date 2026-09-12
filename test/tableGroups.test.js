@@ -69,3 +69,22 @@ test('TABLE_GROUPS names no table twice', () => {
     const all = TABLE_GROUPS.flatMap((g) => g.tables);
     assert.equal(new Set(all).size, all.length);
 });
+
+test('a group table nests under the table that references it, after its variants', () => {
+    const outfit = { name: 'Outfit', bullets: [], references: ['Flight suits'] };
+    const she = { name: 'Outfit (she) +', bullets: [], references: ['Crop tops'] };
+    const suits = { name: 'Flight suits', bullets: [], references: [] };
+    const suitsShe = { name: 'Flight suits (she) +', bullets: [], references: [] };
+    const crop = { name: 'Crop tops', bullets: [], references: [] };
+    const grouped = groupTables([crop, suitsShe, t('Headgear'), suits, she, outfit]);
+    const kit = grouped.find((g) => g.group === 'Kit');
+    assert.deepEqual(kit.rows.map((r) => [r.table.name, r.isVariant, r.isGroup, r.parent]), [
+        ['Outfit', false, false, null],
+        ['Outfit (she) +', true, false, null],
+        ['Crop tops', false, true, 'Outfit'],
+        ['Flight suits', false, true, 'Outfit'],
+        ['Flight suits (she) +', true, true, 'Outfit'],
+        ['Headgear', false, false, null],
+    ]);
+    assert.ok(!grouped.some((g) => g.group === 'Other'), 'a group is never an orphan');
+});

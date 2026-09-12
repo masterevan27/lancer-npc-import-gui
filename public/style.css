@@ -1639,6 +1639,8 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .table-group-header { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: var(--track-caps); color: var(--text-3); margin: var(--sp-3) 0 var(--sp-1); }
 .table-group-header:first-child { margin-top: 0; }
 .table-heading-row.variant { margin-left: 0.9rem; }
+.table-heading-row.group { margin-left: 0.9rem; }
+.table-heading-row.group.variant { margin-left: 1.8rem; }
 .table-bullet-panel { flex: 1; min-width: 0; }
 /* The two section titles on this tab were the browser's default h2 (24px
    with 20px margins). One size below the sheet title, no top margin, so the

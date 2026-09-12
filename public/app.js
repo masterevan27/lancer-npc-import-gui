@@ -4957,6 +4957,7 @@ const tablesState = {
   presets: [],
   pendingPreset: null, // the parsed preset object currently shown in the preview, or null
   flags: {},           // { [table]: { [flag]: gloss } } - the vocabulary the server sends
+  parents: {},         // { [table]: parentBaseName } - which table's bullet enters a group
   odds: null,          // the last settled /api/table-odds report, or null
   oddsStale: false,    // an edit has landed that the settled odds predate
   oddsReason: null,    // why the last run failed, or null
@@ -5005,6 +5006,10 @@ elTables.kindSelect.addEventListener('change', () => {
 async function loadTables() {
   const { groups, flags } = await api(`/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`);
   tablesState.groups = groups;
+  // Which table each group is entered from, for the chances estimate and the
+  // note; a plain table has no entry.
+  tablesState.parents = {};
+  for (const g of groups) for (const r of g.rows) if (r.parent) tablesState.parents[r.table.name] = r.parent;
   // Sent with the tables rather than fetched separately, so the checkboxes
   // can never render against a table list they do not match.
   tablesState.flags = flags || {};
@@ -5037,11 +5042,12 @@ function renderTableHeadingList() {
     header.textContent = group;
     elTables.headingList.appendChild(header);
 
-    for (const { table, isVariant } of rows) {
+    for (const { table, isVariant, isGroup } of rows) {
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'table-heading-row'
         + (isVariant ? ' variant' : '')
+        + (isGroup ? ' group' : '')
         + (table.name === tablesState.selectedTable ? ' active' : '');
       row.dataset.table = table.name;
       row.textContent = headingLabel(table);
