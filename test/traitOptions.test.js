@@ -122,3 +122,27 @@ test('an option carries the pronoun subject of its own heading', () => {
 test('a table with no bullets contributes no key', () => {
     assert.deepEqual(traitOptionsFrom([{ name: 'Empty', bullets: [] }]), {});
 });
+
+test('a reference is expanded into its group\'s members, and the group is not a key of its own', () => {
+    const tables = [
+        { name: 'Outfit', references: ['Flight suits'], bullets: [
+            { text: 'a jacket || civ', weight: 1, enabled: true },
+            { text: '=> Flight suits', weight: 2, enabled: true },
+        ] },
+        { name: 'Outfit (she) +', references: [], bullets: [{ text: 'a fitted top', weight: 1, enabled: true }] },
+        { name: 'Flight suits', references: [], bullets: [{ text: 'a flight suit || mil', weight: 1, enabled: true }] },
+        { name: 'Flight suits (she) +', references: [], bullets: [{ text: 'a tailored flight suit', weight: 1, enabled: false }] },
+    ];
+    const options = traitOptionsFrom(tables);
+    assert.deepEqual(Object.keys(options), ['Outfit']);
+    // Variant headings sort alphabetically, so a group's she-variant
+    // ('Flight suits (she) +') lands before the parent's own she-variant
+    // ('Outfit (she) +') when its name sorts earlier.
+    assert.deepEqual(options.Outfit.map((o) => [o.value, o.heading, o.group, o.variantSubject, o.enabled]), [
+        ['a jacket || civ', 'Outfit', null, null, true],
+        ['a flight suit || mil', 'Flight suits', 'Flight suits', null, true],
+        ['a tailored flight suit', 'Flight suits (she) +', 'Flight suits', 'she', false],
+        ['a fitted top', 'Outfit (she) +', null, 'she', true],
+    ]);
+    assert.ok(!options.Outfit.some((o) => o.value.startsWith('=>')), 'the reference itself is never a value');
+});
