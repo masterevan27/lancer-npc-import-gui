@@ -166,3 +166,10 @@ test('a preset naming a bullet that no longer exists is still reported', () => {
     assert.equal(diff.notFound.length, 1);
     assert.equal(diff.notFound[0].text, 'a cut nobody wrote || updo');
 });
+
+test('a flag edit inside a group table resolves the vocabulary through the reference', () => {
+    const file = ['## Outfit', '- => Flight suits', '## Flight suits', '- a flight suit', ''].join('\n');
+    const out = setBulletFlagInText(file, 'Flight suits', 'a flight suit', 'mil', true);
+    assert.equal(out.ok, true, out.error);
+    assert.equal(out.text, ['## Outfit', '- => Flight suits', '## Flight suits', '- a flight suit || mil', ''].join('\n'));
+});
