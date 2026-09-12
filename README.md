@@ -61,6 +61,15 @@ Everything else in `config.example.json` is optional and derived by default:
   only folder it reads. Defaults to `output/backgrounds` under the generator
   root. This one is worth pointing elsewhere: it is the folder you will want
   beside SillyTavern, and the tab takes whatever is in it.
+- `sillyTavernBackgroundsDir` — SillyTavern's own backgrounds folder,
+  `data/<user>/backgrounds` under its install (`default-user` unless you have
+  made accounts). **Empty by default and derived from nothing**, because
+  SillyTavern's location has no relation to the generator's. Set it and every
+  background grows an **Import into SillyTavern** button that copies the still
+  and its loop straight into that folder, where SillyTavern's Backgrounds panel
+  lists them; leave it empty and the button stays hidden. A path that is set
+  but not a folder is reported, never created, since a folder SillyTavern does
+  not read would fill up silently.
 - `backgroundPromptsDir` — where the scene catalogues live. Defaults to the
   folder holding `npcTablesPath`, and every `*-background-art-prompts.md` in it
   becomes a catalogue in the picker, so a new one needs no config edit.
@@ -145,10 +154,12 @@ and open <http://127.0.0.1:5089>.
   Create Background tab is on offer or its folder already holds stills. Its
   cards are the rendered scenes, wide rather than square, with a **Loop** badge
   when an animated loop sits beside the still; opening one shows the still and
-  its loop, and **Open in Create Background** takes it to that tab's Animate
-  panel. They can be ticked and deleted like anything else, still, loop and
-  record together, but **Import Selected** stays off for them: there is no
-  Actor to make from a background.
+  its loop, **Open in Create Background** takes it to that tab's Animate
+  panel, and **Import into SillyTavern** (with `sillyTavernBackgroundsDir`
+  set) copies both into SillyTavern's backgrounds folder. They can be ticked
+  and deleted like anything else, still, loop and record together, but
+  **Import Selected** stays off for them: there is no Actor to make from a
+  background.
   Each prompt on the detail sheet carries a **Copy** button, with a **Copy
   both** beneath the pair that puts them in the clipboard together, each under
   its own heading, since two unlabelled prompts are indistinguishable once they
@@ -446,6 +457,20 @@ and open <http://127.0.0.1:5089>.
   another, and you can type your own. Ping-pong and the three seed modes work as
   they do for an NPC's animated portrait. A card shows **Animated** when a loop
   exists and **Stale** when the still has been re-rendered since.
+
+  **Import into SillyTavern.** With `sillyTavernBackgroundsDir` pointed at
+  SillyTavern's `data/<user>/backgrounds`, the Animate panel and the Import
+  tab's sheet both carry this button. It copies the still and, when one sits
+  beside it, its loop into that folder under flat, lowercase names in the
+  style of the ones SillyTavern ships with: `Landing-Zone_00001_.png` lands as
+  `landing zone.png` and its loop as `landing zone animated.webp`, and a second
+  variant as `landing zone 2.png`. SillyTavern's Backgrounds panel lists the
+  folder fresh each time it opens, so nothing on its side needs a restart.
+  Clicking again overwrites, which is how a loop animated after the still went
+  over, or a still re-rendered since, follows it; SillyTavern rebuilds its
+  thumbnail off the file's new mtime. A card shows **In SillyTavern** when a
+  copy of the still is in that folder — read off the folder, not recorded here,
+  so one deleted from inside SillyTavern loses the pill on the next load.
 - **Trait Imports** — lists reference-image trait candidates staged by the
   `npc-trait-import` skill, sortable and dated, and appends the ones you approve
   as new bullets in `npc-generator-tables.md`. Search the bullets, narrow to one

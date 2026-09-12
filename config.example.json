@@ -13,6 +13,7 @@
   "backgroundsDir": "",
   "backgroundPromptsDir": "",
   "backgroundTablesPath": "",
+  "sillyTavernBackgroundsDir": "",
   "generateSpaceshipScript": "",
   "foundryNpcSubdir": "LancerNPCs",
   "foundrySpaceshipSubdir": "LancerSpaceships",

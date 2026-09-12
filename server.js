@@ -138,6 +138,12 @@ const DEFAULT_CONFIG = {
     // would pin every ship run to the same directory. --out-root is a tree
     // the generator numbers run folders under, same as its own default.
     spaceshipOutputRoot: '',
+    // SillyTavern's own backgrounds folder - data/<user>/backgrounds under
+    // its install - which is where "Import into SillyTavern" copies a still
+    // and its loop. Not derived from anything: SillyTavern's location has no
+    // relation to the generator's, and lib/paths.js only derives paths that
+    // follow one another. Empty means the button stays off.
+    sillyTavernBackgroundsDir: '',
     // Rolls behind each percentage on the Tables page. The trade is precision
     // against how long the number takes to settle after an edit: 20,000 rolls
     // is about six seconds and holds still at whole-percent precision, while
@@ -218,6 +224,10 @@ const {
     backgroundPromptsDir: BACKGROUND_PROMPTS_DIR,
     backgroundTablesPath: BACKGROUND_TABLES_PATH,
 } = DERIVED_PATHS;
+
+// Straight from config, not DERIVED_PATHS - see the key's comment above.
+const SILLYTAVERN_BACKGROUNDS_DIR = typeof config.sillyTavernBackgroundsDir === 'string'
+    ? config.sillyTavernBackgroundsDir : '';
 
 // The kind registry - see lib/kinds.js for what varies between an NPC and a
 // spaceship and why it is resolved here rather than as scattered constants.
@@ -1464,6 +1474,80 @@ function backgroundsAvailable() {
 }
 
 /**
+ * Why "Import into SillyTavern" cannot run right now, as a sentence, or null
+ * when it can. Checked per request like backgroundsMissing() and for the
+ * same reason: pointing config.json at the folder should not need a restart
+ * to be noticed. A configured folder that is not there is an error and not
+ * something to mkdir: SillyTavern only ever reads its own data/<user>/
+ * backgrounds, so a typo in the path would otherwise fill a folder nothing
+ * looks at while every import reported success.
+ */
+function sillyTavernUnavailable() {
+    if (!SILLYTAVERN_BACKGROUNDS_DIR) {
+        return 'set sillyTavernBackgroundsDir in config.json to SillyTavern\'s data/<user>/backgrounds folder';
+    }
+    let isDir = false;
+    try {
+        isDir = fs.statSync(SILLYTAVERN_BACKGROUNDS_DIR).isDirectory();
+    } catch { /* not there */ }
+    return isDir ? null : `sillyTavernBackgroundsDir is not a folder: ${SILLYTAVERN_BACKGROUNDS_DIR}`;
+}
+
+/**
+ * What one still is called in SillyTavern's folder and whether it is there.
+ * "Imported" is read off that folder rather than recorded here, so a
+ * background deleted from inside SillyTavern stops being marked without an
+ * index to reconcile; the loop's presence is not part of the answer because a
+ * loop animated after the still went over is exactly the case a second click
+ * exists for, and the pill should not go dark for it.
+ */
+function sillyTavernRecord(rel) {
+    const names = backgrounds.sillyTavernNames(rel);
+    const available = sillyTavernUnavailable() === null;
+    return {
+        ...names,
+        imported: available && fs.existsSync(path.join(SILLYTAVERN_BACKGROUNDS_DIR, names.still)),
+    };
+}
+
+/**
+ * Copies a still and, when one sits beside it, its loop into SillyTavern's
+ * backgrounds folder, overwriting either. Synchronous, and deliberately so:
+ * these are a few megabytes at most, and a job with a poll for a copy would
+ * be ceremony. SillyTavern regenerates a thumbnail when the file's mtime
+ * moves past the cached one's, which copyFileSync guarantees, so an
+ * overwrite shows up on the next open of its Backgrounds panel.
+ */
+function importBackgroundToSillyTavern(rel) {
+    const still = backgrounds.resolveInside(BACKGROUNDS_DIR, rel);
+    if (!still) return { ok: false, status: 400, error: 'rel must be a path inside the backgrounds folder' };
+    let stillIsFile = false;
+    try {
+        stillIsFile = fs.statSync(still).isFile();
+    } catch { /* not there */ }
+    if (!stillIsFile || backgrounds.isAnimationFile(path.basename(still))) {
+        return { ok: false, status: 404, error: 'no such background' };
+    }
+    const why = sillyTavernUnavailable();
+    if (why) return { ok: false, status: 400, error: why };
+
+    const names = backgrounds.sillyTavernNames(rel);
+    const loop = backgroundAbs(backgrounds.animationFilesFor(rel).webp);
+    const copies = [[still, names.still]];
+    if (fs.existsSync(loop)) copies.push([loop, names.loop]);
+    const copied = [];
+    try {
+        for (const [from, name] of copies) {
+            fs.copyFileSync(from, path.join(SILLYTAVERN_BACKGROUNDS_DIR, name));
+            copied.push(name);
+        }
+    } catch (err) {
+        return { ok: false, status: 500, error: `copy failed after ${copied.length} file(s): ${err.message}` };
+    }
+    return { ok: true, dir: SILLYTAVERN_BACKGROUNDS_DIR, copied };
+}
+
+/**
  * One catalogue's entries, from the script's own --list rather than a second
  * markdown parser here - see lib/backgrounds.js's parseListOutput for why.
  * One child process per catalogue file; the route runs them concurrently.
@@ -1599,6 +1683,7 @@ function backgroundItemView(rel) {
         },
         status: job ? job.status : null,
         error: job && job.status === 'error' ? job.error : null,
+        sillyTavern: sillyTavernRecord(rel),
     };
 }
 
@@ -1642,7 +1727,13 @@ function backgroundGridItem(rel) {
         tokenFile: view.animation ? path.basename(files.webp) : null,
         portraitUrl: view.url, tokenUrl: null, portraitPrompt: null, tokenPrompt: null,
         artStale: false, supports: {}, tokenHexes: null,
-        background: { rel, animation: view.animation },
+        // `available` rides on each row because /api/items carries nothing
+        // else about the tab, and the sheet's button needs it per item.
+        background: {
+            rel,
+            animation: view.animation,
+            sillyTavern: { available: sillyTavernUnavailable() === null, ...view.sillyTavern },
+        },
     };
 }
 
@@ -3304,6 +3395,7 @@ async function handleApi(req, res, url) {
             // missing instead of showing an empty tab with no explanation.
             return sendJson(res, 200, {
                 available: false, missing, dir: BACKGROUNDS_DIR,
+                sillyTavern: { available: false, dir: SILLYTAVERN_BACKGROUNDS_DIR },
                 catalogues: [], motionPrompts: [], items: [],
             });
         }
@@ -3313,6 +3405,10 @@ async function handleApi(req, res, url) {
             available: true,
             missing: [],
             dir: BACKGROUNDS_DIR,
+            // Whether "Import into SillyTavern" has somewhere to copy to.
+            // Why not is left to the import route's own error, which is the
+            // one place the answer is acted on.
+            sillyTavern: { available: sillyTavernUnavailable() === null, dir: SILLYTAVERN_BACKGROUNDS_DIR },
             catalogues: files.map((file, i) => ({
                 file, label: backgrounds.catalogueLabel(file), entries: entries[i],
             })),
@@ -3439,6 +3535,18 @@ async function handleApi(req, res, url) {
             pingpong: body.pingpong !== false,
         });
         return sendJson(res, result.ok ? 202 : result.status, result);
+    }
+
+    if (url.pathname === '/api/backgrounds/import' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const result = importBackgroundToSillyTavern(typeof body.rel === 'string' ? body.rel : '');
+        return sendJson(res, result.ok ? 200 : result.status, result);
     }
 
     if (url.pathname === '/api/backgrounds/status' && req.method === 'GET') {

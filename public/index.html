@@ -292,6 +292,14 @@
     <button type="button" id="bg-animate-close">Close</button>
     <p class="regen-status" id="bg-animate-status"></p>
     <pre class="job-log" id="bg-animate-log" hidden></pre>
+    <!-- Copies the still and its loop into SillyTavern's own backgrounds
+         folder (config.json's sillyTavernBackgroundsDir), where its
+         Backgrounds panel lists them. Hidden by openBackgroundAnimate when
+         that folder is not configured or not there. -->
+    <div class="bg-st-import">
+      <button type="button" id="bg-st-import-btn">Import into SillyTavern</button>
+      <p class="regen-status" id="bg-st-import-status"></p>
+    </div>
   </div>
 </section>
 
@@ -409,6 +417,8 @@
              owns the Animate panel, so the sheet points there instead of
              carrying a second copy of it. -->
         <button id="detail-open-background" type="button" hidden>Open in Create Background</button>
+        <!-- Backgrounds only, and only with a SillyTavern folder to copy to. -->
+        <button id="detail-import-sillytavern" type="button" hidden>Import into SillyTavern</button>
         <button id="detail-delete-btn" class="danger" type="button">Delete…</button>
       </div>
       <p class="detail-shortcuts">&larr; &rarr; navigate &middot; Esc close</p>

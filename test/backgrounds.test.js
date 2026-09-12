@@ -250,3 +250,19 @@ test("a background's Import tab id is its rel behind a prefix, and comes back ex
         assert.equal(backgrounds.relOf(other), null, `${String(other)} is not a background id`);
     }
 });
+
+test('sillyTavernNames flattens a still and its loop into SillyTavern-style names', () => {
+    // The folder SillyTavern lists is flat and shows the filename as the
+    // label, so the rel's directory goes, the ComfyUI counter goes unless it
+    // tells two variants apart, and the words come out lowercase with spaces
+    // - the shape of the backgrounds already sitting in that folder.
+    assert.deepEqual(backgrounds.sillyTavernNames('LancerBackgrounds/Landing-Zone_00001_.png'),
+        { still: 'landing zone.png', loop: 'landing zone animated.webp' });
+    assert.deepEqual(backgrounds.sillyTavernNames('LancerBackgrounds/Pilots-Quarters_00002_.png'),
+        { still: 'pilots quarters 2.png', loop: 'pilots quarters 2 animated.webp' });
+    // A hand-dropped file with no counter keeps its extension and its stem.
+    assert.deepEqual(backgrounds.sillyTavernNames('Hangar Deck.jpg'),
+        { still: 'hangar deck.jpg', loop: 'hangar deck animated.webp' });
+    // Nested more than one level still flattens to the basename.
+    assert.equal(backgrounds.sillyTavernNames('a/b/c/Ridge_00003_.webp').still, 'ridge 3.webp');
+});

@@ -113,6 +113,7 @@ const el = {
   detailSheet: document.querySelector('#detail-overlay .detail'),
   detailClose: document.getElementById('detail-close'),
   detailOpenBackground: document.getElementById('detail-open-background'),
+  detailImportSillyTavern: document.getElementById('detail-import-sillytavern'),
   detailPortrait: document.getElementById('detail-portrait'),
   detailToken: document.getElementById('detail-token'),
   detailAnimated: document.getElementById('detail-animated'),
@@ -1421,6 +1422,9 @@ function renderBackgroundDetail(item) {
           + `${Number.isInteger(animation.seed) ? ` · seed ${animation.seed}` : ''}`
           + `${animation.stale ? ' · the still was re-rendered after this loop was made' : ''}`
         : 'No loop yet — open it on the Create Background tab to animate it.';
+  // The name it wears over there, so the two lists can be matched by eye.
+  const st = item.background?.sillyTavern;
+  if (st && st.imported) el.detailSub.textContent += ` · In SillyTavern as "${st.still}"`;
 }
 
 /**
@@ -1456,6 +1460,8 @@ function openDetail(item) {
   const isBackground = item.kind === BACKGROUND_KIND;
   el.detailSheet.classList.toggle('detail--background', isBackground);
   el.detailOpenBackground.hidden = !isBackground;
+  el.detailImportSillyTavern.hidden = !isBackground || !item.background?.sillyTavern?.available;
+  el.detailImportSillyTavern.disabled = false;
   if (isBackground) {
     openBackgroundDetail(item);
     return;
@@ -2342,6 +2348,32 @@ el.detailOpenBackground.addEventListener('click', async () => {
   } catch (err) {
     elBackgrounds.renderStatus.textContent = `Failed to load: ${err.message}`;
   }
+});
+
+// The sheet's copy of the Animate panel's button. Reports on the sheet's
+// "generated" line, which a background leaves empty, and repaints the sheet
+// from the refreshed row so its "In SillyTavern as" line comes from the
+// folder rather than from here.
+el.detailImportSillyTavern.addEventListener('click', () => {
+  const item = state.items.find((i) => i.id === state.detailItemId);
+  const rel = item?.background?.rel;
+  if (!rel) return;
+  importBackgroundToSillyTavern(rel, {
+    statusEl: el.detailGenerated,
+    button: el.detailImportSillyTavern,
+    reload: async () => {
+      await refreshItems();
+      const fresh = state.items.find((i) => i.id === state.detailItemId);
+      if (fresh && fresh.kind === BACKGROUND_KIND) {
+        const status = el.detailGenerated.textContent;
+        renderBackgroundDetail(fresh);
+        el.detailGenerated.textContent = status;
+      }
+    },
+  }).catch((err) => {
+    el.detailImportSillyTavern.disabled = false;
+    el.detailGenerated.textContent = `Couldn't import: ${err.message}`;
+  });
 });
 
 el.detailDeleteBtn.addEventListener('click', async () => {
@@ -5667,6 +5699,10 @@ const backgroundsState = {
   catalogues: [],
   motionPrompts: [],
   items: [],
+  // Whether "Import into SillyTavern" has a folder to copy to, as the server
+  // last reported it. Stored off the gallery load so a config.json edit is
+  // noticed on the next tab visit, not the next page load.
+  sillyTavern: { available: false, dir: '' },
   catalogue: '',
   prefix: '',
   selected: null, // the rel the Animate panel is open on
@@ -5712,6 +5748,8 @@ const elBackgrounds = {
   animateClose: document.getElementById('bg-animate-close'),
   animateStatus: document.getElementById('bg-animate-status'),
   animateLog: document.getElementById('bg-animate-log'),
+  stImportBtn: document.getElementById('bg-st-import-btn'),
+  stImportStatus: document.getElementById('bg-st-import-status'),
 };
 
 async function loadBackgrounds() {
@@ -5721,6 +5759,7 @@ async function loadBackgrounds() {
   backgroundsState.catalogues = data.catalogues || [];
   backgroundsState.motionPrompts = data.motionPrompts || [];
   backgroundsState.items = data.items || [];
+  backgroundsState.sillyTavern = data.sillyTavern || { available: false, dir: '' };
   backgroundsState.loaded = true;
   // Keep the chosen catalogue across a refresh when it is still there, and
   // fall to the first one when it is not - a catalogue can be added or
@@ -5981,6 +6020,9 @@ function backgroundPills(item) {
   if (item.error) pills.push('Failed');
   if (item.animation) pills.push('Animated');
   if (item.animation && item.animation.stale) pills.push('Stale');
+  // Read off SillyTavern's folder by the server, so a background deleted
+  // from inside SillyTavern loses the pill on the next load.
+  if (item.sillyTavern && item.sillyTavern.imported) pills.push('In SillyTavern');
   return pills;
 }
 
@@ -6068,6 +6110,42 @@ function openBackgroundAnimate(rel) {
   elBackgrounds.animateStatus.textContent = '';
   elBackgrounds.animateLog.hidden = true;
   elBackgrounds.animateLog.textContent = '';
+  // Off entirely when there is no folder to copy to: a button that can only
+  // fail is worse than none, and the server's error names the config key.
+  elBackgrounds.stImportBtn.hidden = !backgroundsState.sillyTavern.available;
+  elBackgrounds.stImportBtn.disabled = false;
+  elBackgrounds.stImportStatus.textContent = item.sillyTavern && item.sillyTavern.imported
+    ? `In SillyTavern as "${item.sillyTavern.still}".` : '';
+}
+
+/**
+ * Copies one still (and its loop, when there is one) into SillyTavern's
+ * backgrounds folder and refreshes whichever list is showing, so the
+ * "In SillyTavern" pill and the sheet's line come from the folder itself
+ * rather than from an optimistic flip here. Shared by the Animate panel's
+ * button and the Import tab sheet's, which differ only in where they report.
+ */
+async function importBackgroundToSillyTavern(rel, { statusEl, button, reload }) {
+  button.disabled = true;
+  statusEl.textContent = 'Copying…';
+  let result;
+  try {
+    result = await api('/api/backgrounds/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rel }),
+    });
+  } catch (err) {
+    button.disabled = false;
+    statusEl.textContent = `Couldn't import: ${err.message}`;
+    return;
+  }
+  button.disabled = false;
+  statusEl.textContent = `Copied ${result.copied.map((n) => `"${n}"`).join(' and ')} into ${result.dir}.`
+    + ' Open the Backgrounds panel in SillyTavern to pick it.';
+  try {
+    await reload();
+  } catch { /* the list refreshes on its next visit */ }
 }
 
 function closeBackgroundAnimate() {
@@ -6186,3 +6264,16 @@ elBackgrounds.animateBtn.addEventListener('click', () => {
 });
 
 elBackgrounds.animateClose.addEventListener('click', closeBackgroundAnimate);
+
+elBackgrounds.stImportBtn.addEventListener('click', () => {
+  const item = selectedBackground();
+  if (!item) return;
+  importBackgroundToSillyTavern(item.rel, {
+    statusEl: elBackgrounds.stImportStatus,
+    button: elBackgrounds.stImportBtn,
+    reload: loadBackgrounds,
+  }).catch((err) => {
+    elBackgrounds.stImportBtn.disabled = false;
+    elBackgrounds.stImportStatus.textContent = `Couldn't import: ${err.message}`;
+  });
+});

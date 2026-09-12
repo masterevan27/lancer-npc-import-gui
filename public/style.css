@@ -1853,4 +1853,5 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .bg-pill { font-size: 0.75em; padding: 0 0.4em; border-radius: 0.6em; opacity: 0.85; }
 .bg-animate-still, .bg-animate-loop { max-width: 100%; height: auto; display: block; }
 .bg-motion { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0.5rem 0; }
+.bg-st-import { margin-top: 0.75rem; }
 .bg-motion textarea { flex: 1; }
