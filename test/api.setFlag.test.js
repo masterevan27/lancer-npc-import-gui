@@ -152,3 +152,21 @@ test('POST set-flag reports a bullet it cannot find', async (t) => {
     assert.equal(res.status, 400);
     assert.match((await res.json()).error, /no bullet matching that text/);
 });
+
+test('POST set-flag on a group table resolves its parent vocabulary through the on-disk path', async (t) => {
+    // The path setBulletFlagOnDisk() drives: a real write to a real file on
+    // disk, not just the in-memory setBulletFlagInText() the unit tests cover.
+    const GROUP_FIXTURE = ['## Outfit', '- => Flight suits', '## Flight suits', '- a flight suit', ''].join('\n');
+    const server = await startTestServer({ tablesText: GROUP_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const res = await setFlag(server, {
+        table: 'Flight suits', text: 'a flight suit', flag: 'mil', on: true,
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body, { ok: true, text: 'a flight suit || mil' });
+
+    const after = flatten((await (await fetch(`${server.baseUrl}/api/table-bullets`)).json()).groups);
+    assert.ok(bulletsOf(after, 'Flight suits').some((b) => b.text === 'a flight suit || mil'));
+});
