@@ -31,6 +31,13 @@ test('installed expression tables are available only to Tables, without a genera
     const body = await tables.json();
     assert.deepEqual(body.groups.flatMap((group) => group.rows.map((row) => row.table.name)), ['Joy', 'Anger']);
     assert.equal(body.capabilities.odds, false);
+    assert.deepEqual(body.defaultExpressionLabels, [
+        'admiration', 'amusement', 'anger', 'annoyance', 'approval', 'caring',
+        'confusion', 'curiosity', 'desire', 'disappointment', 'disapproval',
+        'disgust', 'embarrassment', 'excitement', 'fear', 'gratitude', 'grief',
+        'joy', 'love', 'nervousness', 'neutral', 'optimism', 'pride',
+        'realization', 'relief', 'remorse', 'sadness', 'surprise',
+    ]);
 });
 
 test('expression table edits and presets stay in their own file and preset directory', async (t) => {
@@ -94,4 +101,19 @@ test('a malformed expression manifest row cannot become an Import item or Foundr
         body: JSON.stringify({ ids: ['expression-row'] }),
     })).json();
     assert.deepEqual(imported.results, [{ id: 'expression-row', queued: false, reason: 'kind cannot be imported' }]);
+
+    const post = (route, body) => fetch(`${server.baseUrl}${route}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const regenerate = await post('/api/regenerate', { id: 'expression-row' });
+    assert.equal(regenerate.status, 409);
+    assert.match((await regenerate.json()).reason, /isn't supported/i);
+    for (const [route, body] of [
+        ['/api/set-trait', { id: 'expression-row', table: 'Role', value: 'dockworker' }],
+        ['/api/stage-trait', { id: 'expression-row', op: 'set', table: 'Role', value: 'dockworker' }],
+    ]) {
+        const response = await post(route, body);
+        assert.equal(response.status, 400, `${route} must reject an expression manifest row`);
+        assert.match((await response.json()).error, /isn't supported/i);
+    }
 });

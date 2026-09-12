@@ -56,6 +56,7 @@ const presets = require('./lib/presets');
 const createPresets = require('./lib/createPresets');
 const { derivePaths } = require('./lib/paths');
 const { buildKinds, kindFor, kindOf, requestKind, available, DEFAULT_KIND } = require('./lib/kinds');
+const { DEFAULT_EXPRESSION_LABELS } = require('./lib/expressions');
 const pronouns = require('./lib/pronouns');
 const traitOptions = require('./lib/traitOptions');
 const traitOdds = require('./lib/traitOdds');
@@ -4036,6 +4037,9 @@ async function handleApi(req, res, url) {
             groups: tableGroups.groupTables(tables, kind.id),
             flags,
             capabilities: { odds: !!kind.supports.odds },
+            // The expression panel consumes the generator's label order from
+            // this one API source rather than maintaining a browser duplicate.
+            ...(kind.id === 'expression' ? { defaultExpressionLabels: DEFAULT_EXPRESSION_LABELS } : {}),
         });
     }
 

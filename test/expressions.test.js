@@ -49,4 +49,7 @@ test('expression argv rejects unsafe file redo and invalid run options', () => {
     assert.throws(() => expressionArgs({ ...base, count: 0 }), /count/i);
     assert.throws(() => expressionArgs({ ...base, mode: 'overwrite' }), /mode/i);
     assert.throws(() => expressionArgs({ ...base, custom: [{ label: ' / ! ' }] }), /empty/i);
+    for (const custom of [{}, { label: null }, { label: 42 }]) {
+        assert.throws(() => expressionArgs({ ...base, custom: [custom] }), /label.*string/i);
+    }
 });
