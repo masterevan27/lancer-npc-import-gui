@@ -166,3 +166,41 @@ test('a preset naming a bullet that no longer exists is still reported', () => {
     assert.equal(diff.notFound.length, 1);
     assert.equal(diff.notFound[0].text, 'a cut nobody wrote || updo');
 });
+
+test('a flag edit inside a group table resolves the vocabulary through the reference', () => {
+    const file = ['## Outfit', '- => Flight suits', '## Flight suits', '- a flight suit', ''].join('\n');
+    const out = setBulletFlagInText(file, 'Flight suits', 'a flight suit', 'mil', true);
+    assert.equal(out.ok, true, out.error);
+    assert.equal(out.text, ['## Outfit', '- => Flight suits', '## Flight suits', '- a flight suit || mil', ''].join('\n'));
+});
+
+/* ---------------------------------------------------------------- */
+/* A reference bullet takes only @theme tags                         */
+/* ---------------------------------------------------------------- */
+
+test('setBulletFlagInText refuses a non-theme flag on a group reference', () => {
+    // The generator's own check_group_references() refuses this file at
+    // startup - "flags belong on the group's members, the reference takes
+    // only @theme tags" - so writing 'civ' here would hand back a file the
+    // generator itself rejects. The Tables tab already hides this bullet's
+    // checkboxes; this is the route-level guard for a request that skips it.
+    const file = ['## Outfit', '- => Flight suits', '## Flight suits', '- a flight suit', ''].join('\n');
+    const result = setBulletFlagInText(file, 'Outfit', '=> Flight suits', 'civ', true);
+    assert.equal(result.ok, false);
+    assert.match(result.error, /group reference/);
+    assert.match(result.error, /@theme/);
+});
+
+test('an @theme flag on a group reference is still accepted', () => {
+    // The one flag a reference IS allowed to carry - see
+    // '- => Flight suits (gundam) || @gundam' in the Task 7 fixture, a real
+    // shape hand-written into the tables file - so the guard above must let
+    // it straight through rather than treating every flag alike.
+    const file = ['## Outfit', '- => Flight suits (gundam)', '## Flight suits (gundam)', '- a crimson flight suit', ''].join('\n');
+    const result = setBulletFlagInText(file, 'Outfit', '=> Flight suits (gundam)', '@gundam', true);
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.text, [
+        '## Outfit', '- => Flight suits (gundam) || @gundam',
+        '## Flight suits (gundam)', '- a crimson flight suit', '',
+    ].join('\n'));
+});

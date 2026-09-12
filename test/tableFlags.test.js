@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
     TABLE_FLAGS, THREE_SEGMENT_TABLES,
-    proseSegments, knownFlags, hasFlags,
+    proseSegments, isThreeSegment, knownFlags, hasFlags,
     splitBulletFlags, joinBulletFlags, setBulletFlag,
 } = require('../lib/tableFlags');
 const { NON_TABLE_SECTIONS } = require('../lib/tableBullets');
@@ -278,6 +278,42 @@ test('a variant bullet can be flagged, and keeps its prose', () => {
     assert.equal(text, `${before} || crown`);
 });
 
+test('segment arity inherits through a group\'s parent, not just its own heading', () => {
+    // A group's OWN name gives no clue to its arity - 'Skies' is not in
+    // THREE_SEGMENT_TABLES and has no base-name form of it either - so
+    // without the parents lookup this reads two-segment, the same bug I3
+    // describes: a Backdrop-shaped bullet's second prose segment (the scene
+    // sentence) would be sliced off and treated as a flag list, and a flag
+    // write through setBulletFlagInText would splice the wrong segment.
+    const parents = { Skies: 'Backdrop' };
+    assert.equal(isThreeSegment('Skies', parents), true);
+    assert.equal(proseSegments('Skies', parents), 2);
+    assert.equal(isThreeSegment('Skies'), false, 'without the map it is an ordinary one-segment table');
+
+    const got = splitBulletFlags('Skies', 'a wide shot || weather || nogear', parents);
+    assert.deepEqual(got, {
+        body: 'a wide shot || weather',
+        flags: ['nogear'],
+        themes: [],
+    });
+
+    const file = ['## Backdrop', '- => Skies', '## Skies', '- a wide shot || weather', ''].join('\n');
+    const { setBulletFlagInText } = require('../lib/tableBullets');
+    const result = setBulletFlagInText(file, 'Skies', 'a wide shot || weather', 'nogear', true);
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.text, ['## Backdrop', '- => Skies', '## Skies', '- a wide shot || weather || nogear', ''].join('\n'));
+});
+
+test('a group table inherits the vocabulary of the table that references it', () => {
+    const parents = { 'Flight suits': 'Outfit', 'Flight suits (she) +': 'Outfit' };
+    assert.deepEqual(knownFlags('Flight suits', parents), knownFlags('Outfit'));
+    assert.deepEqual(knownFlags('Flight suits (she) +', parents), knownFlags('Outfit'));
+    assert.equal(hasFlags('Flight suits'), false, 'without the map it is still an unknown table');
+    const edited = setBulletFlag('Flight suits', 'a flight suit', 'mil', true, parents);
+    assert.deepEqual(edited, { ok: true, text: 'a flight suit || mil' });
+    assert.equal(setBulletFlag('Flight suits', 'a flight suit', 'mil', true).ok, false);
+});
+
 /* ---------------------------------------------------------------- */
 /* Drift against the real generator, when one is checked out         */
 /* ---------------------------------------------------------------- */
@@ -317,17 +353,17 @@ const SIBLING_TABLES = findSiblingTables(__dirname);
 
 test('every flag the live tables use has a checkbox', { skip: !SIBLING_TABLES && 'no generator checked out beside this repo' }, () => {
     const text = fs.readFileSync(SIBLING_TABLES, 'utf8');
+    const { parseTableFile, groupParents } = require('../lib/tableBullets');
+    const tables = parseTableFile(text);
+    const parents = groupParents(tables);
     const missing = [];
-    let table = null;
-    for (const line of text.split('\n')) {
-        const heading = line.match(/^##\s+(?!#)\s*(.*?)\s*$/);
-        if (heading) { table = heading[1]; continue; }
-        if (NON_TABLE_SECTIONS.includes(table)) continue;
-        const bullet = line.match(/^(?:<!--\s*)?-\s+(.*?)(?:\s*-->)?\s*$/);
-        if (!bullet || !table) continue;
-        const { flags } = splitBulletFlags(table, bullet[1]);
-        for (const flag of flags) {
-            if (!knownFlags(table).includes(flag)) missing.push(`${table}: ${flag}`);
+    for (const table of tables) {
+        if (NON_TABLE_SECTIONS.includes(table.name)) continue;
+        for (const bullet of table.bullets) {
+            const { flags } = splitBulletFlags(table.name, bullet.text);
+            for (const flag of flags) {
+                if (!knownFlags(table.name, parents).includes(flag)) missing.push(`${table.name}: ${flag}`);
+            }
         }
     }
     assert.deepEqual([...new Set(missing)], [],

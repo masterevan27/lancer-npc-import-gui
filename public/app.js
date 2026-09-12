@@ -3163,7 +3163,7 @@ function populateOverrideValues(valueSelect, options, override, subject) {
     if (option.heading !== groupName) {
       groupName = option.heading;
       group = document.createElement('optgroup');
-      group.label = option.isVariant ? `${option.heading} (this pronoun set only)` : option.heading;
+      group.label = option.variantSubject ? `${option.heading} (this pronoun set only)` : option.heading;
       valueSelect.appendChild(group);
     }
     const reason = pronounBlockReason(option, subject);
@@ -4989,6 +4989,7 @@ const tablesState = {
   presets: [],
   pendingPreset: null, // the parsed preset object currently shown in the preview, or null
   flags: {},           // { [table]: { [flag]: gloss } } - the vocabulary the server sends
+  parents: {},         // { [table]: parentBaseName } - which table's bullet enters a group
   odds: null,          // the last settled /api/table-odds report, or null
   oddsStale: false,    // an edit has landed that the settled odds predate
   oddsReason: null,    // why the last run failed, or null
@@ -5037,6 +5038,10 @@ elTables.kindSelect.addEventListener('change', () => {
 async function loadTables() {
   const { groups, flags } = await api(`/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`);
   tablesState.groups = groups;
+  // Which table each group is entered from, for the chances estimate and the
+  // note; a plain table has no entry.
+  tablesState.parents = {};
+  for (const g of groups) for (const r of g.rows) if (r.parent) tablesState.parents[r.table.name] = r.parent;
   // Sent with the tables rather than fetched separately, so the checkboxes
   // can never render against a table list they do not match.
   tablesState.flags = flags || {};
@@ -5069,11 +5074,12 @@ function renderTableHeadingList() {
     header.textContent = group;
     elTables.headingList.appendChild(header);
 
-    for (const { table, isVariant } of rows) {
+    for (const { table, isVariant, isGroup } of rows) {
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'table-heading-row'
         + (isVariant ? ' variant' : '')
+        + (isGroup ? ' group' : '')
         + (table.name === tablesState.selectedTable ? ' active' : '');
       row.dataset.table = table.name;
       row.textContent = headingLabel(table);
@@ -5139,6 +5145,27 @@ function renderTableBullets() {
     // disagree with the boxes for the moment between a click and its write.
     text.textContent = bulletBody(table.name, bullet.text);
     row.appendChild(text);
+
+    // A reference row: the arrow stays in the text so the file and the tab
+    // agree, and a jump beside it opens the group, since that is where the
+    // bullets this slot actually rolls are edited.
+    const target = referenceTargetOfText(table.name, bullet.text);
+    if (target) {
+      row.classList.add('reference');
+      const jump = document.createElement('button');
+      jump.type = 'button';
+      jump.className = 'group-jump';
+      jump.textContent = 'group ›';
+      jump.title = `One slot that rolls from the ${target} table`;
+      jump.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (!tablesState.tables.some((t) => t.name === target)) return;
+        tablesState.selectedTable = target;
+        renderTableHeadingList();
+        renderTableBullets();
+      });
+      row.appendChild(jump);
+    }
     elTables.bulletList.appendChild(row);
 
     const flags = renderBulletFlags(table, bullet);
@@ -5159,16 +5186,87 @@ const THREE_SEGMENT_TABLES = new Set(['Backdrop', 'Hair colour', 'Faction']);
 
 /* 'Hair colour (she) +' is three segments exactly as 'Hair colour' is, so the
    arity follows the base heading - the same rule lib/tableGroups.js already
-   uses to nest a variant under the table it extends. */
+   uses to nest a variant under the table it extends.
+
+   It also follows a GROUP's parent, via tablesState.parents: a group table's
+   own name gives no clue to its arity at all - '## Skies' referenced from
+   '## Backdrop' is not itself in THREE_SEGMENT_TABLES - so without this a
+   Skies bullet's second prose segment (its scene sentence) would be sliced
+   off and shown as a flag. Mirrors lib/tableFlags.js's isThreeSegment(),
+   which takes the same one-level parents lookup for the same reason. */
 function proseSegmentsOf(tableName) {
   const paren = String(tableName).indexOf(' (');
   const base = paren === -1 ? String(tableName) : String(tableName).slice(0, paren);
-  return THREE_SEGMENT_TABLES.has(base) ? 2 : 1;
+  if (THREE_SEGMENT_TABLES.has(base)) return 2;
+  const parent = tablesState.parents[tableName] || tablesState.parents[base];
+  return parent && THREE_SEGMENT_TABLES.has(parent) ? 2 : 1;
 }
 
 function bulletBody(tableName, text) {
   const prose = proseSegmentsOf(tableName);
   return String(text).split('||').map((p) => p.trim()).slice(0, prose).join(' || ');
+}
+
+/**
+ * The group a '=> Name' bullet points at, or null. The client mirror of
+ * lib/tableBullets.js's referenceTargetOf(): read off the prose, arrow first.
+ */
+function referenceTargetOfText(tableName, text) {
+  const first = bulletBody(tableName, text).split('||')[0].trim();
+  if (!first.startsWith('=> ')) return null;
+  return first.slice(3).trim() || null;
+}
+
+/**
+ * The share of the parent pool that enters this group: the reference row's
+ * weight over the parent's enabled weight. 1 for a table that is not a group,
+ * so a plain table's estimate is unchanged.
+ *
+ * An EXACT match - some parent-family bullet whose reference names this table
+ * by its own full heading - is searched for FIRST, across the whole family,
+ * before any base-name fallback is tried. That ordering is the fix: a themed
+ * sibling like 'Flight suits (gundam)' is a group of its own, entered only by
+ * its own '=> Flight suits (gundam)' bullet, and checking a base-name match
+ * first (or stopping at the first parent's bullets) could let a neutral
+ * '=> Flight suits' answer for it instead - which is what read it as the
+ * base group's 0.5 share rather than its own 0.25.
+ *
+ * The base-name fallback below is only entered for a genuine PRONOUN variant
+ * of the group - 'Flight suits (she) +' is still folded into the group's own
+ * plain '=> Flight suits' bullet, the same fold variant_table() gives every
+ * pronoun variant of an ordinary table - and must never fire for a themed
+ * sibling, which is not a variant of anything.
+ */
+function groupEntryShare(table) {
+  const parentName = tablesState.parents[table.name];
+  if (!parentName) return 1;
+  const base = table.name.includes(' (') ? table.name.slice(0, table.name.indexOf(' (')) : table.name;
+  const parents = tablesState.tables.filter((t) => t.name === parentName || t.name.startsWith(`${parentName} (`));
+
+  for (const parent of parents) {
+    const reference = parent.bullets.find((b) => referenceTargetOfText(parent.name, b.text) === table.name);
+    if (reference) return reference.enabled ? weightShare(parent, reference) : 0;
+  }
+
+  // A pronoun subject in the heading - '(she)', '(he)', '(they)', with or
+  // without a trailing '+' - is the one signal that this is a VARIANT of the
+  // group rather than a sibling styled after it. A parenthesised heading with
+  // no pronoun in it, like '(gundam)', leaves isPronounVariant false and the
+  // fallback below never runs for it.
+  const subject = /\(([^()]*)\)\s*\+?\s*$/.exec(table.name);
+  const isPronounVariant = Boolean(subject) && ['she', 'he', 'they'].includes(subject[1].trim().toLowerCase());
+  if (isPronounVariant) {
+    for (const parent of parents) {
+      const reference = parent.bullets.find((b) => referenceTargetOfText(parent.name, b.text) === base);
+      if (reference) return reference.enabled ? weightShare(parent, reference) : 0;
+    }
+  }
+
+  // A group with a parent but no reference bullet found at all - removed,
+  // renamed, or a themed sibling with no base match to fall back on - is
+  // unreachable by any roll, the same treatment a disabled reference already
+  // gets above, not the "1" a plain non-group table reports.
+  return 0;
 }
 
 function bulletFlagsOf(tableName, text) {
@@ -5191,6 +5289,21 @@ function bulletFlagsOf(tableName, text) {
 function renderBulletFlags(table, bullet) {
   const vocabulary = tablesState.flags[table.name];
   if (!vocabulary) return null;
+  // A reference carries no flags by the file's rules (check_tables refuses
+  // them); its theme tags still show, as text, the way they do on any row.
+  if (referenceTargetOfText(table.name, bullet.text)) {
+    const strip = document.createElement('div');
+    strip.className = 'table-bullet-flags';
+    for (const theme of bulletFlagsOf(table.name, bullet.text)) {
+      if (!theme.startsWith('@')) continue;
+      const tag = document.createElement('span');
+      tag.className = 'flag-theme';
+      tag.textContent = theme;
+      tag.title = 'This whole group is themed. Edit the tag in the tables file.';
+      strip.appendChild(tag);
+    }
+    return strip.childNodes.length ? strip : null;
+  }
 
   const strip = document.createElement('div');
   strip.className = 'table-bullet-flags';
@@ -5315,6 +5428,7 @@ function renderChances() {
   // A weight typed but not yet written makes every settled figure in this
   // table out of date, not just its own row's.
   const typing = table.bullets.some((b) => b.pendingWeight !== undefined);
+  const entry = groupEntryShare(table);
 
   table.bullets.forEach((bullet, i) => {
     const cell = cells[i];
@@ -5330,9 +5444,18 @@ function renderChances() {
       return;
     }
 
+    if (entry === 0) {
+      // The parent's own reference to this group is unchecked - nothing
+      // here is reachable regardless of this bullet's own weight, the same
+      // as a disabled bullet is.
+      cell.textContent = '—';
+      cell.title = 'Disabled — never rolled: the parent\'s reference to this group is unchecked';
+      return;
+    }
+
     const sampled = settled ? settled[bullet.text] : undefined;
     if (sampled === undefined || tablesState.oddsStale || typing) {
-      cell.textContent = `~${formatChance(weightShare(table, bullet))}`;
+      cell.textContent = `~${formatChance(weightShare(table, bullet) * entry)}`;
       cell.classList.add('estimate');
       cell.title = settled
         ? 'Estimate from the weights — the sampled figure is being recalculated'
@@ -5368,6 +5491,13 @@ function renderChanceNote(table) {
   }
   if (/\(\w+\)/.test(table.name)) {
     lines.push('This is a per-pronoun variant table, so its rows total less than 100% — only some NPCs roll from it.');
+  }
+
+  const parent = tablesState.parents[table.name];
+  if (parent) {
+    lines.push(groupEntryShare(table) === 0
+      ? `Disabled — never rolled: the reference to this group in ${parent} is unchecked.`
+      : `Rolled only when ${parent} draws this group, so these rows total the group's own row there.`);
   }
 
   note.textContent = lines.join(' ');

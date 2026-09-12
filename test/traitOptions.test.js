@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { traitOptionsFrom, readableLabel, variantSubjectOf } = require('../lib/traitOptions');
+const { parseTableFile } = require('../lib/tableBullets');
 
 const TABLES = [
     { name: 'Outfit', bullets: [
@@ -121,4 +122,115 @@ test('an option carries the pronoun subject of its own heading', () => {
 
 test('a table with no bullets contributes no key', () => {
     assert.deepEqual(traitOptionsFrom([{ name: 'Empty', bullets: [] }]), {});
+});
+
+test('a reference is expanded into its group\'s members, and the group is not a key of its own', () => {
+    const tables = [
+        { name: 'Outfit', references: ['Flight suits'], bullets: [
+            { text: 'a jacket || civ', weight: 1, enabled: true },
+            { text: '=> Flight suits', weight: 2, enabled: true },
+        ] },
+        { name: 'Outfit (she) +', references: [], bullets: [{ text: 'a fitted top', weight: 1, enabled: true }] },
+        { name: 'Flight suits', references: [], bullets: [{ text: 'a flight suit || mil', weight: 1, enabled: true }] },
+        { name: 'Flight suits (she) +', references: [], bullets: [{ text: 'a tailored flight suit', weight: 1, enabled: false }] },
+    ];
+    const options = traitOptionsFrom(tables);
+    assert.deepEqual(Object.keys(options), ['Outfit']);
+    // Variant headings sort alphabetically, so a group's she-variant
+    // ('Flight suits (she) +') lands before the parent's own she-variant
+    // ('Outfit (she) +') when its name sorts earlier.
+    assert.deepEqual(options.Outfit.map((o) => [o.value, o.heading, o.group, o.variantSubject, o.enabled]), [
+        ['a jacket || civ', 'Outfit', null, null, true],
+        ['a flight suit || mil', 'Flight suits', 'Flight suits', null, true],
+        ['a tailored flight suit', 'Flight suits (she) +', 'Flight suits', 'she', false],
+        ['a fitted top', 'Outfit (she) +', null, 'she', true],
+    ]);
+    assert.ok(!options.Outfit.some((o) => o.value.startsWith('=>')), 'the reference itself is never a value');
+});
+
+test('a group\'s own bare replacement variant gates the group\'s base bullets, not the referencing table\'s', () => {
+    // 'Flight suits (she)' - no trailing '+' - REPLACES '## Flight suits' for
+    // she, the same rule a base table's own replacement variant follows. The
+    // group is reached through '## Outfit', but the replacement is a fact
+    // about the GROUP's family, not the referencing table's, so replacedFor
+    // must key off 'Flight suits', not 'Outfit'.
+    const tables = [
+        { name: 'Outfit', references: ['Flight suits'], bullets: [{ text: '=> Flight suits', weight: 1, enabled: true }] },
+        { name: 'Flight suits', references: [], bullets: [{ text: 'a canvas flight suit', weight: 1, enabled: true }] },
+        { name: 'Flight suits (she)', references: [], bullets: [{ text: 'a tailored flight suit', weight: 1, enabled: true }] },
+    ];
+    const options = traitOptionsFrom(tables);
+    const canvas = options.Outfit.find((o) => o.value === 'a canvas flight suit');
+    assert.deepEqual(canvas.replacedFor, ['she']);
+});
+
+test('a group reached only from a gendered parent variant inherits that subject', () => {
+    // The generator's trait_choices offers a group referenced from
+    // '## Outfit (she) +' to she NPCs only, even when the group's own
+    // heading - '## Crop tops' - carries no parenthesis of its own. The
+    // picker mirrors that: a member with no subject of its own falls back to
+    // the referencing heading's.
+    const tables = [
+        { name: 'Outfit', references: [], bullets: [{ text: 'a jacket || civ', weight: 1, enabled: true }] },
+        { name: 'Outfit (she) +', references: ['Crop tops'], bullets: [{ text: '=> Crop tops', weight: 1, enabled: true }] },
+        { name: 'Crop tops', references: [], bullets: [{ text: 'a cropped tank || civ', weight: 1, enabled: true }] },
+    ];
+    const options = traitOptionsFrom(tables);
+    const tank = options.Outfit.find((o) => o.value === 'a cropped tank || civ');
+    assert.equal(tank.heading, 'Crop tops');
+    assert.equal(tank.group, 'Crop tops');
+    assert.equal(tank.variantSubject, 'she');
+});
+
+// The Task 7 fixture from test/api.tableGroups.test.js, parsed exactly as the
+// route parses it: an Outfit that references a plain group (Flight suits, an
+// x2 slot) AND a themed sibling group (Flight suits (gundam)) side by side.
+// This is I1's regression gate - before the fix, expanding the 'Flight
+// suits' reference fanned out with startsWith('Flight suits (') and swept up
+// 'Flight suits (gundam)' too, so 'a crimson flight suit' was offered twice:
+// once mislabelled group: 'Flight suits', once correctly group: 'Flight
+// suits (gundam)' through its own reference.
+const GROUPED_FIXTURE = [
+    '## Pronouns', '- she/her/her/woman', '',
+    '## Outfit', '- a jacket || civ', '- x2 => Flight suits', '- => Flight suits (gundam) || @gundam', '',
+    '## Outfit (she) +', '- => Crop tops', '',
+    '## Flight suits', '- a flight suit', '- a tan flight suit || mil', '',
+    '## Flight suits (she) +', '- a tailored flight suit', '',
+    '## Flight suits (gundam)', '- a crimson flight suit', '',
+    '## Crop tops', '- a crop top || civ', '',
+].join('\n');
+
+test('traitOptionsFrom over a parsed grouped file: no member doubles up, and a themed sibling keeps its own group', () => {
+    const options = traitOptionsFrom(parseTableFile(GROUPED_FIXTURE));
+
+    const values = options.Outfit.map((o) => o.value);
+    assert.deepEqual(values, [...new Set(values)],
+        'every member should appear exactly once, whichever reference reaches it');
+
+    const crimson = options.Outfit.find((o) => o.value === 'a crimson flight suit');
+    assert.ok(crimson, 'the themed sibling\'s own bullet must be offered');
+    assert.equal(crimson.group, 'Flight suits (gundam)',
+        'a themed sibling\'s members belong to ITS OWN group, not the neutral group it is styled after');
+
+    // Every heading a bullet only reaches through a reference is a slot, not
+    // a REQUIRED_TABLES entry - see the docstring above push() - so none of
+    // them may surface as a key of options on their own.
+    for (const heading of ['Flight suits', 'Flight suits (she) +', 'Flight suits (gundam)', 'Crop tops']) {
+        assert.ok(!Object.keys(options).includes(heading), `"${heading}" must not be a key of its own`);
+    }
+});
+
+test('a group\'s own she-variant keeps its subject when reached from a plain parent', () => {
+    // The member's own heading is more specific than where it was reached
+    // from, so it wins over the (here, absent) inherited subject.
+    const tables = [
+        { name: 'Outfit', references: ['Crop tops'], bullets: [{ text: '=> Crop tops', weight: 1, enabled: true }] },
+        { name: 'Crop tops', references: [], bullets: [{ text: 'a cropped tank || civ', weight: 1, enabled: true }] },
+        { name: 'Crop tops (she) +', references: [], bullets: [{ text: 'a fitted cropped tank', weight: 1, enabled: true }] },
+    ];
+    const options = traitOptionsFrom(tables);
+    const fitted = options.Outfit.find((o) => o.value === 'a fitted cropped tank');
+    assert.equal(fitted.heading, 'Crop tops (she) +');
+    assert.equal(fitted.group, 'Crop tops');
+    assert.equal(fitted.variantSubject, 'she');
 });

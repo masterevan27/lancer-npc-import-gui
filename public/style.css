@@ -1639,6 +1639,8 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .table-group-header { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: var(--track-caps); color: var(--text-3); margin: var(--sp-3) 0 var(--sp-1); }
 .table-group-header:first-child { margin-top: 0; }
 .table-heading-row.variant { margin-left: 0.9rem; }
+.table-heading-row.group { margin-left: 0.9rem; }
+.table-heading-row.group.variant { margin-left: 1.8rem; }
 .table-bullet-panel { flex: 1; min-width: 0; }
 /* The two section titles on this tab were the browser's default h2 (24px
    with 20px margins). One size below the sheet title, no top margin, so the
@@ -1699,6 +1701,15 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   color: var(--text-4);
 }
 .table-bullet-text { flex: 1; }
+.table-bullet-row.reference .table-bullet-text { font-style: italic; }
+.group-jump {
+  padding: 0.1rem 0.5rem;
+  font-size: var(--fs-xs);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+}
 
 /* The flag strip under a bullet. Its own row rather than more cells in the
    bullet's: that row is a <label> wrapping the enable checkbox, so a checkbox
