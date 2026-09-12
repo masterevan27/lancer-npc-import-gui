@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const { startTestServer } = require('./helpers/testServer');
 
 // /api/table-bullets against a file with a group: the group nests under its
@@ -41,4 +42,22 @@ test('a flag edit inside a group is accepted and written', async (t) => {
     });
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { ok: true, text: 'a flight suit || mil' });
+
+    // The response body alone is the write's own echo - it would look the
+    // same for a handler that validated the flag and then no-opped. Read the
+    // file back and diff it against the fixture line-by-line so the only
+    // change is the target bullet gaining its flag, which is what actually
+    // proves setBulletFlagOnDisk resolved "Flight suits" through Outfit's
+    // vocabulary and rewrote the right line in place.
+    const written = fs.readFileSync(server.tablesPath, 'utf8').split('\n');
+    const expectedLines = TABLES_FIXTURE.split('\n');
+    const target = expectedLines.indexOf('- a flight suit');
+    expectedLines[target] = '- a flight suit || mil';
+    assert.deepEqual(written, expectedLines);
+
+    // And the read side agrees - the flag shows on the wire for that bullet
+    // on the next fetch, not just in the write's own response.
+    const { groups } = await (await fetch(`${server.baseUrl}/api/table-bullets?kind=npc`)).json();
+    const flightSuits = groups.flatMap((g) => g.rows).find((r) => r.table.name === 'Flight suits').table;
+    assert.ok(flightSuits.bullets.some((b) => b.text === 'a flight suit || mil'));
 });
