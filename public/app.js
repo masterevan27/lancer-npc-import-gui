@@ -5113,6 +5113,27 @@ function renderTableBullets() {
     // disagree with the boxes for the moment between a click and its write.
     text.textContent = bulletBody(table.name, bullet.text);
     row.appendChild(text);
+
+    // A reference row: the arrow stays in the text so the file and the tab
+    // agree, and a jump beside it opens the group, since that is where the
+    // bullets this slot actually rolls are edited.
+    const target = referenceTargetOfText(table.name, bullet.text);
+    if (target) {
+      row.classList.add('reference');
+      const jump = document.createElement('button');
+      jump.type = 'button';
+      jump.className = 'group-jump';
+      jump.textContent = 'group ›';
+      jump.title = `One slot that rolls from the ${target} table`;
+      jump.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (!tablesState.tables.some((t) => t.name === target)) return;
+        tablesState.selectedTable = target;
+        renderTableHeadingList();
+        renderTableBullets();
+      });
+      row.appendChild(jump);
+    }
     elTables.bulletList.appendChild(row);
 
     const flags = renderBulletFlags(table, bullet);
@@ -5145,6 +5166,38 @@ function bulletBody(tableName, text) {
   return String(text).split('||').map((p) => p.trim()).slice(0, prose).join(' || ');
 }
 
+/**
+ * The group a '=> Name' bullet points at, or null. The client mirror of
+ * lib/tableBullets.js's referenceTargetOf(): read off the prose, arrow first.
+ */
+function referenceTargetOfText(tableName, text) {
+  const first = bulletBody(tableName, text).split('||')[0].trim();
+  if (!first.startsWith('=> ')) return null;
+  return first.slice(3).trim() || null;
+}
+
+/**
+ * The share of the parent pool that enters this group: the reference row's
+ * weight over the parent's enabled weight. 1 for a table that is not a group,
+ * so a plain table's estimate is unchanged. The parent is looked up by the
+ * group's base name, since 'Flight suits (she) +' is entered through the same
+ * '=> Flight suits' its base is.
+ */
+function groupEntryShare(table) {
+  const parentName = tablesState.parents[table.name];
+  if (!parentName) return 1;
+  const base = table.name.includes(' (') ? table.name.slice(0, table.name.indexOf(' (')) : table.name;
+  const parents = tablesState.tables.filter((t) => t.name === parentName || t.name.startsWith(`${parentName} (`));
+  for (const parent of parents) {
+    const reference = parent.bullets.find((b) => {
+      const target = referenceTargetOfText(parent.name, b.text);
+      return target === table.name || target === base;
+    });
+    if (reference) return weightShare(parent, reference);
+  }
+  return 1;
+}
+
 function bulletFlagsOf(tableName, text) {
   const prose = proseSegmentsOf(tableName);
   const parts = String(text).split('||').map((p) => p.trim());
@@ -5165,6 +5218,21 @@ function bulletFlagsOf(tableName, text) {
 function renderBulletFlags(table, bullet) {
   const vocabulary = tablesState.flags[table.name];
   if (!vocabulary) return null;
+  // A reference carries no flags by the file's rules (check_tables refuses
+  // them); its theme tags still show, as text, the way they do on any row.
+  if (referenceTargetOfText(table.name, bullet.text)) {
+    const strip = document.createElement('div');
+    strip.className = 'table-bullet-flags';
+    for (const theme of bulletFlagsOf(table.name, bullet.text)) {
+      if (!theme.startsWith('@')) continue;
+      const tag = document.createElement('span');
+      tag.className = 'flag-theme';
+      tag.textContent = theme;
+      tag.title = 'This whole group is themed. Edit the tag in the tables file.';
+      strip.appendChild(tag);
+    }
+    return strip.childNodes.length ? strip : null;
+  }
 
   const strip = document.createElement('div');
   strip.className = 'table-bullet-flags';
@@ -5289,6 +5357,7 @@ function renderChances() {
   // A weight typed but not yet written makes every settled figure in this
   // table out of date, not just its own row's.
   const typing = table.bullets.some((b) => b.pendingWeight !== undefined);
+  const entry = groupEntryShare(table);
 
   table.bullets.forEach((bullet, i) => {
     const cell = cells[i];
@@ -5306,7 +5375,7 @@ function renderChances() {
 
     const sampled = settled ? settled[bullet.text] : undefined;
     if (sampled === undefined || tablesState.oddsStale || typing) {
-      cell.textContent = `~${formatChance(weightShare(table, bullet))}`;
+      cell.textContent = `~${formatChance(weightShare(table, bullet) * entry)}`;
       cell.classList.add('estimate');
       cell.title = settled
         ? 'Estimate from the weights — the sampled figure is being recalculated'
@@ -5342,6 +5411,11 @@ function renderChanceNote(table) {
   }
   if (/\(\w+\)/.test(table.name)) {
     lines.push('This is a per-pronoun variant table, so its rows total less than 100% — only some NPCs roll from it.');
+  }
+
+  const parent = tablesState.parents[table.name];
+  if (parent) {
+    lines.push(`Rolled only when ${parent} draws this group, so these rows total the group's own row there.`);
   }
 
   note.textContent = lines.join(' ');

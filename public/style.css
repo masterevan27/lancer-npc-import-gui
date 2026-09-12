@@ -1701,6 +1701,15 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   color: var(--text-4);
 }
 .table-bullet-text { flex: 1; }
+.table-bullet-row.reference .table-bullet-text { font-style: italic; }
+.group-jump {
+  padding: 0.1rem 0.5rem;
+  font-size: var(--fs-xs);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+}
 
 /* The flag strip under a bullet. Its own row rather than more cells in the
    bullet's: that row is a <label> wrapping the enable checkbox, so a checkbox
