@@ -9,6 +9,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 const { derivePaths } = require('../lib/paths.js');
 const kindsLib = require('../lib/kinds.js');
 
@@ -21,14 +23,15 @@ const CONFIG = {
 };
 const KINDS = kindsLib.buildKinds(derivePaths(CONFIG), CONFIG);
 
-const REQUIRED_FIELDS = ['id', 'label', 'subject', 'script', 'tables',
+const GENERATOR_REQUIRED_FIELDS = ['id', 'label', 'subject', 'script', 'tables',
     'presetsDir', 'createPresetsDir', 'createPresetDiscriminator',
     'stagedImportsDir', 'stagedRefsDir', 'foundrySubdir', 'supports',
     'createArgs', 'regenArgs'];
 
-test('both kinds resolve and an unknown one does not', () => {
+test('all three kinds resolve and an unknown one does not', () => {
     assert.ok(kindsLib.kindFor(KINDS, 'npc'));
     assert.ok(kindsLib.kindFor(KINDS, 'spaceship'));
+    assert.ok(kindsLib.kindFor(KINDS, 'expression'));
     assert.equal(kindsLib.kindFor(KINDS, 'mech'), null);
 });
 
@@ -48,12 +51,43 @@ test('requestKind prefers the body, then the query, then npc', () => {
     assert.equal(kindsLib.requestKind(new URL('http://x/api/items'), null), 'npc');
 });
 
-test('every registry entry carries every field', () => {
-    for (const [id, entry] of Object.entries(KINDS)) {
-        for (const field of REQUIRED_FIELDS) {
+test('generator kinds carry their generator fields', () => {
+    for (const id of ['npc', 'spaceship']) {
+        const entry = KINDS[id];
+        for (const field of GENERATOR_REQUIRED_FIELDS) {
             assert.ok(entry[field] !== undefined,
                 `kind ${id} is missing ${field}`);
         }
+    }
+});
+
+test('expression is deliberately tables-only and cannot expose a generated item contract', () => {
+    const expression = KINDS.expression;
+    assert.deepEqual(Object.keys(expression).sort(), ['id', 'label', 'presetsDir', 'subject', 'supports', 'tables']);
+    assert.equal(expression.supports.tables, true);
+    for (const [name, enabled] of Object.entries(expression.supports)) {
+        assert.ok(name === 'tables' || enabled === false, `${name} must be disabled for expressions`);
+    }
+    for (const field of ['script', 'createArgs', 'regenArgs', 'stagedImportsDir', 'stagedRefsDir',
+        'foundrySubdir', 'foundryActorType', 'createPresetsDir']) {
+        assert.equal(expression[field], undefined, `expression must not define ${field}`);
+    }
+});
+
+test('tables-only availability needs its tables file, while generator kinds still need scripts', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kinds-expression-'));
+    try {
+        const paths = {
+            ...derivePaths(CONFIG),
+            generateNpcScript: path.join(dir, 'missing-npc.py'),
+            generateSpaceshipScript: path.join(dir, 'missing-ship.py'),
+            expressionTablesPath: path.join(dir, 'expression-tables.md'),
+        };
+        fs.writeFileSync(paths.expressionTablesPath, '## Joy\n- bright\n');
+        const kinds = kindsLib.buildKinds(paths, CONFIG);
+        assert.deepEqual(Object.keys(kindsLib.available(kinds)), ['expression']);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
     }
 });
 

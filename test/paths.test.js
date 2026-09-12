@@ -108,6 +108,18 @@ test('the seven existing keys are unchanged by the ship additions', () => {
         path.join('G:', 'gen', 'prompts', 'presets', 'create'));
 });
 
+test('expression paths follow the NPC script and table roots, with presets below presetsDir', () => {
+    const derived = derivePaths(BASE);
+    assert.equal(derived.generateExpressionsScript, path.join('G:', 'gen', 'generate-expressions.py'));
+    assert.equal(derived.expressionTablesPath, path.join('G:', 'gen', 'prompts', 'expression-tables.md'));
+    assert.equal(derived.expressionPresetsDir, path.join('G:', 'gen', 'prompts', 'presets', 'expressions'));
+
+    const moved = derivePaths({ ...BASE, presetsDir: path.join('S:', 'synced') });
+    assert.equal(moved.expressionPresetsDir, path.join('S:', 'synced', 'expressions'));
+    const split = derivePaths({ ...BASE, expressionPresetsDir: path.join('E:', 'expression-presets') });
+    assert.equal(split.expressionPresetsDir, path.join('E:', 'expression-presets'));
+});
+
 test('generateSpaceshipScript sits beside the manifest by default', () => {
     assert.equal(derivePaths(BASE).generateSpaceshipScript,
         path.join('G:', 'gen', 'generate-spaceship.py'));

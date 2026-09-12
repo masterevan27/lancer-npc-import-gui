@@ -91,6 +91,9 @@ const DEFAULT_CONFIG = {
     // lib/paths.js); override only if the ship generator has been moved on
     // its own.
     generateSpaceshipScript: '',
+    // Expression sprites have a separate optional CLI, while their tables can
+    // be edited even on an install that has not added that script yet.
+    generateExpressionsScript: '',
     // Where an imported item's files get copied to under foundryDataRoot -
     // see copyIntoFoundry(). Mirrors generate-npc.py's own COMFY_PREFIX so
     // the two output trees read as the same convention.
@@ -133,6 +136,8 @@ const DEFAULT_CONFIG = {
     spaceshipStagedRefsDir: '',
     spaceshipPresetsDir: '',
     spaceshipCreatePresetsDir: '',
+    expressionTablesPath: '',
+    expressionPresetsDir: '',
     // Passed to generate-spaceship.py as --out-root when non-empty. Not a
     // per-kind --out: --out names a single run folder, so a configured --out
     // would pin every ship run to the same directory. --out-root is a tree
@@ -353,9 +358,11 @@ function sortKeysDeep(value) {
  * files under LancerSpaceships instead of LancerNPCs.
  */
 function foundryDestFolder(item) {
+    const kind = kindOf(KINDS, item);
+    if (!kind.supports.import) throw new Error('kind cannot be imported');
     const category = path.basename(path.dirname(item.folderPath));
     const name = path.basename(item.folderPath);
-    return path.join(config.foundryDataRoot, kindOf(KINDS, item).foundrySubdir, category, name);
+    return path.join(config.foundryDataRoot, kind.foundrySubdir, category, name);
 }
 
 /**
@@ -487,6 +494,7 @@ function queueImport(item, { force = false } = {}) {
         return { queued: false, reason: 'already imported' };
     }
     const kind = kindOf(KINDS, item);
+    if (!kind.supports.import) return { queued: false, reason: 'kind cannot be imported' };
     // Grid units on the wire. `item` here is a spread manifest entry (see
     // manifestItemsFrom), so it carries BOTH pairs side by side:
     // gridWidth/gridHeight are the hex count Foundry sets
@@ -2047,6 +2055,7 @@ const OVERRIDE_TABLES_FALLBACK = [
 const OVERRIDE_DATA_BY_KIND = (() => {
     const out = {};
     for (const [id, kindEntry] of Object.entries(KINDS)) {
+        if (!kindEntry.script) continue;
         let source = null;
         try {
             source = fs.readFileSync(kindEntry.script, 'utf8');
@@ -2152,6 +2161,7 @@ function rerollableFor(item) {
     const kind = kindFor(KINDS, item.kind);
     if (!kind) return [];
     const data = OVERRIDE_DATA_BY_KIND[kind.id];
+    if (!data) return [];
     return hasRawTraits(item) ? data.rawRerollable : data.rerollable;
 }
 
@@ -2516,6 +2526,9 @@ const ODDS_LOG_LIMIT = 4000; // chars of stderr kept for an error message
  * cache for all four and no write path has to remember to do anything.
  */
 function readTraitOdds(kindEntry) {
+    if (!kindEntry.supports.odds) {
+        return Promise.resolve({ ok: false, reason: `${kindEntry.label} do not support odds` });
+    }
     let key;
     try {
         key = traitOdds.cacheKeyFor(fs.statSync(kindEntry.tables), kindEntry.id);
@@ -2539,6 +2552,9 @@ function readTraitOdds(kindEntry) {
 }
 
 function runTraitOdds(kindEntry) {
+    if (!kindEntry.supports.odds) {
+        return Promise.resolve({ ok: false, reason: `${kindEntry.label} do not support odds` });
+    }
     if (!fs.existsSync(kindEntry.script)) {
         return Promise.resolve({
             ok: false, reason: `${path.basename(kindEntry.script)} not found at ${kindEntry.script}`,
@@ -3075,7 +3091,13 @@ async function handleApi(req, res, url) {
     if (url.pathname === '/api/categories' && req.method === 'GET') {
         const byKind = new Map();
         for (const item of loadManifest()) {
-            byKind.set(item.kind, (byKind.get(item.kind) || 0) + 1);
+            const entry = kindOf(KINDS, item);
+            // A tables-only registry row is never a generated manifest item.
+            // Keep this guard at the projection boundary too: hand-editing a
+            // manifest must not reveal an Import category the UI cannot make.
+            if (!entry.supports.manifest) continue;
+            const id = item.kind || entry.id;
+            byKind.set(id, (byKind.get(id) || 0) + 1);
         }
         const categories = [...byKind.entries()].map(([id, count]) => {
             // Same fallback as the rest of the registry lookups: an id the
@@ -3086,13 +3108,10 @@ async function handleApi(req, res, url) {
             const entry = kindFor(KINDS, id) || kindFor(KINDS, DEFAULT_KIND);
             return { id, count, label: entry.label };
         });
-        // Which kinds this install can actually GENERATE, which is a different
-        // question from which ones the manifest already holds - a fresh
-        // install with generate-spaceship.py present has ships available and
-        // no Spaceships category, and that is exactly the case the Create
-        // Spaceship tab has to appear for. So it rides alongside `categories`
-        // rather than filtering it: the grid's rows stay manifest-derived,
-        // because hiding a category would hide content the user already has.
+        // Kinds with an installed UI affordance. Generator kinds need their
+        // scripts; a tables-only kind needs only its tables file. This remains
+        // separate from manifest categories, so Expressions can appear in the
+        // Tables select without ever becoming an Import category.
         //
         // available() reads the filesystem (two existsSync calls), which is
         // why it is answered per request rather than frozen at boot: dropping
@@ -3126,6 +3145,10 @@ async function handleApi(req, res, url) {
             const items = walkBackgrounds().map(backgroundGridItem).filter(Boolean)
                 .sort((a, b) => a.name.localeCompare(b.name));
             return sendJson(res, 200, { items });
+        }
+        const categoryKind = kindFor(KINDS, category);
+        if (categoryKind && !categoryKind.supports.manifest) {
+            return sendJson(res, 400, { error: `items for ${categoryKind.subject} are not supported` });
         }
         const items = loadManifest()
             .filter((item) => item.kind === category)
@@ -3201,6 +3224,9 @@ async function handleApi(req, res, url) {
         const results = ids.map((id) => {
             let item = findItem(id);
             if (!item) return { id, queued: false, reason: 'unknown item' };
+            if (!kindOf(KINDS, item).supports.import) {
+                return { id, queued: false, reason: 'kind cannot be imported' };
+            }
             if (!isImportable(item)) return { id, queued: false, reason: 'source files missing on disk' };
             if (!isUnderFoundryRoot(item)) {
                 const regenJob = regenJobsByItemId.get(item.id);
@@ -3591,6 +3617,9 @@ async function handleApi(req, res, url) {
         if (!kind) {
             return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
         }
+        if (!kind.supports.create) {
+            return sendJson(res, 400, { error: `${kind.label} have no create helpers` });
+        }
         const data = OVERRIDE_DATA_BY_KIND[kind.id];
         // Both lists, because which one applies is a property of the item
         // rather than of the server - the client pairs them with each item's
@@ -3939,6 +3968,7 @@ async function handleApi(req, res, url) {
         if (!kind) {
             return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
         }
+        if (!kind.supports.create) return sendJson(res, 400, { error: `${kind.label} have no create helpers` });
         // Every table's bullets, keyed by base table name, for the Create
         // form's per-override value dropdown. Same source as
         // /api/table-bullets - the parsed tables file - but shaped for
@@ -3955,6 +3985,7 @@ async function handleApi(req, res, url) {
         if (!kind) {
             return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
         }
+        if (!kind.supports.create) return sendJson(res, 400, { error: `${kind.label} have no create helpers` });
         // Read per request rather than cached at startup: the Tables tab can
         // disable a Pronouns bullet while the server is running, and a stale
         // dropdown would offer a set the generator will no longer roll.
@@ -3976,6 +4007,7 @@ async function handleApi(req, res, url) {
         if (!kind) {
             return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
         }
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
         const tables = tableBullets.readTables(kind.tables);
         // Grouped server-side so the ordering logic stays a testable pure
         // function in lib/ rather than becoming untestable DOM code. Only the
@@ -4003,6 +4035,7 @@ async function handleApi(req, res, url) {
         return sendJson(res, 200, {
             groups: tableGroups.groupTables(tables, kind.id),
             flags,
+            capabilities: { odds: !!kind.supports.odds },
         });
     }
 
@@ -4011,6 +4044,7 @@ async function handleApi(req, res, url) {
         if (!kind) {
             return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
         }
+        if (!kind.supports.odds) return sendJson(res, 400, { error: `${kind.label} do not support odds` });
         // 200 either way - see readTraitOdds(). A page that can still edit
         // tables without percentages is worth more than a correct status code.
         return sendJson(res, 200, await readTraitOdds(kind));
@@ -4026,6 +4060,7 @@ async function handleApi(req, res, url) {
         }
         const kind = resolveKind(url, body);
         if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
         const { table, text, enabled } = body;
         if (typeof table !== 'string' || !table || typeof text !== 'string' || typeof enabled !== 'boolean') {
             return sendJson(res, 400, { error: 'table (string), text (string), and enabled (boolean) are required' });
@@ -4049,6 +4084,7 @@ async function handleApi(req, res, url) {
         }
         const kind = resolveKind(url, body);
         if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
         const { table, text, weight } = body;
         if (typeof table !== 'string' || !table || typeof text !== 'string'
             || !Number.isInteger(weight) || weight < 1) {
@@ -4069,6 +4105,7 @@ async function handleApi(req, res, url) {
         }
         const kind = resolveKind(url, body);
         if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
         const { table, text, flag, on } = body;
         if (typeof table !== 'string' || !table || typeof text !== 'string'
             || typeof flag !== 'string' || !flag || typeof on !== 'boolean') {
@@ -4092,6 +4129,7 @@ async function handleApi(req, res, url) {
         if (!kind) {
             return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
         }
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
         return sendJson(res, 200, { presets: presets.listPresets(kind.presetsDir) });
     }
 
@@ -4105,6 +4143,7 @@ async function handleApi(req, res, url) {
         }
         const kind = resolveKind(url, body);
         if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
         const name = typeof body.name === 'string' ? body.name.trim() : '';
         if (!name) return sendJson(res, 400, { error: 'name is required' });
         const slug = presets.slugify(name);
@@ -4128,6 +4167,7 @@ async function handleApi(req, res, url) {
         }
         const kind = resolveKind(url, body);
         if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
         // safeSlug rather than a bare string check. This reached
         // path.join(dir, slug + '.json') unguarded, so a slug of
         // '../../../../some/other' deleted any .json file the server process
@@ -4144,6 +4184,7 @@ async function handleApi(req, res, url) {
         if (!kind) {
             return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
         }
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
         // Guarded for the reason /delete above is, and for one more of its
         // own: the slug is interpolated into a Content-Disposition header
         // below, so a CR or LF in it injects response headers. safeSlug's
@@ -4170,6 +4211,7 @@ async function handleApi(req, res, url) {
         }
         const kind = resolveKind(url, body);
         if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
         if (!body || typeof body.selected !== 'object' || body.selected === null) {
             return sendJson(res, 400, { error: 'not a valid preset file - missing "selected"' });
         }
@@ -4187,6 +4229,7 @@ async function handleApi(req, res, url) {
         }
         const kind = resolveKind(url, body);
         if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
         if (!body || typeof body.selected !== 'object' || body.selected === null) {
             return sendJson(res, 400, { error: 'not a valid preset file - missing "selected"' });
         }
@@ -4234,6 +4277,7 @@ async function handleApi(req, res, url) {
         if (!kind) {
             return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
         }
+        if (!kind.supports.create) return sendJson(res, 400, { error: `${kind.label} have no create presets` });
         return sendJson(res, 200, { presets: createPresets.listCreatePresets(kind.createPresetsDir) });
     }
 
@@ -4247,6 +4291,7 @@ async function handleApi(req, res, url) {
         }
         const kind = resolveKind(url, body);
         if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        if (!kind.supports.create) return sendJson(res, 400, { error: `${kind.label} have no create presets` });
         const name = typeof body.name === 'string' ? body.name.trim() : '';
         if (!name) return sendJson(res, 400, { error: 'name is required' });
         const slug = createPresets.slugify(name);
@@ -4287,6 +4332,7 @@ async function handleApi(req, res, url) {
         }
         const kind = resolveKind(url, body);
         if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        if (!kind.supports.create) return sendJson(res, 400, { error: `${kind.label} have no create presets` });
         // A slug that fails safeSlug answers 404 rather than 400, the same as
         // one that simply is not there. Separating the two would tell anyone
         // poking at this which of their guesses were at least the right shape,
@@ -4301,6 +4347,7 @@ async function handleApi(req, res, url) {
         if (!kind) {
             return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
         }
+        if (!kind.supports.create) return sendJson(res, 400, { error: `${kind.label} have no create presets` });
         const slug = safeSlug(url.searchParams.get('slug') || '');
         const preset = slug && createPresets.readCreatePreset(kind.createPresetsDir, slug);
         if (!preset) return sendJson(res, 404, { error: 'unknown preset' });
@@ -4330,6 +4377,7 @@ async function handleApi(req, res, url) {
         if (!kind) {
             return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
         }
+        if (!kind.supports.create) return sendJson(res, 400, { error: `${kind.label} have no create presets` });
         const result = createPresets.validatePresetFile(body, { kind: kind.createPresetDiscriminator });
         if (!result.ok) return sendJson(res, 400, { error: result.error });
         // The override tables are checked here even though validatePresetFile
@@ -4421,6 +4469,7 @@ async function handleApi(req, res, url) {
         if (!kind) {
             return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
         }
+        if (!kind.supports.traitCandidates) return sendJson(res, 400, { error: `${kind.label} have no trait candidates` });
         // One kind's staging directory, not both flattened together. A
         // candidate's table name is only meaningful paired with the file it
         // came from - '## Backdrop' exists in both tables files - so a merged
@@ -4433,6 +4482,7 @@ async function handleApi(req, res, url) {
         if (!kind) {
             return sendJson(res, 400, { error: `unknown kind "${url.searchParams.get('kind')}"` });
         }
+        if (!kind.supports.traitCandidates) return sendJson(res, 400, { error: `${kind.label} have no trait candidates` });
         const file = url.searchParams.get('file');
         const id = url.searchParams.get('id');
         // Resolved through the candidate listing rather than from the query
@@ -4469,6 +4519,7 @@ async function handleApi(req, res, url) {
                 error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"`,
             });
         }
+        if (!kind.supports.traitCandidates) return sendJson(res, 400, { error: `${kind.label} have no trait candidates` });
         const items = Array.isArray(body.items) ? body.items : [];
 
         // The whole batch is one kind's. Reading the run, writing the bullet

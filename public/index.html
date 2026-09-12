@@ -350,11 +350,11 @@
     Kind
     <select id="tables-kind">
       <option value="npc">NPCs</option>
-      <!-- Removed by applyKindAvailability when there is no ship generator -
-           see the data-kind note on the Create Spaceship tab button. Picking
-           it without one would read a spaceship-generator-tables.md that is
-           not there, which is the same 500 the tab used to produce. -->
+      <!-- data-kind affordances may be generators (Spaceships) or a
+           tables-only resource (Expressions); applyKindAvailability uses the
+           server's capability-aware availability list for both. -->
       <option value="spaceship" data-kind="spaceship">Spaceships</option>
+      <option value="expression" data-kind="expression">Expressions</option>
     </select>
   </label>
   <div class="tables-layout">

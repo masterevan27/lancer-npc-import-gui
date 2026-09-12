@@ -15,6 +15,7 @@
   "backgroundTablesPath": "",
   "sillyTavernBackgroundsDir": "",
   "generateSpaceshipScript": "",
+  "generateExpressionsScript": "",
   "foundryNpcSubdir": "LancerNPCs",
   "foundrySpaceshipSubdir": "LancerSpaceships",
   "foundryNpcActorType": "",
@@ -29,6 +30,8 @@
   "spaceshipStagedRefsDir": "",
   "spaceshipPresetsDir": "",
   "spaceshipCreatePresetsDir": "",
+  "expressionTablesPath": "",
+  "expressionPresetsDir": "",
   "spaceshipOutputRoot": "",
   "traitOddsSamples": 20000,
   "importedIndexPath": ""

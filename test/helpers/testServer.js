@@ -15,7 +15,7 @@ const SERVER_JS = path.join(__dirname, '..', '..', 'server.js');
  */
 async function startTestServer({
     tablesText, port, generatorSource, spaceshipGeneratorSource, spaceshipTablesText,
-    extraConfig, manifest,
+    expressionTablesText, extraConfig, manifest,
 }) {
     if (!port) throw new Error('startTestServer requires an explicit port');
     const host = '127.0.0.1';
@@ -77,6 +77,12 @@ async function startTestServer({
         spaceshipTablesPath = path.join(dir, 'spaceship-generator-tables.md');
         fs.writeFileSync(spaceshipTablesPath, spaceshipTablesText);
     }
+    let expressionTablesPath;
+    if (expressionTablesText !== undefined) {
+        expressionTablesPath = path.join(dir, 'expression-tables.md');
+        fs.writeFileSync(expressionTablesPath, expressionTablesText);
+    }
+    const expressionPresetsDir = path.join(presetsDir, 'expressions');
 
     const configPath = path.join(dir, 'config.json');
     fs.writeFileSync(configPath, JSON.stringify({
@@ -101,6 +107,7 @@ async function startTestServer({
         ...(generateNpcScript ? { generateNpcScript, pythonExecutable: process.execPath } : {}),
         ...(generateSpaceshipScript ? { generateSpaceshipScript, pythonExecutable: process.execPath } : {}),
         ...(spaceshipTablesPath ? { spaceshipTablesPath } : {}),
+        ...(expressionTablesPath ? { expressionTablesPath, expressionPresetsDir } : {}),
         // Last, so a test can override any of the above - written for
         // traitOddsSamples, which a test needs to see reach the generator's
         // command line, and general because the next such key would otherwise
@@ -184,6 +191,8 @@ async function startTestServer({
         // never asked for a ship tables file has no business reading one
         // back.
         spaceshipTablesPath,
+        expressionTablesPath,
+        expressionPresetsDir,
         manifestPath,
         presetsDir,
         /**

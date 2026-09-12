@@ -580,8 +580,8 @@ function markBatchSeen(ids) {
 
 /**
  * Removes the affordances of every kind this install cannot actually
- * generate, given /api/categories' `kinds` - the ids whose generator script
- * lib/kinds.js's available() found on disk.
+ * offer, given /api/categories' `kinds` - generator kinds whose scripts are
+ * present plus tables-only kinds whose table resource is present.
  *
  * The seam is declarative: anything in index.html carrying `data-kind` is an
  * affordance for exactly that kind and nothing else, so this needs no list of
@@ -4985,6 +4985,7 @@ const tablesState = {
   kind: 'npc', // which registry entry's tables file this tab is editing
   tables: [],
   groups: [],
+  capabilities: { odds: true },
   selectedTable: null,
   presets: [],
   pendingPreset: null, // the parsed preset object currently shown in the preview, or null
@@ -5026,6 +5027,7 @@ elTables.kindSelect.addEventListener('change', () => {
   tablesState.odds = null;
   tablesState.oddsStale = false;
   tablesState.oddsReason = null;
+  tablesState.capabilities = { odds: true };
   tablesState.pendingPreset = null;
   loadTables().catch((err) => {
     elTables.empty.hidden = false;
@@ -5035,8 +5037,11 @@ elTables.kindSelect.addEventListener('change', () => {
 });
 
 async function loadTables() {
-  const { groups, flags } = await api(`/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`);
+  const { groups, flags, capabilities } = await api(`/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`);
   tablesState.groups = groups;
+  // An older server did not send this field; retain its historic odds UI in
+  // that case, but never ask a new server to sample a tables-only kind.
+  tablesState.capabilities = { odds: capabilities?.odds !== false };
   // Sent with the tables rather than fetched separately, so the checkboxes
   // can never render against a table list they do not match.
   tablesState.flags = flags || {};
@@ -5128,9 +5133,11 @@ function renderTableBullets() {
     });
     row.appendChild(weightInput);
 
-    const chance = document.createElement('span');
-    chance.className = 'chance-cell';
-    row.appendChild(chance);
+    if (tablesState.capabilities.odds) {
+      const chance = document.createElement('span');
+      chance.className = 'chance-cell';
+      row.appendChild(chance);
+    }
 
     const text = document.createElement('span');
     text.className = 'table-bullet-text';
@@ -5308,6 +5315,10 @@ function formatChance(probability) {
 
 /** Repaint every chance cell in the open table from whatever is currently known. */
 function renderChances() {
+  if (!tablesState.capabilities.odds) {
+    elTables.chanceNote.hidden = true;
+    return;
+  }
   const table = tablesState.tables.find((t) => t.name === tablesState.selectedTable);
   if (!table) return;
   const settled = tablesState.odds?.tables?.[table.name] ?? null;
@@ -5383,6 +5394,7 @@ let oddsTimer = null;
 let oddsRequest = 0;
 
 function queueOdds() {
+  if (!tablesState.capabilities.odds) return;
   tablesState.oddsStale = true;
   renderChances();
   clearTimeout(oddsTimer);
@@ -5390,6 +5402,7 @@ function queueOdds() {
 }
 
 async function refreshOdds() {
+  if (!tablesState.capabilities.odds) return;
   const mine = ++oddsRequest;
   let result;
   try {

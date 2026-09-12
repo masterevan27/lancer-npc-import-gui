@@ -145,19 +145,23 @@ test('/api/categories omits spaceship when there is no ship generator script', a
     assert.deepEqual(body.kinds, ['npc']);
 });
 
-test('index.html marks both ship affordances with data-kind, and nothing else', async (t) => {
+test('index.html marks both ship affordances and exactly one Tables-only expression option', async (t) => {
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());
 
     const html = await fetchText(server, '/index.html');
     // Attributes only, not the explanatory comments beside them.
     const marked = [...html.matchAll(/<(button|option)\b[^>]*\bdata-kind="([\w-]+)"/g)];
-    assert.equal(marked.length, 2, 'exactly the Create Spaceship tab and the Tables Spaceships option carry data-kind');
-    assert.deepEqual(marked.map((m) => m[2]), ['spaceship', 'spaceship']);
+    assert.equal(marked.length, 3, 'only two ship affordances and the Expressions Tables option carry data-kind');
+    assert.deepEqual(marked.map((m) => m[2]), ['spaceship', 'spaceship', 'expression']);
     assert.match(html, /data-tab="shipcreate" data-kind="spaceship"/,
         'the Create Spaceship tab button is no longer gated on kind availability');
     assert.match(html, /<option value="spaceship" data-kind="spaceship">/,
         'the Tables kind select\'s Spaceships option is no longer gated on kind availability');
+    assert.match(html, /<option value="expression" data-kind="expression">Expressions<\/option>/,
+        'Expressions must be a Tables select option');
+    assert.equal([...html.matchAll(/data-kind="expression"/g)].length, 1,
+        'Expressions must not gain an Import, Create, or Trait Imports affordance');
     // The NPC half must carry no marker at all - that is what makes it
     // impossible for this mechanism to remove an NPC control.
     assert.doesNotMatch(html, /data-tab="create" data-kind=/);
@@ -227,6 +231,28 @@ test('applyKindAvailability leaves the ship affordances alone when spaceship IS 
     assert.equal(tab.removed, false);
     assert.equal(option.removed, false);
     assert.deepEqual(document.clicked, [], 'nothing was removed, so no tab needed rescuing');
+});
+
+test('applyKindAvailability retains an installed expression Tables option without a generator script', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    const expressionOption = fakeNode('expression', 'Expressions option');
+    liftApplyKindAvailability(js, fakeDocument([expressionOption]))(['expression']);
+    assert.equal(expressionOption.removed, false);
+});
+
+test('the Tables UI gates odds requests and chance cells on the server capability payload', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+
+    const js = await fetchText(server, '/app.js');
+    assert.match(js, /const \{ groups, flags, capabilities \} = await api\(`\/api\/table-bullets\?kind=/,
+        'loadTables must receive per-kind capabilities with the table data');
+    assert.match(js, /capabilities\.odds/, 'odds capability must gate the chance UI');
+    assert.match(js, /if \(!tablesState\.capabilities\.odds\) return;/,
+        'refresh/queued odds must stop before requesting an unsupported kind');
 });
 
 test('applyKindAvailability degrades to today\'s UI rather than to a blank one', async (t) => {
