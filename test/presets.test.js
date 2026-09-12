@@ -150,3 +150,25 @@ test('a duplicated bullet the preset does select is counted once as matching', (
     assert.deepEqual(diff.alreadyMatching, [{ table: 'Outfit', text: 'a jacket' }]);
     assert.deepEqual(diff.willReweight, []);
 });
+
+test('a reference whose group the preset never saw is left alone rather than disabled', () => {
+    const parsed = [
+        { name: 'Outfit', bullets: [
+            { text: 'a jacket', weight: 1, enabled: true },
+            { text: '=> Flight suits', weight: 1, enabled: true },
+        ] },
+        { name: 'Flight suits', bullets: [{ text: 'a flight suit', weight: 1, enabled: true }] },
+    ];
+    // Saved before the group existed: the flight suit was an Outfit bullet then.
+    const old = { Outfit: [{ text: 'a jacket', weight: 1 }, { text: 'a flight suit', weight: 1 }] };
+    const diff = diffPresetAgainstTables(old, parsed);
+    assert.deepEqual(diff.willDisable, []);
+    assert.deepEqual(diff.notFound, [{ table: 'Outfit', text: 'a flight suit' }]);
+    assert.deepEqual(diff.alreadyMatching,
+        [{ table: 'Outfit', text: 'a jacket' }, { table: 'Outfit', text: '=> Flight suits' }]);
+
+    // A preset that DOES know the group and omits the reference means it.
+    const knowing = { Outfit: [{ text: 'a jacket', weight: 1 }], 'Flight suits': [{ text: 'a flight suit', weight: 1 }] };
+    assert.deepEqual(diffPresetAgainstTables(knowing, parsed).willDisable,
+        [{ table: 'Outfit', text: '=> Flight suits' }]);
+});
