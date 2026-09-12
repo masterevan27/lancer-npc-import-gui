@@ -5182,6 +5182,12 @@ function referenceTargetOfText(tableName, text) {
  * so a plain table's estimate is unchanged. The parent is looked up by the
  * group's base name, since 'Flight suits (she) +' is entered through the same
  * '=> Flight suits' its base is.
+ *
+ * A DISABLED reference is 0, not weightShare()'s figure: weightShare excludes
+ * disabled bullets from its denominator but not from a numerator handed to it
+ * directly, so passing a disabled reference straight through would read the
+ * group as still entering the parent's roll at its old weight, once the
+ * reference's own checkbox has already taken it out.
  */
 function groupEntryShare(table) {
   const parentName = tablesState.parents[table.name];
@@ -5193,7 +5199,7 @@ function groupEntryShare(table) {
       const target = referenceTargetOfText(parent.name, b.text);
       return target === table.name || target === base;
     });
-    if (reference) return weightShare(parent, reference);
+    if (reference) return reference.enabled ? weightShare(parent, reference) : 0;
   }
   return 1;
 }
@@ -5373,6 +5379,15 @@ function renderChances() {
       return;
     }
 
+    if (entry === 0) {
+      // The parent's own reference to this group is unchecked - nothing
+      // here is reachable regardless of this bullet's own weight, the same
+      // as a disabled bullet is.
+      cell.textContent = '—';
+      cell.title = 'Disabled — never rolled: the parent\'s reference to this group is unchecked';
+      return;
+    }
+
     const sampled = settled ? settled[bullet.text] : undefined;
     if (sampled === undefined || tablesState.oddsStale || typing) {
       cell.textContent = `~${formatChance(weightShare(table, bullet) * entry)}`;
@@ -5415,7 +5430,9 @@ function renderChanceNote(table) {
 
   const parent = tablesState.parents[table.name];
   if (parent) {
-    lines.push(`Rolled only when ${parent} draws this group, so these rows total the group's own row there.`);
+    lines.push(groupEntryShare(table) === 0
+      ? `Disabled — never rolled: the reference to this group in ${parent} is unchecked.`
+      : `Rolled only when ${parent} draws this group, so these rows total the group's own row there.`);
   }
 
   note.textContent = lines.join(' ');

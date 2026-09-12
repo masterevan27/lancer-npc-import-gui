@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const vm = require('node:vm');
 const { startTestServer } = require('./helpers/testServer');
 
 // Group tables on the Tables tab: nested rows, a reference row that links to
@@ -12,6 +13,23 @@ async function fetchText(server, p) {
     const res = await fetch(`${server.baseUrl}${p}`);
     assert.equal(res.status, 200, `${p} should be served`);
     return res.text();
+}
+
+/** Pull one top-level function's source (brace-balanced) out of app.js, unevaluated. */
+function extractSource(js, name) {
+    const start = js.indexOf(`function ${name}(`);
+    assert.notEqual(start, -1, `app.js no longer defines ${name}`);
+    let depth = 0;
+    let end = -1;
+    for (let i = js.indexOf('{', start); i < js.length; i += 1) {
+        if (js[i] === '{') depth += 1;
+        if (js[i] === '}') {
+            depth -= 1;
+            if (depth === 0) { end = i + 1; break; }
+        }
+    }
+    assert.notEqual(end, -1, `could not find the end of ${name}`);
+    return js.slice(start, end);
 }
 
 test('the heading list indents a group row and a group variant twice', async (t) => {
@@ -53,4 +71,54 @@ test('a group\'s estimate is scaled by its reference, and its note says when it 
     assert.match(chances[0], /weightShare\(table, bullet\) \* entry/);
     const note = /function renderChanceNote\(table\)[\s\S]*?\n\}/.exec(js);
     assert.match(note[0], /Rolled only when \$\{parent\} draws this group/);
+});
+
+// groupEntryShare does a real division - the reference bullet's weight over
+// its parent's enabled total - and a source regex can prove the shape of that
+// line but not that the arithmetic is right (see the disabled-reference bug
+// this caught: weightShare excludes a disabled bullet from its denominator
+// but not from a numerator handed to it directly, so a disabled reference
+// read back as its old, inflated share instead of zero). So this one test
+// actually RUNS the lifted functions, in a throwaway node:vm context with a
+// stubbed tablesState, rather than matching their text. It is kept to this
+// one case on purpose - the rest of this file, and the rest of ui.*, stays on
+// source assertions, and this does not grow into a second DOM/UI harness.
+test('groupEntryShare: an enabled reference gives its real share, a disabled one gives 0, a plain table gives 1', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+
+    const source = [
+        "const THREE_SEGMENT_TABLES = new Set(['Backdrop', 'Hair colour', 'Faction']);",
+        extractSource(js, 'proseSegmentsOf'),
+        extractSource(js, 'bulletBody'),
+        extractSource(js, 'referenceTargetOfText'),
+        extractSource(js, 'effectiveWeight'),
+        extractSource(js, 'weightShare'),
+        extractSource(js, 'groupEntryShare'),
+    ].join('\n');
+
+    const outfit = {
+        name: 'Outfit',
+        bullets: [
+            { text: 'a jacket', weight: 1, enabled: true },
+            { text: '=> Flight suits', weight: 2, enabled: true },
+        ],
+    };
+    const flightSuits = { name: 'Flight suits', bullets: [] };
+    const context = {
+        tablesState: {
+            parents: { 'Flight suits': 'Outfit' },
+            tables: [outfit, flightSuits],
+        },
+    };
+    vm.createContext(context);
+    vm.runInContext(source, context);
+
+    assert.equal(context.groupEntryShare(flightSuits), 2 / 3);
+
+    outfit.bullets[1].enabled = false;
+    assert.equal(context.groupEntryShare(flightSuits), 0);
+
+    assert.equal(context.groupEntryShare(outfit), 1);
 });
