@@ -55,6 +55,18 @@ Everything else in `config.example.json` is optional and derived by default:
   lives in the generator repo; set it only if you have moved that one file.
 - `animatePortraitScript` — `animate-portrait.py`, behind the detail sheet's
   **Animated portrait** panel. Same default and the same reason to set it.
+- `generateExpressionsScript` — `generate-expressions.py`, behind an NPC
+  detail sheet's **Expressions** panel. It defaults beside
+  `generateNpcScript`; override it only when the expression CLI was moved on
+  its own. `expressionTablesPath` defaults to `expression-tables.md` beside
+  `npcTablesPath`, and `expressionPresetsDir` defaults to
+  `presets/expressions/`. Those overrides are passed to the CLI as explicit
+  `--manifest` and `--tables` paths, so a relocated manifest or tables file is
+  used by both the editor and renders.
+- `sillyTavernCharactersDir` — SillyTavern's `data/<user>/characters` folder.
+  It is empty by default and no path is inferred. Set it to enable the
+  Expressions panel's explicit import action; an unset or non-folder path is
+  reported rather than created.
 - `generateArtScript` — `generate-art.py`, behind the **Create Background** tab's
   Render button. Same default as the two above and the same reason to set it.
 - `backgroundsDir` — every background still and loop the tab shows, and the
@@ -229,6 +241,31 @@ and open <http://127.0.0.1:5089>.
   12 GB card and needs ComfyUI with the Wan 2.2 I2V models — see the
   generator repo's `docs/animate-portrait.md` for what it costs and what to
   do when it runs out of memory.
+  Beneath those portrait tools, an NPC-only **Expressions** panel makes static
+  WebP sprites for SillyTavern's Character Expressions extension. Its 28
+  default-label checkboxes stay in generator order, with **All**, **None** and
+  **Missing only** shortcuts. Add custom labels as chips; labels are lowercased
+  and punctuation/whitespace becomes underscores, and an empty custom prompt
+  is valid when the selected expression table provides it. Register each such
+  custom label in SillyTavern's Character Expressions custom-expression list
+  before expecting SillyTavern to use the sprite.
+
+  Choose one to eight variants, **Add** or **Replace**, and whether to **Keep
+  background**. Transparency is the default. Add preserves existing variants;
+  Replace does not discard the old label's sprites until its first replacement
+  has rendered successfully. Each card offers **Redo** for that exact filename
+  and a two-click **Delete**. The panel shows the running stage and a collapsible
+  log. An **old portrait** badge means the sprite's recorded source modification
+  time differs from the current portrait, so regenerate or redo it after a
+  portrait change. Inspect every result: expression editing can still lose an
+  accessory or other identity detail, and the UI does not claim visual approval.
+
+  The SillyTavern import box starts with the NPC's name. It must match the
+  character-card folder name exactly (edit it only to match an existing card),
+  and imports only after you click **Import**. The result reports `copied` for
+  new filenames and `replaced` for existing safe filenames; matching sprites
+  are overwritten, while destination-only files are preserved. No import runs
+  automatically.
   The trait table also says which image each trait actually reaches. Most
   reach both prompts; the ones that do not carry a pill after their name —
   **Portrait only** (Backdrop, Weather, Glow placement), **Token only**
@@ -490,7 +527,10 @@ and open <http://127.0.0.1:5089>.
   since been deleted, still names its source and simply shows no preview.
 - **Tables** — shows every bullet in every roll table of
   `npc-generator-tables.md`, with a selector at the top to switch the whole tab
-  to `spaceship-generator-tables.md` instead. NPC headings are grouped as
+  to `spaceship-generator-tables.md` or the expression tables instead. The
+  **Expressions** choice is tables-and-presets only: it has no Create or
+  generated-content category, and no odds sampling because expression pools
+  are chosen per requested label rather than by the NPC roller. NPC headings are grouped as
   Identity, Body, Appearance, Kit and Scene; a ship's as Identity, Structure,
   Systems and Scene (a table the generator adds later that fits none of its
   kind's groups falls into a trailing Other rather than disappearing), with
