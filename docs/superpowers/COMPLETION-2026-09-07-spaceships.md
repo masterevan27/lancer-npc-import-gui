@@ -3,6 +3,10 @@
 Supersedes `HANDOFF-2026-09-07-spaceships.md`. Both implementation plans are **complete**: 12 of 12
 tasks implemented, individually reviewed, fixed to clean, and closed by a whole-branch final review.
 
+> **Since merged.** Both branches landed on `main` after this was written — GUI `ultracode-features`
+> at `2d02d57`, ART `ultracode-spaceships` at `f7752ac` — and both are pushed. The worktree paths
+> and "not merged" statements below are as of 2026-09-07.
+
 Everything here was measured. Where a claim was contested during execution, the correction is given
 rather than the original.
 

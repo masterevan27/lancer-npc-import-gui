@@ -1,7 +1,7 @@
 # Visual design refresh — design spec
 
 Date: 2026-09-07
-Status: proposed, not yet implemented
+Status: implemented — phases 0–7 of the companion plan are on `main` (`8f6a83a`..`4063efe`)
 Companion plan: `docs/superpowers/plans/2026-09-07-visual-design-refresh.md`
 
 Reviewed against the running app at <http://localhost:5089/> with 137 NPCs and

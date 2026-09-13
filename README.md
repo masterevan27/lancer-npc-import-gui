@@ -1,8 +1,8 @@
 # Lancer NPC Import GUI
 
 A local web tool for turning NPCs rolled by `generate-npc.py` (from the
-`lancer-art-generator` repo — a local sibling clone, not a GitHub repository:
-`G:\GIT-REPOS\lancer-art-generator`) into Foundry VTT Actors — and for
+[lancer-art-generator](https://github.com/masterevan27/lancer-art-generator)
+repo, cloned beside this one: `G:\GIT-REPOS\lancer-art-generator`) into Foundry VTT Actors — and for
 curating the roll tables that generator draws from — instead of hand-copying
 files through Foundry's file picker and hand-editing markdown.
 
@@ -16,8 +16,9 @@ not you use SillyTavern at all.
 
 - **Node 20 or newer.** No dependencies — this is Node stdlib only, and there is
   no `package.json`.
-- **Python and `generate-npc.py`**, from the `lancer-art-generator` repo — a
-  local sibling clone, not a GitHub repository: `G:\GIT-REPOS\lancer-art-generator`.
+- **Python and `generate-npc.py`**, from the
+  [lancer-art-generator](https://github.com/masterevan27/lancer-art-generator)
+  repo, cloned beside this one: `G:\GIT-REPOS\lancer-art-generator`.
   This tool reads that script's `.generated-npcs.json` run log directly
   off disk, and reads and writes its `npc-generator-tables.md`.
 - **The Foundry module**, installed and configured — see
@@ -581,11 +582,15 @@ before changing any `/importer/*` route — the client ships inside a released
 node --test --test-concurrency=4 --test-timeout=120000 "test/*.test.js"
 ```
 
-Expect `tests 603`, all passing, in about twenty seconds. No install step; the
+Expect `tests 768`, all passing, in about twenty seconds. No install step; the
 suite spawns real `server.js` child processes against synthetic fixture
 directories, never your real `config.json` or tables. Each test file binds a
-**fixed, distinct** port because `node --test` runs files concurrently — a new
-test file needs a port no other file uses.
+**fixed** port because `node --test` runs files concurrently — a new test file
+needs a port no other file uses. Four pairs currently break that rule and share
+one: 5219 (`api.createPresets`, `api.setFlag`), 5220 (`ui.overrideRow`,
+`ui.tableFlags`), 5241 (`api.sillyTavernImport`, `api.tableGroups`) and 5242
+(`ui.sillyTavernImport`, `ui.tableGroups`). Each passes alone; a combined run
+fails one of the pair only when the two happen to overlap.
 
 **One test reads outside the repo, and a green run does not always mean what it
 looks like.** `every flag the live tables use has a checkbox`
@@ -637,7 +642,7 @@ Supported on the whole supported Node range (added in 20.11), and CI passes it
 too.
 
 Ports are written two ways, which is worth knowing before you pick one: of the
-55 test files, most declare `const PORT = ...` at the top and pass that, while
+72 test files, most declare `const PORT = ...` at the top and pass that, while
 eight (`api.createArgs`, `api.createPresets`, `api.nonTableSections`,
 `api.presets`, `api.pronouns`, `api.tableBullets`, `api.traitOptions` and
 `helpers.testServer`) pass a `port:` inline at each `startTestServer` call. The
@@ -649,7 +654,7 @@ fail loudly, it hangs the run until the whole suite times out:
 grep -rhoE "(port: |PORT = )5[0-9]+" test/*.test.js | sort -u
 ```
 
-Ports 5193–5199 and 5201–5232 are taken.
+Ports 5193–5199, 5201–5234 and 5236–5242 are taken.
 
 One collision worth naming, because it does not look like a port problem when
 it happens: running the suite while a previous run of it is still going produces
@@ -668,7 +673,7 @@ CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs
 (a 4-vCPU runner already defaults below this machine's cap), and a
 `timeout-minutes: 10` on the job — but without the glob, so it also picks up
 `test/helpers/testServer.js` as a file
-with no tests in it. Expect one more there, `tests 604`, for a helper that
+with no tests in it. Expect one more there, `tests 769`, for a helper that
 declares no tests and therefore cannot fail. Both numbers move whenever a test
 is added; they are worth updating together.
 

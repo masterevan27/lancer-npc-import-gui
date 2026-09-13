@@ -1,5 +1,7 @@
 # Table Groups (import GUI) Implementation Plan
 
+**Status:** implemented — merged to `main` at `37d6be0`. The checkboxes below were not ticked.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The Tables tab, presets, the Create form's override dropdown and the Chances panel understand a `- => Name` group reference and a `## Name` group table the way the generator does, instead of treating them as prose and an orphan table.

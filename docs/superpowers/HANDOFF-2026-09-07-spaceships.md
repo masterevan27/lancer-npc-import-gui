@@ -1,5 +1,9 @@
 # Handoff — spaceship support across two repos (2026-09-07)
 
+> **Superseded** by [`COMPLETION-2026-09-07-spaceships.md`](COMPLETION-2026-09-07-spaceships.md):
+> the remaining task finished, and both branches have since merged to `main` (GUI `2d02d57`,
+> ART `f7752ac`). The state below is as of this handoff.
+
 Two implementation plans were executed with `superpowers:subagent-driven-development`:
 one implementer subagent per task, a task review after each, fix rounds until clean, then
 a whole-branch final review. **11 of 12 tasks are complete and reviewed clean. One task

@@ -1,5 +1,13 @@
 # Remaining work — spaceships
 
+> **✅ Complete. Nothing below is remaining work; it is kept as the historical task list.**
+>
+> All eight tasks shipped. The ART half (`generate-spaceship.py`, the capitalization fix, its
+> tests, and the first real renders — `1c0364c`) merged to `lancer-art-generator` `main` at
+> `f7752ac`; the GUI half (tasks 5–8) merged here at `2d02d57`. Both are pushed. See
+> [`docs/superpowers/COMPLETION-2026-09-07-spaceships.md`](docs/superpowers/COMPLETION-2026-09-07-spaceships.md).
+> The branch, "nothing is pushed", test-count and port statements below are as of 2026-09-07.
+
 > **⚠️ Superseded by two step-by-step implementation plans. Work those, not this file.**
 >
 > - [`docs/superpowers/plans/2026-09-07-spaceship-generator-completion.md`](docs/superpowers/plans/2026-09-07-spaceship-generator-completion.md) — ART, tasks 1–4 below
