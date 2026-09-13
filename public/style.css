@@ -1951,7 +1951,9 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 #expressions-count { width: 3.5rem; }
 .expressions-log-details { margin: var(--sp-2) 0; color: var(--text-3); font-size: var(--fs-sm); }
 .expressions-log-details .job-log { margin-top: var(--sp-2); max-height: 12rem; overflow: auto; }
-.expressions-sprites { margin-top: var(--sp-4); border-top: 1px solid var(--line); }
+.expressions-sprites-details { margin-top: var(--sp-4); border-top: 1px solid var(--line); padding-top: var(--sp-3); }
+.expressions-sprites-details > summary { cursor: pointer; font-size: var(--fs-sm); color: var(--text-2); }
+.expressions-sprites { margin-top: var(--sp-3); border-top: 1px solid var(--line); }
 .expression-sprite-row { padding: var(--sp-3) 0; border-bottom: 1px solid var(--line); }
 .expression-sprite-row h4 { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--text-2); }
 .expression-sprite-list { display: flex; flex-wrap: wrap; gap: var(--sp-3); }

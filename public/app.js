@@ -185,6 +185,7 @@ const el = {
   expressionsStage: document.getElementById('expressions-stage'),
   expressionsLog: document.getElementById('expressions-log'),
   expressionsSprites: document.getElementById('expressions-sprites'),
+  expressionsSpritesCount: document.getElementById('expressions-sprites-count'),
   expressionsImportFolder: document.getElementById('expressions-import-folder'),
   expressionsImportTarget: document.getElementById('expressions-import-target'),
   expressionsImport: document.getElementById('expressions-import'),
@@ -1909,6 +1910,14 @@ function expressionSpriteRowsMarkup(id, groups, pendingDeleteFile) {
   }).join('');
 }
 
+/** Text beside the collapsed sprite section's summary, e.g. "(3 of 28 labels, 5 sprites)". */
+function expressionSpritesCountText(groups) {
+  const all = groups || [];
+  const filled = all.filter((group) => (group.files || []).length).length;
+  const sprites = all.reduce((sum, group) => sum + (group.files || []).length, 0);
+  return `(${filled} of ${all.length} labels, ${sprites} sprite${sprites === 1 ? '' : 's'})`;
+}
+
 /** Validate and shape one POST body independently of its DOM controls. */
 function expressionJobPayload(opts) {
   const count = Number(opts.count);
@@ -2070,6 +2079,7 @@ function renderExpressionsPanel(item, view) {
   if (view) {
     el.expressionsSprites.innerHTML = expressionSpriteRowsMarkup(
       item.id, view.groups, state.expressionDeleteFile);
+    el.expressionsSpritesCount.textContent = expressionSpritesCountText(view.groups);
     updateExpressionImportTarget(view);
     const hasFiles = (view.groups || []).some((group) => (group.files || []).length);
     const importFolderError = expressionImportFolderError(el.expressionsImportFolder.value.trim());
@@ -2082,6 +2092,7 @@ function renderExpressionsPanel(item, view) {
     }
   } else {
     el.expressionsSprites.textContent = '';
+    el.expressionsSpritesCount.textContent = '';
     el.expressionsImportTarget.textContent = '';
     el.expressionsImport.disabled = true;
   }

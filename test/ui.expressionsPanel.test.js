@@ -73,6 +73,24 @@ test('the NPC sheet contains the complete expression controls without a describe
     assert.doesNotMatch(panel[0], /describe/i, 'the CLI-only --describe option leaked into the GUI');
 });
 
+test('generated sprites sit in a collapsed section so the trait table stays near the top', async (t) => {
+    const { html, js } = await served(t);
+    const details = /<details class="expressions-sprites-details"(?<attrs>[^>]*)>[\s\S]*?<\/details>/.exec(html);
+    assert.ok(details, 'the sprite rows are not wrapped in a collapsible <details>');
+    assert.doesNotMatch(details.groups.attrs, /\bopen\b/, 'the sprite section must start collapsed');
+    assert.match(details[0], /<summary>[\s\S]*id="expressions-sprites-count"[\s\S]*<\/summary>/);
+    assert.match(details[0], /id="expressions-sprites"/);
+
+    const countText = liftFunction(js, 'expressionSpritesCountText');
+    assert.equal(countText([
+        { label: 'joy', files: [{ file: 'joy.webp' }, { file: 'joy-1.webp' }] },
+        { label: 'anger', files: [] },
+        { label: 'fear', files: [{ file: 'fear.webp' }] },
+    ]), '(2 of 3 labels, 3 sprites)');
+    assert.equal(countText([{ label: 'joy', files: [{ file: 'joy.webp' }] }]), '(1 of 1 labels, 1 sprite)');
+    assert.equal(countText(undefined), '(0 of 0 labels, 0 sprites)');
+});
+
 test('default labels come from the API in order and Missing selects empty rows', async (t) => {
     const { js } = await served(t);
     const markup = liftFunction(js, 'expressionLabelGridMarkup', { escapeHtml });
@@ -209,6 +227,7 @@ test('the panel treats a running item as newer than a stale done detail job', as
         expressionsSprites: {
             innerHTML: '', textContent: '', querySelectorAll: () => [redoButton],
         },
+        expressionsSpritesCount: { textContent: '' },
         expressionsImportFolder: { value: 'Vex' },
         expressionsImportTarget: { textContent: '' },
     };
@@ -222,6 +241,7 @@ test('the panel treats a running item as newer than a stale done detail job', as
         selectedExpressionLabels: () => ['joy'],
         renderExpressionForm: () => { throw new Error('same owner must not reset the form'); },
         expressionSpriteRowsMarkup: () => '<sprite-row>',
+        expressionSpritesCountText: () => '',
         updateExpressionImportTarget: () => {},
         expressionImportFolderError: () => null,
         expressionConfiguredBaseError: () => null,
@@ -335,11 +355,13 @@ test('failed expression actions survive repaint only for their owning NPC and su
         expressionsImport: { disabled: true }, expressionsStage: { textContent: '' },
         expressionsLog: { textContent: '' },
         expressionsSprites: { innerHTML: '', textContent: '', querySelectorAll: () => [] },
+        expressionsSpritesCount: { textContent: '' },
         expressionsImportFolder: { value: 'Vex' }, expressionsImportTarget: { textContent: '' },
     };
     const render = liftFunction(js, 'renderExpressionsPanel', {
         el, state, selectedExpressionLabels: () => ['joy'], renderExpressionForm: () => {},
-        expressionSpriteRowsMarkup: () => '', updateExpressionImportTarget: () => {},
+        expressionSpriteRowsMarkup: () => '', expressionSpritesCountText: () => '',
+        updateExpressionImportTarget: () => {},
         expressionImportFolderError: () => null, expressionConfiguredBaseError: () => null,
         expressionJobRunning, expressionSpriteActionDisabled: () => false,
     });
@@ -467,6 +489,7 @@ test('an edited safe folder overrides only the default-name error, not a configu
         expressionsStage: { textContent: '' },
         expressionsLog: { textContent: '' },
         expressionsSprites: { innerHTML: '', textContent: '', querySelectorAll: () => [] },
+        expressionsSpritesCount: { textContent: '' },
         expressionsImportFolder: { value: 'Safe Folder' },
         expressionsImportTarget: { textContent: '' },
     };
@@ -484,6 +507,7 @@ test('an edited safe folder overrides only the default-name error, not a configu
         selectedExpressionLabels: () => ['joy'],
         renderExpressionForm: () => {},
         expressionSpriteRowsMarkup: () => '',
+        expressionSpritesCountText: () => '',
         updateExpressionImportTarget,
         expressionImportFolderError: folderError,
         expressionConfiguredBaseError: configuredError,

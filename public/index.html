@@ -552,7 +552,12 @@
           <pre class="job-log" id="expressions-log"></pre>
         </details>
 
-        <div class="expressions-sprites" id="expressions-sprites"></div>
+        <!-- Collapsed by default: one row per label (28+ with the defaults),
+             empty or not, would otherwise push the trait table far below. -->
+        <details class="expressions-sprites-details">
+          <summary>Generated sprites <span class="hint" id="expressions-sprites-count"></span></summary>
+          <div class="expressions-sprites" id="expressions-sprites"></div>
+        </details>
 
         <div class="expressions-import">
           <h4>Import into SillyTavern</h4>
