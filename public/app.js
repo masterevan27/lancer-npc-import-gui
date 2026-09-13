@@ -1565,6 +1565,9 @@ function openDetail(item) {
   state.expressionDeleteFile = null;
   state.expressionExpectedJobId = null;
   state.expressionLastStatus = item.expressionStatus ?? null;
+  // One <details> serves every sheet, so without this a section opened on
+  // the last NPC would still be open, hiding the trait table on this one.
+  el.expressionsSpritesDetails.open = false;
   renderExpressionsPanel(item, null);
   const expressionsSupported = item.supports ? item.supports.expressions : item.kind === 'npc';
   if (expressionsSupported) refreshExpressions(item.id);

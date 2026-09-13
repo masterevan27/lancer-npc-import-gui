@@ -87,6 +87,9 @@ test('generated sprites sit in a collapsed section so the trait table stays near
     const collapse = /el\.expressionsSpritesCollapse\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
     assert.ok(collapse, 'the bottom collapse button has no handler');
     assert.match(collapse[0], /expressionsSpritesDetails\.open = false/);
+    assert.match(liftSource(js, 'openDetail'),
+        /expressionsSpritesDetails\.open = false[\s\S]*renderExpressionsPanel\(item, null\)/,
+        'a section opened on one NPC stays open on the next sheet');
 
     const countText = liftFunction(js, 'expressionSpritesCountText');
     assert.equal(countText([
