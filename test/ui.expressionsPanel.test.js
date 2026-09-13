@@ -161,7 +161,11 @@ test('run payload covers add, replace, transparency and the 1-8 count bound', as
 
 test('Redo observes every portrait conflict without overblocking Delete', async (t) => {
     const { js } = await served(t);
-    const disabled = liftFunction(js, 'expressionSpriteActionDisabled');
+    const expressionJobRunning = liftFunction(js, 'expressionJobRunning');
+    const expressionStartBlocked = liftFunction(js, 'expressionStartBlocked', { expressionJobRunning });
+    const disabled = liftFunction(js, 'expressionSpriteActionDisabled', {
+        expressionJobRunning, expressionStartBlocked,
+    });
     const idle = {
         id: 'n1', regenStatus: null, model3dStatus: null,
         animationStatus: null, expressionStatus: null,
@@ -188,6 +192,67 @@ test('Redo observes every portrait conflict without overblocking Delete', async 
     assert.equal(disabled('redo', idle, null, 'another-npc'), false);
 });
 
+test('the panel treats a running item as newer than a stale done detail job', async (t) => {
+    const { js } = await served(t);
+    const formControl = { disabled: false };
+    const redoButton = { dataset: { expressionRedo: 'joy.webp' }, disabled: false };
+    const el = {
+        expressionsPanel: {
+            hidden: true,
+            querySelectorAll: () => [formControl],
+        },
+        expressionsGenerate: { disabled: false, textContent: '' },
+        expressionsCancel: { disabled: true },
+        expressionsImport: { disabled: false },
+        expressionsStage: { textContent: '' },
+        expressionsLog: { textContent: '' },
+        expressionsSprites: {
+            innerHTML: '', textContent: '', querySelectorAll: () => [redoButton],
+        },
+        expressionsImportFolder: { value: 'Vex' },
+        expressionsImportTarget: { textContent: '' },
+    };
+    const state = {
+        expressionFormOwnerId: 'n1', expressionStartPendingId: null,
+        expressionCustom: [], expressionLastStatus: 'done', expressionDeleteFile: null,
+    };
+    const render = liftFunction(js, 'renderExpressionsPanel', {
+        el,
+        state,
+        selectedExpressionLabels: () => ['joy'],
+        renderExpressionForm: () => { throw new Error('same owner must not reset the form'); },
+        expressionSpriteRowsMarkup: () => '<sprite-row>',
+        updateExpressionImportTarget: () => {},
+        expressionJobRunning: liftFunction(js, 'expressionJobRunning'),
+        expressionSpriteActionDisabled: liftFunction(js, 'expressionSpriteActionDisabled', {
+            expressionJobRunning: liftFunction(js, 'expressionJobRunning'),
+            expressionStartBlocked: liftFunction(js, 'expressionStartBlocked', {
+                expressionJobRunning: liftFunction(js, 'expressionJobRunning'),
+            }),
+        }),
+    });
+    render({
+        id: 'n1', kind: 'npc', supports: { expressions: true },
+        expressionStatus: 'running', regenStatus: null,
+        model3dStatus: null, animationStatus: null,
+    }, {
+        labels: ['joy'], groups: [{ label: 'joy', files: [{ file: 'joy.webp' }] }],
+        job: { jobId: 'old', status: 'done', stage: null, log: '', error: null },
+        importTarget: { directory: 'characters', folderName: 'Vex', path: 'characters/Vex', error: null },
+    });
+
+    assert.equal(el.expressionsGenerate.disabled, true);
+    assert.equal(el.expressionsGenerate.textContent, 'Generating…');
+    assert.equal(el.expressionsCancel.disabled, false);
+    assert.equal(el.expressionsImport.disabled, true);
+    assert.equal(formControl.disabled, true);
+    assert.equal(redoButton.disabled, true);
+    assert.equal(el.expressionsStage.textContent,
+        'Generating… this can take several minutes per sprite.');
+    assert.equal(state.expressionLastStatus, 'running',
+        'completion tracking must follow the effective running state, not the stale detail job');
+});
+
 test('the shared expression starter closes the double-click window for Generate and Redo', async (t) => {
     const { js } = await served(t);
     let release;
@@ -199,8 +264,11 @@ test('the shared expression starter closes the double-click window for Generate 
         expressionExpectedJobId: null, expressionView: { groups: [], job: null },
         expressionOwnerId: 'n1', items: [{ id: 'n1', expressionStatus: null }],
     };
+    const expressionJobRunning = liftFunction(js, 'expressionJobRunning');
+    const expressionStartBlocked = liftFunction(js, 'expressionStartBlocked', { expressionJobRunning });
     const start = liftAsyncFunction(js, 'startExpressionJob', {
         state,
+        expressionStartBlocked,
         fetch: async () => { fetchCalls += 1; return response; },
         startPolling: () => {},
         rerenderCurrentExpressions: () => { rerenders += 1; },
@@ -219,6 +287,8 @@ test('the shared expression starter closes the double-click window for Generate 
     await first;
     assert.equal(state.expressionStartPendingId, null);
     assert.ok(rerenders >= 2, 'sprite actions must repaint when pending starts and ends');
+    await assert.rejects(start({ id: 'n1' }), /already running/i);
+    assert.equal(fetchCalls, 1, 'a stale panel must not send another POST for a running item');
 });
 
 test('generate, redo, cancel and delete use the expression endpoints and refresh safely', async (t) => {

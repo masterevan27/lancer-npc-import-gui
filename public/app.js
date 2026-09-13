@@ -1933,13 +1933,21 @@ function expressionJobPayload(opts) {
  * job for both: the server may have accepted it before this browser has its
  * job response.
  */
+function expressionJobRunning(item, job) {
+  return item.expressionStatus === 'running' || job?.status === 'running';
+}
+
+function expressionStartBlocked(item, job, startPendingId) {
+  return expressionJobRunning(item, job) || startPendingId === item.id
+    || item.regenStatus === 'running' || item.model3dStatus === 'running'
+    || item.animationStatus === 'running';
+}
+
 function expressionSpriteActionDisabled(action, item, job, startPendingId) {
-  const expressionBusy = item.expressionStatus === 'running'
-    || job?.status === 'running' || startPendingId === item.id;
+  const expressionBusy = expressionJobRunning(item, job) || startPendingId === item.id;
   if (action === 'delete') return expressionBusy;
   if (action !== 'redo') return false;
-  return expressionBusy || item.regenStatus === 'running'
-    || item.model3dStatus === 'running' || item.animationStatus === 'running';
+  return expressionStartBlocked(item, job, startPendingId);
 }
 
 function selectedExpressionLabels() {
@@ -1996,8 +2004,8 @@ function renderExpressionsPanel(item, view) {
   }
 
   const job = view?.job || null;
-  const status = job ? job.status : item.expressionStatus;
-  const running = status === 'running';
+  const running = expressionJobRunning(item, job);
+  const status = running ? 'running' : job ? job.status : item.expressionStatus;
   const starting = state.expressionStartPendingId === item.id;
   const expressionBusy = running || starting;
   const anotherPortraitJob = item.regenStatus === 'running'
@@ -2083,6 +2091,11 @@ async function startExpressionJob(body) {
   const id = body.id;
   if (state.expressionStartPendingId === id) {
     throw new Error('An expression job is already starting.');
+  }
+  const existingItem = state.items.find((entry) => entry.id === id);
+  const existingJob = state.expressionOwnerId === id ? state.expressionView?.job : null;
+  if (existingItem && expressionStartBlocked(existingItem, existingJob, null)) {
+    throw new Error('A portrait job is already running.');
   }
   const startSerial = ++state.expressionStartSerial;
   state.expressionStartPendingId = id;
