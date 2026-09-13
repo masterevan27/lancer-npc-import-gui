@@ -81,6 +81,7 @@ const state = {
   expressionLastStatus: null,
   expressionRequestSerial: 0,
   expressionStartSerial: 0,
+  expressionStartPendingId: null,
   category: null,
   items: [],
   visibleItems: [],
@@ -1925,6 +1926,22 @@ function expressionJobPayload(opts) {
   return body;
 }
 
+/**
+ * Redo consumes the original portrait, so every job that can replace or read
+ * it blocks Redo. Delete only mutates an expression sprite and retains its
+ * narrower expression-job exclusion. A POST in flight counts as an expression
+ * job for both: the server may have accepted it before this browser has its
+ * job response.
+ */
+function expressionSpriteActionDisabled(action, item, job, startPendingId) {
+  const expressionBusy = item.expressionStatus === 'running'
+    || job?.status === 'running' || startPendingId === item.id;
+  if (action === 'delete') return expressionBusy;
+  if (action !== 'redo') return false;
+  return expressionBusy || item.regenStatus === 'running'
+    || item.model3dStatus === 'running' || item.animationStatus === 'running';
+}
+
 function selectedExpressionLabels() {
   return [...el.expressionsLabels.querySelectorAll('input[type="checkbox"]:checked')]
     .map((input) => input.value);
@@ -1981,21 +1998,23 @@ function renderExpressionsPanel(item, view) {
   const job = view?.job || null;
   const status = job ? job.status : item.expressionStatus;
   const running = status === 'running';
+  const starting = state.expressionStartPendingId === item.id;
+  const expressionBusy = running || starting;
   const anotherPortraitJob = item.regenStatus === 'running'
     || item.model3dStatus === 'running' || item.animationStatus === 'running';
   const chosen = selectedExpressionLabels().length + state.expressionCustom.length;
 
-  el.expressionsGenerate.disabled = running || anotherPortraitJob || chosen === 0 || !view;
-  el.expressionsGenerate.textContent = running ? 'Generating…' : 'Generate';
+  el.expressionsGenerate.disabled = expressionBusy || anotherPortraitJob || chosen === 0 || !view;
+  el.expressionsGenerate.textContent = starting ? 'Starting…' : running ? 'Generating…' : 'Generate';
   el.expressionsCancel.disabled = !running;
   for (const input of el.expressionsPanel.querySelectorAll('input, button')) {
     if (input === el.expressionsCancel) continue;
     if (input === el.expressionsImport) continue;
-    input.disabled = running;
+    input.disabled = expressionBusy;
   }
   // Generate can also be unavailable for selection/conflict reasons after the
   // broad running-state pass above.
-  el.expressionsGenerate.disabled = running || anotherPortraitJob || chosen === 0 || !view;
+  el.expressionsGenerate.disabled = expressionBusy || anotherPortraitJob || chosen === 0 || !view;
 
   if (running) {
     el.expressionsStage.textContent = job?.stage
@@ -2017,9 +2036,13 @@ function renderExpressionsPanel(item, view) {
       item.id, view.groups, state.expressionDeleteFile);
     updateExpressionImportTarget(view);
     const hasFiles = (view.groups || []).some((group) => (group.files || []).length);
-    el.expressionsImport.disabled = running || !hasFiles || !!view.importTarget?.error
+    el.expressionsImport.disabled = expressionBusy || !hasFiles || !!view.importTarget?.error
       || !el.expressionsImportFolder.value.trim();
-    for (const button of el.expressionsSprites.querySelectorAll('button')) button.disabled = running;
+    for (const button of el.expressionsSprites.querySelectorAll('button')) {
+      const action = button.dataset.expressionRedo ? 'redo' : 'delete';
+      button.disabled = expressionSpriteActionDisabled(
+        action, item, job, state.expressionStartPendingId);
+    }
   } else {
     el.expressionsSprites.textContent = '';
     el.expressionsImportTarget.textContent = '';
@@ -2058,25 +2081,38 @@ async function refreshExpressions(id) {
 /** Start a normal run or an exact-file Redo using the same guarded path. */
 async function startExpressionJob(body) {
   const id = body.id;
+  if (state.expressionStartPendingId === id) {
+    throw new Error('An expression job is already starting.');
+  }
   const startSerial = ++state.expressionStartSerial;
-  const res = await fetch('/api/expressions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  const job = await res.json();
-  if (!res.ok) throw new Error(job.error || `HTTP ${res.status}`);
-  startPolling();
-  if (state.detailItemId !== id || startSerial !== state.expressionStartSerial) return job;
-  state.expressionExpectedJobId = job.jobId;
-  const item = state.items.find((entry) => entry.id === id);
-  if (item) item.expressionStatus = 'running';
-  state.expressionView = { ...(state.expressionView || {}), job };
-  state.expressionOwnerId = id;
-  if (item) renderDetailFor(item);
-  await refreshItems();
-  await refreshExpressions(id);
-  return job;
+  state.expressionStartPendingId = id;
+  rerenderCurrentExpressions();
+  try {
+    const res = await fetch('/api/expressions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const job = await res.json();
+    if (!res.ok) throw new Error(job.error || `HTTP ${res.status}`);
+    startPolling();
+    if (state.detailItemId !== id || startSerial !== state.expressionStartSerial) return job;
+    state.expressionExpectedJobId = job.jobId;
+    const item = state.items.find((entry) => entry.id === id);
+    if (item) item.expressionStatus = 'running';
+    state.expressionView = { ...(state.expressionView || {}), job };
+    state.expressionOwnerId = id;
+    if (item) renderDetailFor(item);
+    await refreshItems();
+    await refreshExpressions(id);
+    return job;
+  } finally {
+    if (startSerial === state.expressionStartSerial
+        && state.expressionStartPendingId === id) {
+      state.expressionStartPendingId = null;
+      if (state.detailItemId === id) rerenderCurrentExpressions();
+    }
+  }
 }
 
 function rerenderCurrentExpressions() {
@@ -2196,10 +2232,13 @@ el.expressionsSprites.addEventListener('click', async (event) => {
   const id = state.detailItemId;
   if (!button || !id) return;
   const item = state.items.find((entry) => entry.id === id);
-  if (!item || item.expressionStatus === 'running') return;
+  if (!item) return;
+  const viewJob = state.expressionOwnerId === id ? state.expressionView?.job : null;
 
   const redo = button.dataset.expressionRedo;
   if (redo) {
+    if (expressionSpriteActionDisabled(
+      'redo', item, viewJob, state.expressionStartPendingId)) return;
     try {
       el.expressionsStage.textContent = `Starting Redo for ${redo}…`;
       await startExpressionJob(expressionJobPayload({
@@ -2212,6 +2251,8 @@ el.expressionsSprites.addEventListener('click', async (event) => {
     return;
   }
 
+  if (expressionSpriteActionDisabled(
+    'delete', item, viewJob, state.expressionStartPendingId)) return;
   const ask = button.dataset.expressionDelete;
   if (ask) {
     state.expressionDeleteFile = ask;

@@ -33,6 +33,14 @@ function liftFunction(js, name, helpers = {}) {
         ...names.map((key) => helpers[key]));
 }
 
+function liftAsyncFunction(js, name, helpers = {}) {
+    const names = Object.keys(helpers);
+    const source = liftSource(js, name).replace(/^function /, 'async function ');
+    // eslint-disable-next-line no-new-func
+    return new Function(...names, `${source}\nreturn ${name};`)(
+        ...names.map((key) => helpers[key]));
+}
+
 const escapeHtml = (text) => String(text ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -149,6 +157,68 @@ test('run payload covers add, replace, transparency and the 1-8 count bound', as
         assert.throws(() => payload({ id: 'n1', labels: ['joy'], custom: [], count,
             mode: 'add', keepBackground: false }), /between 1 and 8/);
     }
+});
+
+test('Redo observes every portrait conflict without overblocking Delete', async (t) => {
+    const { js } = await served(t);
+    const disabled = liftFunction(js, 'expressionSpriteActionDisabled');
+    const idle = {
+        id: 'n1', regenStatus: null, model3dStatus: null,
+        animationStatus: null, expressionStatus: null,
+    };
+
+    assert.equal(disabled('redo', idle, null, null), false);
+    assert.equal(disabled('delete', idle, null, null), false);
+    for (const key of ['regenStatus', 'model3dStatus', 'animationStatus']) {
+        const busy = { ...idle, [key]: 'running' };
+        assert.equal(disabled('redo', busy, null, null), true, `${key} must block Redo`);
+        assert.equal(disabled('delete', busy, null, null), false,
+            `${key} must not change Delete's expression-only exclusion`);
+    }
+    const expressionJob = { status: 'running' };
+    assert.equal(disabled('redo', idle, expressionJob, null), true);
+    assert.equal(disabled('delete', idle, expressionJob, null), true);
+    const itemSaysRunning = { ...idle, expressionStatus: 'running' };
+    assert.equal(disabled('redo', itemSaysRunning, { status: 'done' }, null), true,
+        'a poll item that sees a newer job must outrank an older detail view');
+    assert.equal(disabled('delete', itemSaysRunning, { status: 'done' }, null), true);
+    assert.equal(disabled('redo', idle, null, 'n1'), true);
+    assert.equal(disabled('delete', idle, null, 'n1'), true,
+        'Delete must not race a POST that is becoming an expression job');
+    assert.equal(disabled('redo', idle, null, 'another-npc'), false);
+});
+
+test('the shared expression starter closes the double-click window for Generate and Redo', async (t) => {
+    const { js } = await served(t);
+    let release;
+    let fetchCalls = 0;
+    let rerenders = 0;
+    const response = new Promise((resolve) => { release = resolve; });
+    const state = {
+        detailItemId: 'n1', expressionStartSerial: 0, expressionStartPendingId: null,
+        expressionExpectedJobId: null, expressionView: { groups: [], job: null },
+        expressionOwnerId: 'n1', items: [{ id: 'n1', expressionStatus: null }],
+    };
+    const start = liftAsyncFunction(js, 'startExpressionJob', {
+        state,
+        fetch: async () => { fetchCalls += 1; return response; },
+        startPolling: () => {},
+        rerenderCurrentExpressions: () => { rerenders += 1; },
+        renderDetailFor: () => {},
+        refreshItems: async () => {},
+        refreshExpressions: async () => {},
+    });
+
+    const first = start({ id: 'n1' });
+    assert.equal(state.expressionStartPendingId, 'n1',
+        'the pending state must exist before fetch yields to a double click');
+    await assert.rejects(start({ id: 'n1' }), /already starting/i);
+    assert.equal(fetchCalls, 1, 'the second click must not send a second POST');
+
+    release({ ok: true, status: 202, json: async () => ({ jobId: 'job-1', status: 'running' }) });
+    await first;
+    assert.equal(state.expressionStartPendingId, null);
+    assert.ok(rerenders >= 2, 'sprite actions must repaint when pending starts and ends');
 });
 
 test('generate, redo, cancel and delete use the expression endpoints and refresh safely', async (t) => {
