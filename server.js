@@ -4411,6 +4411,7 @@ async function handleApi(req, res, url) {
         }
         if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
         const tables = tableBullets.readTables(kind.tables);
+        const parents = tableBullets.groupParents(tables);
         // Grouped server-side so the ordering logic stays a testable pure
         // function in lib/ rather than becoming untestable DOM code. Only the
         // grouped shape is sent - `groups[].rows[].table` are the same table
@@ -4431,7 +4432,7 @@ async function handleApi(req, res, url) {
         // that bullet without checkboxes.
         const flags = {};
         for (const table of tables) {
-            const vocabulary = tableFlags.flagsFor(table.name);
+            const vocabulary = tableFlags.flagsFor(table.name, parents);
             if (vocabulary) flags[table.name] = vocabulary;
         }
         return sendJson(res, 200, {

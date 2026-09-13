@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     parseTableFile, toggleBulletInText, setBulletWeightInText,
-    isRollTable, NON_TABLE_SECTIONS,
+    isRollTable, NON_TABLE_SECTIONS, referenceTargetOf, groupParents,
 } = require('../lib/tableBullets');
 
 const SAMPLE = [
@@ -188,4 +188,50 @@ test('setBulletWeightInText refuses to write to a documentation section', () => 
         '**Age** and **Build** bullets carry a paired flag.', 2);
     assert.equal(result.ok, false);
     assert.match(result.error, /not a roll table/i);
+});
+
+test('referenceTargetOf reads "=> Name" off the prose segment and nothing else', () => {
+    assert.equal(referenceTargetOf('Outfit', '=> Flight suits'), 'Flight suits');
+    assert.equal(referenceTargetOf('Outfit', '=> Flight suits (gundam) || @gundam'), 'Flight suits (gundam)');
+    assert.equal(referenceTargetOf('Outfit', 'a jacket || civ'), null);
+    assert.equal(referenceTargetOf('Outfit', '=>'), null);
+    assert.equal(referenceTargetOf('Outfit', 'a => b'), null);
+    // A three-segment table's prose is two segments; the arrow still leads.
+    assert.equal(referenceTargetOf('Backdrop', '=> Skies || a wide shot || weather'), 'Skies');
+});
+
+test('parseTableFile lists the distinct groups each table references, in file order', () => {
+    const tables = parseTableFile([
+        '## Outfit', '- a jacket', '- x2 => Flight suits', '- => Robes || @neosamurai', '- => Flight suits',
+        '## Outfit (she) +', '- => Crop tops',
+        '## Flight suits', '- a flight suit',
+    ].join('\n'));
+    assert.deepEqual(tables.map((t) => t.references), [['Flight suits', 'Robes'], ['Crop tops'], []]);
+    // The reference is still an ordinary bullet with its weight read off.
+    assert.deepEqual(tables[0].bullets[1], { text: '=> Flight suits', weight: 2, enabled: true });
+});
+
+test('groupParents maps every referenced heading and its variants to the referencing base table', () => {
+    const tables = parseTableFile([
+        '## Outfit', '- => Flight suits', '- => Flight suits (gundam) || @gundam',
+        '## Outfit (she) +', '- => Crop tops',
+        '## Flight suits', '- a', '## Flight suits (she) +', '- b', '## Flight suits (gundam)', '- c',
+        '## Crop tops', '- d', '## Headgear', '- e',
+    ].join('\n'));
+    assert.deepEqual(groupParents(tables), {
+        'Flight suits': 'Outfit',
+        'Flight suits (she) +': 'Outfit',
+        'Flight suits (gundam)': 'Outfit',
+        'Crop tops': 'Outfit',
+    });
+});
+
+test('a reference round-trips unchanged through every writer', () => {
+    const file = ['## Outfit', '- x2 => Flight suits', '- a jacket', ''].join('\n');
+    const off = toggleBulletInText(file, 'Outfit', '=> Flight suits', false);
+    assert.equal(off.text, ['## Outfit', '<!-- - x2 => Flight suits -->', '- a jacket', ''].join('\n'));
+    const on = toggleBulletInText(off.text, 'Outfit', '=> Flight suits', true);
+    assert.equal(on.text, file);
+    const heavier = setBulletWeightInText(file, 'Outfit', '=> Flight suits', 3);
+    assert.equal(heavier.text, ['## Outfit', '- x3 => Flight suits', '- a jacket', ''].join('\n'));
 });

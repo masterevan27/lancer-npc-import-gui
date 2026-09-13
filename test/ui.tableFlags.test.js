@@ -60,8 +60,14 @@ async function lifted(t) {
     // bulletBody/bulletFlagsOf both call proseSegmentsOf, which resolves a
     // pronoun variant to its base heading - so it has to be lifted first and
     // injected, rather than the arity set being passed straight in.
+    //
+    // proseSegmentsOf also reads tablesState.parents now, to resolve a GROUP
+    // table's arity through the table that references it (I3) - stubbed here
+    // with no groups at all, since every CASE below is an ordinary table and
+    // none of them exercise that fallback.
     const proseSegmentsOf = liftFunction(js, 'proseSegmentsOf', {
         THREE_SEGMENT_TABLES: THREE,
+        tablesState: { parents: {} },
     });
     return {
         js,

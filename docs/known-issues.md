@@ -28,8 +28,8 @@ Nothing open. Every item this file carried has been fixed; they are kept below
 rather than deleted, because the reason a thing was done is the part that goes
 missing first.
 
-One limitation survives its fix and is recorded here as a known shape of the
-code rather than as a bug to chase:
+Two limitations survive their fixes and are recorded here as known shapes of
+the code rather than as bugs to chase:
 
 - **A bullet text repeated inside one table is editable only in its first
   copy.** `toggleBulletInText`, `setBulletWeightInText` and the newer
@@ -41,6 +41,9 @@ code rather than as a bug to chase:
   a line index, or a stable id - which is a larger change than any of these
   were, and worth doing only if duplicate bullets ever turn out to be
   deliberate rather than accidental.
+- A preset saved before a group table existed cannot express "this group
+  off": apply leaves the group's `=> Name` reference as it is. Re-save the
+  preset once the group exists and it records the group like any table.
 
 ## Kinds (NPCs and spaceships)
 
