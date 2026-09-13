@@ -32,6 +32,9 @@
     <button type="button" data-tab="traits">Trait Imports</button>
     <button type="button" data-tab="tables">Tables</button>
   </nav>
+  <!-- Outside #tabs on purpose: it opens a dialog rather than a panel, and
+       switchTab's button handling must never see it. -->
+  <button type="button" class="settings-open" id="settings-open">&#9881; Settings</button>
 </header>
 
 <!-- One shelf, two announcements, stacked rather than sharing a slot. A regen
@@ -692,6 +695,33 @@
       <button id="set-trait-cancel" type="button">Cancel</button>
       <button id="set-trait-ok" type="button">Set and regen</button>
     </div>
+  </div>
+</div>
+
+<!-- config.json, editable. The fields are built by app.js from /api/settings
+     so the list lives in one place (lib/settings.js). Saving writes the file;
+     the server reads it only at startup, so changes apply after a restart. -->
+<div class="detail-overlay" id="settings-overlay" hidden>
+  <div class="detail settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <h2 id="settings-title">Settings</h2>
+    <p class="settings-intro">Saved to <code>config.json</code>. Blank fields use
+      the default shown in grey. Changes take effect after the server is restarted.</p>
+    <p class="settings-restart" id="settings-restart" hidden>config.json has
+      changes the running server has not loaded yet &mdash; restart the server to apply them.</p>
+    <p class="confirm-warning" id="settings-locked" hidden></p>
+    <form id="settings-form" autocomplete="off" novalidate>
+      <div id="settings-groups"><p class="hint">Loading&hellip;</p></div>
+      <label class="form-field settings-key-row" id="settings-key-row" hidden>
+        Shared secret <span class="hint">(required to save from another machine)</span>
+        <input type="password" id="settings-key" />
+      </label>
+      <p class="settings-error" id="settings-error" hidden></p>
+      <div class="confirm-actions">
+        <span class="settings-status" id="settings-status" role="status"></span>
+        <button id="settings-cancel" type="button">Close</button>
+        <button id="settings-save" type="submit">Save</button>
+      </div>
+    </form>
   </div>
 </div>
 

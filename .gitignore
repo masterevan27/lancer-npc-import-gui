@@ -2,6 +2,8 @@
 # Foundry -> import GUI requests, and absolute paths into this machine's
 # Foundry install. Ship config.example.json instead.
 config.json
+# The Settings dialog's backup of the previous config.json - same secret.
+config.json.bak
 .imported.json
 config.local.json
 *.local.json

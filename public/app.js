@@ -2829,6 +2829,7 @@ function cancelRerollConfirm() {
  * invariant holding elsewhere.
  */
 function topmostOverlay() {
+  if (!elSettings.overlay.hidden) return { close: () => closeSettings() };
   if (!el.imageZoom.hidden) return { close: () => { el.imageZoom.hidden = true; } };
   if (!elDeleteConfirm.overlay.hidden) return { close: () => cancelDeleteConfirm() };
   if (!elRerollConfirm.overlay.hidden) return { close: () => cancelRerollConfirm() };
@@ -7105,4 +7106,220 @@ elBackgrounds.stImportBtn.addEventListener('click', () => {
     elBackgrounds.stImportBtn.disabled = false;
     elBackgrounds.stImportStatus.textContent = `Couldn't import: ${err.message}`;
   });
+});
+
+/* ---- Settings dialog ----
+   Edits config.json through /api/settings. The field list, labels and
+   defaults all come from the server (lib/settings.js), so a new config key is
+   one entry there rather than markup here. Nothing here applies a setting to
+   the running server - it only reads its config at startup - so a successful
+   save ends with a restart notice rather than a reload. */
+
+const elSettings = {
+  open: document.getElementById('settings-open'),
+  overlay: document.getElementById('settings-overlay'),
+  form: document.getElementById('settings-form'),
+  groups: document.getElementById('settings-groups'),
+  restart: document.getElementById('settings-restart'),
+  locked: document.getElementById('settings-locked'),
+  keyRow: document.getElementById('settings-key-row'),
+  key: document.getElementById('settings-key'),
+  error: document.getElementById('settings-error'),
+  status: document.getElementById('settings-status'),
+  cancel: document.getElementById('settings-cancel'),
+  save: document.getElementById('settings-save'),
+};
+
+const settingsState = { view: null, dirty: false };
+
+function closeSettings() {
+  if (settingsState.dirty
+      && !window.confirm('Discard your unsaved settings changes?')) return;
+  elSettings.overlay.hidden = true;
+  settingsState.dirty = false;
+}
+
+async function openSettings() {
+  elSettings.overlay.hidden = false;
+  elSettings.error.hidden = true;
+  elSettings.status.textContent = '';
+  elSettings.groups.innerHTML = '<p class="hint">Loading…</p>';
+  elSettings.save.disabled = true;
+  settingsState.dirty = false;
+  try {
+    renderSettings(await api('/api/settings'));
+  } catch (err) {
+    elSettings.groups.textContent = `Could not load settings: ${err.message}`;
+  }
+}
+
+function renderSettings(view) {
+  settingsState.view = view;
+  elSettings.restart.hidden = !view.restartRequired;
+
+  // Saving from another machine needs the shared secret (the paths here
+  // include commands the server runs). With no secret configured it cannot be
+  // done at all, and the dialog says so rather than failing on Save.
+  elSettings.keyRow.hidden = view.canSave || !view.authEnabled;
+  elSettings.locked.hidden = view.canSave;
+  elSettings.locked.textContent = view.authEnabled
+    ? 'You are not on the machine running the server. Enter the shared secret below to save.'
+    : 'Settings can only be saved from the machine running the server, because no shared secret is set. You can still view them here.';
+  elSettings.save.disabled = !view.canSave && !view.authEnabled;
+
+  elSettings.groups.innerHTML = '';
+  for (const group of view.groups) {
+    const fieldset = document.createElement('fieldset');
+    fieldset.className = 'settings-group';
+    const legend = document.createElement('legend');
+    legend.textContent = group.label;
+    fieldset.appendChild(legend);
+
+    for (const field of group.fields) {
+      const label = document.createElement('label');
+      label.className = 'form-field settings-field';
+      label.appendChild(document.createTextNode(field.label + (field.required ? ' *' : '')));
+
+      const hints = [];
+      if (field.help) hints.push(field.help);
+      if (view.envOverrides && view.envOverrides[field.key]) {
+        hints.push(`Overridden by the ${view.envOverrides[field.key]} environment variable.`);
+      }
+      if (field.type === 'secret') {
+        hints.push(view.secretSet
+          ? 'A secret is set. Leave blank to keep it.'
+          : 'No secret is set, so Foundry requests are not authenticated.');
+      }
+      if (hints.length) {
+        const hint = document.createElement('span');
+        hint.className = 'hint';
+        hint.textContent = hints.join(' ');
+        label.appendChild(hint);
+      }
+
+      const input = document.createElement('input');
+      input.name = field.key;
+      input.dataset.settingsKey = field.key;
+      input.spellcheck = false;
+      if (field.type === 'number') {
+        input.type = 'number';
+        input.min = field.min;
+        input.max = field.max;
+        input.step = 1;
+      } else if (field.type === 'secret') {
+        input.type = 'password';
+        input.autocomplete = 'new-password';
+      } else {
+        input.type = 'text';
+      }
+      if (field.type !== 'secret') input.value = view.values[field.key] ?? '';
+      const placeholder = view.placeholders[field.key];
+      if (placeholder) input.placeholder = placeholder;
+      label.appendChild(input);
+
+      if (field.type === 'secret' && view.secretSet) {
+        const clear = document.createElement('span');
+        clear.className = 'settings-inline-check';
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.id = 'settings-secret-clear';
+        const boxLabel = document.createElement('label');
+        boxLabel.htmlFor = box.id;
+        boxLabel.textContent = 'Remove the secret';
+        clear.append(box, boxLabel);
+        label.appendChild(clear);
+      }
+
+      const note = document.createElement('span');
+      note.className = 'settings-field-note';
+      note.dataset.noteFor = field.key;
+      const warning = view.warnings && view.warnings[field.key];
+      if (warning) {
+        note.textContent = warning;
+        note.classList.add('is-warning');
+      }
+      label.appendChild(note);
+
+      fieldset.appendChild(label);
+    }
+    elSettings.groups.appendChild(fieldset);
+  }
+}
+
+function settingsPayload() {
+  const values = {};
+  let secret;
+  for (const input of elSettings.groups.querySelectorAll('input[data-settings-key]')) {
+    if (input.type === 'password') {
+      if (input.value) secret = input.value;
+      continue;
+    }
+    values[input.dataset.settingsKey] = input.value;
+  }
+  if (secret === undefined && document.getElementById('settings-secret-clear')?.checked) {
+    secret = '';
+  }
+  return secret === undefined ? { values } : { values, secret };
+}
+
+async function saveSettings() {
+  elSettings.error.hidden = true;
+  elSettings.status.textContent = 'Saving…';
+  elSettings.save.disabled = true;
+  for (const note of elSettings.groups.querySelectorAll('.settings-field-note.is-error')) {
+    note.textContent = '';
+    note.classList.remove('is-error');
+  }
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (elSettings.key.value) headers['X-Import-Gui-Key'] = elSettings.key.value;
+
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(settingsPayload()),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (body.fieldErrors) {
+        for (const [key, message] of Object.entries(body.fieldErrors)) {
+          const note = elSettings.groups.querySelector(`[data-note-for="${CSS.escape(key)}"]`);
+          if (note) {
+            note.textContent = message;
+            note.classList.remove('is-warning');
+            note.classList.add('is-error');
+          }
+        }
+        elSettings.groups.querySelector('.settings-field-note.is-error')
+          ?.closest('.settings-field')?.querySelector('input')?.focus();
+      }
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
+    settingsState.dirty = false;
+    // The typed shared secret lives outside #settings-groups, so a re-render
+    // keeps it for the next save.
+    renderSettings(body);
+    elSettings.status.textContent = body.restartRequired
+      ? 'Saved. Restart the server to apply.'
+      : 'Saved. Nothing changed.';
+  } catch (err) {
+    elSettings.status.textContent = '';
+    elSettings.error.textContent = `Not saved: ${err.message}`;
+    elSettings.error.hidden = false;
+  } finally {
+    const view = settingsState.view;
+    elSettings.save.disabled = !!view && !view.canSave && !view.authEnabled;
+  }
+}
+
+elSettings.open.addEventListener('click', () => { openSettings(); });
+elSettings.cancel.addEventListener('click', closeSettings);
+elSettings.form.addEventListener('input', () => {
+  settingsState.dirty = true;
+  elSettings.status.textContent = '';
+});
+elSettings.form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  saveSettings();
 });

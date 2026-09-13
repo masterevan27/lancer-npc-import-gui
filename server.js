@@ -70,6 +70,7 @@ const traitChoices = require('./lib/traitChoices');
 const applyTrait = require('./lib/applyTrait');
 const animate = require('./lib/animate');
 const backgrounds = require('./lib/backgrounds');
+const settings = require('./lib/settings');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -178,10 +179,13 @@ const DEFAULT_CONFIG = {
     importedIndexPath: '',
 };
 
+// Overridable so tests can point a real server.js process at a synthetic
+// fixture config without ever touching the real config.json. The Settings
+// dialog writes back to the same file.
+const CONFIG_FILE = process.env.IMPORT_GUI_CONFIG || path.join(__dirname, 'config.json');
+
 function loadConfig() {
-    // Overridable so tests can point a real server.js process at a synthetic
-    // fixture config without ever touching the real config.json.
-    const file = process.env.IMPORT_GUI_CONFIG || path.join(__dirname, 'config.json');
+    const file = CONFIG_FILE;
     let fromFile = {};
     try {
         if (fs.existsSync(file)) fromFile = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -198,6 +202,16 @@ function loadConfig() {
 }
 
 const config = loadConfig();
+
+// What the file held when this process read it, so the Settings dialog can
+// tell a saved-but-not-yet-applied change from the running configuration.
+const STARTUP_SETTINGS_FINGERPRINT = (() => {
+    try {
+        return settings.settingsFingerprint(settings.readConfigFile(CONFIG_FILE));
+    } catch {
+        return null;
+    }
+})();
 
 // manifestPath is the preferred alias for npcManifestPath (both kinds now
 // share one manifest file, so the older name is misleading); resolve it
@@ -3654,7 +3668,74 @@ function safeSlug(value) {
     return /^[a-z0-9][a-z0-9-]*$/.test(value) ? value : null;
 }
 
+/**
+ * The Settings dialog's view of config.json, re-read on every call so a hand
+ * edit made while the server runs shows up too.
+ */
+function settingsResponse(req, fileConfig) {
+    return {
+        ...settings.settingsView(fileConfig, DEFAULT_CONFIG),
+        warnings: settings.missingPathWarnings(fileConfig),
+        restartRequired: STARTUP_SETTINGS_FINGERPRINT !== null
+            && settings.settingsFingerprint(fileConfig) !== STARTUP_SETTINGS_FINGERPRINT,
+        canSave: settings.settingsWriteAllowed({
+            remoteAddress: req.socket.remoteAddress,
+            secret: config.secret,
+            providedKey: undefined,
+        }),
+        authEnabled: !!config.secret,
+    };
+}
+
 async function handleApi(req, res, url) {
+    if (url.pathname === '/api/settings' && req.method === 'GET') {
+        let fileConfig;
+        try {
+            fileConfig = settings.readConfigFile(CONFIG_FILE);
+        } catch (err) {
+            return sendJson(res, 500, { error: `could not read config.json: ${err.message}` });
+        }
+        return sendJson(res, 200, settingsResponse(req, fileConfig));
+    }
+
+    if (url.pathname === '/api/settings' && req.method === 'POST') {
+        if (!settings.settingsWriteAllowed({
+            remoteAddress: req.socket.remoteAddress,
+            secret: config.secret,
+            providedKey: req.headers['x-import-gui-key'],
+        })) {
+            return sendJson(res, 403, {
+                error: config.secret
+                    ? 'settings can only be changed from this machine, or with the shared secret'
+                    : 'settings can only be changed from the machine running the server (set a shared secret to allow it remotely)',
+            });
+        }
+        let body;
+        try {
+            body = JSON.parse((await readBody(req)) || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        let fileConfig;
+        try {
+            fileConfig = settings.readConfigFile(CONFIG_FILE);
+        } catch (err) {
+            // Refuse rather than overwrite a file this server cannot parse -
+            // a merge into {} would silently discard every hand-kept key.
+            return sendJson(res, 409, { error: `config.json could not be read, so it was not overwritten: ${err.message}` });
+        }
+        const result = settings.applySettings(fileConfig, body);
+        if (result.errors) {
+            return sendJson(res, 400, { error: 'some settings are invalid', fieldErrors: result.errors });
+        }
+        try {
+            settings.writeConfigFile(CONFIG_FILE, result.next);
+        } catch (err) {
+            return sendJson(res, 500, { error: `could not write config.json: ${err.message}` });
+        }
+        return sendJson(res, 200, { ok: true, ...settingsResponse(req, result.next) });
+    }
+
     if (url.pathname === '/api/categories' && req.method === 'GET') {
         const byKind = new Map();
         for (const item of loadManifest()) {

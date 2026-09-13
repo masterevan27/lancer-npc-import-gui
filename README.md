@@ -46,6 +46,16 @@ when omitted:
 }
 ```
 
+Once the server is running, every key below can also be changed from
+**⚙ Settings** in the GUI's top bar. The dialog groups the keys by area and
+shows each blank field's default or derived path in grey. It warns about set
+paths that don't exist. Saving merges into `config.json`, keeps any keys it
+doesn't know, and backs up the previous file as `config.json.bak`. The server
+reads its config only at startup, so **restart it after saving**; the dialog
+keeps a notice up until you do. Saving is allowed only from the machine running
+the server, or from elsewhere with the shared `secret`, because
+`pythonExecutable` and the script paths are commands the server runs.
+
 Everything else in `config.example.json` is optional and derived by default:
 
 - `pythonExecutable` / `generateNpcScript` — how to invoke the generator for

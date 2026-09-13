@@ -707,6 +707,70 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   letter-spacing: 0.02em;
 }
 
+/* ---- Settings ----
+   The top-bar button pushes itself to the right edge, away from the tabs, so
+   it does not read as a seventh tab. The dialog is the confirm dialogs' shell
+   made wide enough for a full Windows path, with one fieldset per group. */
+.settings-open {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--line-strong);
+  color: var(--text-3);
+  height: var(--control-h);
+  padding: 0 0.9rem;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  font-size: var(--fs-md);
+  white-space: nowrap;
+}
+.settings-open:hover { color: var(--text); border-color: var(--line-hover); background: var(--surface-2); }
+.settings-dialog { width: min(760px, 92vw); }
+.settings-dialog h2 { margin: 0 0 0.4rem; font-size: var(--fs-xl); line-height: var(--lh-tight); }
+.settings-intro { margin: 0 0 var(--sp-3); color: var(--text-3); font-size: var(--fs-md); }
+.settings-restart {
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-md);
+  color: var(--warn-text);
+  font-size: var(--fs-md);
+}
+.settings-restart[hidden] { display: none; }
+.settings-group {
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  display: grid;
+  gap: var(--sp-3);
+}
+.settings-group legend {
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps);
+  color: var(--text-3);
+}
+.settings-field input[type="text"],
+.settings-field input[type="number"],
+.settings-field input[type="password"],
+.settings-key-row input { width: 100%; }
+.settings-field input::placeholder { color: var(--text-disabled); }
+.settings-inline-check { display: flex; align-items: center; gap: 0.35rem; font-size: var(--fs-sm); }
+.settings-inline-check input { margin: 0; height: auto; }
+.settings-field-note { font-size: var(--fs-xs); }
+.settings-field-note:empty { display: none; }
+.settings-field-note.is-warning { color: var(--warn-text); }
+.settings-field-note.is-error { color: var(--danger-text); }
+.settings-key-row { margin-bottom: var(--sp-3); }
+.settings-key-row[hidden] { display: none; }
+.settings-error { color: var(--danger-text); font-size: var(--fs-md); }
+.settings-error[hidden] { display: none; }
+.settings-dialog .confirm-actions { align-items: center; position: sticky; bottom: calc(-1 * var(--sp-6)); background: var(--surface); padding: var(--sp-3) 0; margin-bottom: calc(-1 * var(--sp-6)); }
+.settings-status { margin-right: auto; font-size: var(--fs-md); color: var(--text-3); }
+.settings-dialog .confirm-warning { color: var(--warn-text); font-size: var(--fs-md); }
+.settings-dialog .confirm-warning[hidden] { display: none; }
+
 .confirm-dialog { max-width: 480px; }
 .confirm-dialog h2 { margin: 0 0 0.6rem; font-size: var(--fs-xl); line-height: var(--lh-tight); }
 .confirm-dialog p { color: var(--text); }
