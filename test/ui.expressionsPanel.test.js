@@ -80,6 +80,13 @@ test('generated sprites sit in a collapsed section so the trait table stays near
     assert.doesNotMatch(details.groups.attrs, /\bopen\b/, 'the sprite section must start collapsed');
     assert.match(details[0], /<summary>[\s\S]*id="expressions-sprites-count"[\s\S]*<\/summary>/);
     assert.match(details[0], /id="expressions-sprites"/);
+    assert.match(details[0], /id="expressions-sprites"[\s\S]*id="expressions-sprites-collapse"/,
+        'no collapse control below the sprite rows');
+    assert.match(details[0], /id="expressions-only-generated"[^>]*data-expression-view-control/);
+    assert.match(details[0], /id="expressions-sprites-collapse"[^>]*data-expression-view-control/);
+    const collapse = /el\.expressionsSpritesCollapse\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
+    assert.ok(collapse, 'the bottom collapse button has no handler');
+    assert.match(collapse[0], /expressionsSpritesDetails\.open = false/);
 
     const countText = liftFunction(js, 'expressionSpritesCountText');
     assert.equal(countText([
@@ -152,6 +159,13 @@ test('sprite rows retain server order, show empty slots, metadata and inline del
     assert.match(confirming, /data-expression-delete-confirm="battle_focus\.webp"/);
     assert.match(confirming, /data-expression-delete-cancel="battle_focus\.webp"/);
     assert.doesNotMatch(confirming, /data-expression-redo=/);
+
+    const filtered = renderRows('n1', groups, null, true);
+    assert.doesNotMatch(filtered, /<h4>joy<\/h4>/, 'Only generated still shows an empty label');
+    assert.doesNotMatch(filtered, /expression-empty/);
+    assert.match(filtered, /<h4>battle_focus<\/h4>/);
+    assert.match(renderRows('n1', [{ label: 'joy', files: [] }], null, true),
+        /No sprites generated yet/);
 });
 
 test('run payload covers add, replace, transparency and the 1-8 count bound', async (t) => {
@@ -213,11 +227,12 @@ test('Redo observes every portrait conflict without overblocking Delete', async 
 test('the panel treats a running item as newer than a stale done detail job', async (t) => {
     const { js } = await served(t);
     const formControl = { disabled: false };
+    const viewControl = { dataset: { expressionViewControl: '' }, disabled: false };
     const redoButton = { dataset: { expressionRedo: 'joy.webp' }, disabled: false };
     const el = {
         expressionsPanel: {
             hidden: true,
-            querySelectorAll: () => [formControl],
+            querySelectorAll: () => [formControl, viewControl],
         },
         expressionsGenerate: { disabled: false, textContent: '' },
         expressionsCancel: { disabled: true },
@@ -268,6 +283,8 @@ test('the panel treats a running item as newer than a stale done detail job', as
     assert.equal(el.expressionsCancel.disabled, false);
     assert.equal(el.expressionsImport.disabled, true);
     assert.equal(formControl.disabled, true);
+    assert.equal(viewControl.disabled, false,
+        'the sprite filter and collapse button must stay usable while a job runs');
     assert.equal(redoButton.disabled, true);
     assert.equal(el.expressionsStage.textContent,
         'Generating… this can take several minutes per sprite.');
