@@ -560,9 +560,17 @@
 
         <!-- Collapsed by default: one row per label (28+ with the defaults),
              empty or not, would otherwise push the trait table far below. -->
-        <details class="expressions-sprites-details">
+        <details class="expressions-sprites-details" id="expressions-sprites-details">
           <summary>Generated sprites <span class="hint" id="expressions-sprites-count"></span></summary>
+          <!-- data-expression-view-control: these change only what is shown, so
+               renderExpressionsPanel leaves them usable while a job runs. -->
+          <label class="expressions-sprites-filter">
+            <input type="checkbox" id="expressions-only-generated" data-expression-view-control>
+            Only show generated sprites
+          </label>
           <div class="expressions-sprites" id="expressions-sprites"></div>
+          <button type="button" class="expressions-sprites-collapse" id="expressions-sprites-collapse"
+                  data-expression-view-control>Collapse sprites ▲</button>
         </details>
 
         <div class="expressions-import">

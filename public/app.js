@@ -77,6 +77,7 @@ const state = {
   expressionFormOwnerId: null,
   expressionCustom: [],
   expressionDeleteFile: null,
+  expressionSpritesOnlyGenerated: false,
   expressionExpectedJobId: null,
   expressionLastStatus: null,
   expressionRequestSerial: 0,
@@ -187,6 +188,9 @@ const el = {
   expressionsLog: document.getElementById('expressions-log'),
   expressionsSprites: document.getElementById('expressions-sprites'),
   expressionsSpritesCount: document.getElementById('expressions-sprites-count'),
+  expressionsSpritesDetails: document.getElementById('expressions-sprites-details'),
+  expressionsOnlyGenerated: document.getElementById('expressions-only-generated'),
+  expressionsSpritesCollapse: document.getElementById('expressions-sprites-collapse'),
   expressionsImportFolder: document.getElementById('expressions-import-folder'),
   expressionsImportTarget: document.getElementById('expressions-import-target'),
   expressionsImport: document.getElementById('expressions-import'),
@@ -1562,6 +1566,9 @@ function openDetail(item) {
   state.expressionDeleteFile = null;
   state.expressionExpectedJobId = null;
   state.expressionLastStatus = item.expressionStatus ?? null;
+  // One <details> serves every sheet, so without this a section opened on
+  // the last NPC would still be open, hiding the trait table on this one.
+  el.expressionsSpritesDetails.open = false;
   renderExpressionsPanel(item, null);
   const expressionsSupported = item.supports ? item.supports.expressions : item.kind === 'npc';
   if (expressionsSupported) refreshExpressions(item.id);
@@ -1879,9 +1886,16 @@ function expressionCustomChipsMarkup(custom) {
   </span>`).join('');
 }
 
-/** Rows arrive in display order from the API: defaults first, custom last. */
-function expressionSpriteRowsMarkup(id, groups, pendingDeleteFile) {
-  return (groups || []).map((group) => {
+/**
+ * Rows arrive in display order from the API: defaults first, custom last.
+ * onlyGenerated drops the labels that have no sprite yet.
+ */
+function expressionSpriteRowsMarkup(id, groups, pendingDeleteFile, onlyGenerated) {
+  const shown = (groups || []).filter((group) => !onlyGenerated || (group.files || []).length);
+  if (onlyGenerated && !shown.length) {
+    return '<p class="expression-none-generated">No sprites generated yet.</p>';
+  }
+  return shown.map((group) => {
     const files = group.files || [];
     const sprites = files.length ? files.map((sprite) => {
       const file = sprite.file;
@@ -2069,6 +2083,7 @@ function renderExpressionsPanel(item, view) {
   for (const input of el.expressionsPanel.querySelectorAll('input, button, select')) {
     if (input === el.expressionsCancel) continue;
     if (input === el.expressionsImport) continue;
+    if (input.dataset?.expressionViewControl !== undefined) continue;
     input.disabled = expressionBusy;
   }
   // Generate can also be unavailable for selection/conflict reasons after the
@@ -2097,7 +2112,7 @@ function renderExpressionsPanel(item, view) {
 
   if (view) {
     el.expressionsSprites.innerHTML = expressionSpriteRowsMarkup(
-      item.id, view.groups, state.expressionDeleteFile);
+      item.id, view.groups, state.expressionDeleteFile, state.expressionSpritesOnlyGenerated);
     el.expressionsSpritesCount.textContent = expressionSpritesCountText(view.groups);
     updateExpressionImportTarget(view);
     const hasFiles = (view.groups || []).some((group) => (group.files || []).length);
@@ -2309,6 +2324,18 @@ el.expressionsCancel.addEventListener('click', async () => {
       rerenderCurrentExpressions();
     }
   }
+});
+
+el.expressionsOnlyGenerated.addEventListener('change', () => {
+  state.expressionSpritesOnlyGenerated = el.expressionsOnlyGenerated.checked;
+  rerenderCurrentExpressions();
+});
+
+// The summary closes the section from the top; this closes it from the bottom
+// and brings the summary back into view so the page doesn't jump past it.
+el.expressionsSpritesCollapse.addEventListener('click', () => {
+  el.expressionsSpritesDetails.open = false;
+  el.expressionsSpritesDetails.scrollIntoView({ block: 'nearest' });
 });
 
 el.expressionsSprites.addEventListener('click', async (event) => {
