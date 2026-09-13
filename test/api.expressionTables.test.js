@@ -31,6 +31,7 @@ test('installed expression tables are available only to Tables, without a genera
     const body = await tables.json();
     assert.deepEqual(body.groups.flatMap((group) => group.rows.map((row) => row.table.name)), ['Joy', 'Anger']);
     assert.equal(body.capabilities.odds, false);
+    assert.equal(body.capabilities.chances, true);
     assert.deepEqual(body.defaultExpressionLabels, [
         'admiration', 'amusement', 'anger', 'annoyance', 'approval', 'caring',
         'confusion', 'curiosity', 'desire', 'disappointment', 'disapproval',

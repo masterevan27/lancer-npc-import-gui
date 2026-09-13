@@ -5626,7 +5626,7 @@ const tablesState = {
   kind: 'npc', // which registry entry's tables file this tab is editing
   tables: [],
   groups: [],
-  capabilities: { odds: true },
+  capabilities: { chances: true, odds: true },
   selectedTable: null,
   presets: [],
   pendingPreset: null, // the parsed preset object currently shown in the preview, or null
@@ -5683,7 +5683,7 @@ function beginTablesKindLoad(kind) {
   tablesState.oddsStale = false;
   tablesState.oddsReason = null;
   // Disabled until the selected kind's response establishes its capabilities.
-  tablesState.capabilities = { odds: false };
+  tablesState.capabilities = { chances: false, odds: false };
   tablesState.pendingPreset = null;
   elTables.headingList.innerHTML = '';
   elTables.bulletHeading.textContent = '';
@@ -5716,7 +5716,11 @@ async function loadTables() {
   tablesState.groups = groups;
   // An older server did not send this field; retain its historic odds UI in
   // that case, but never ask a new server to sample a tables-only kind.
-  tablesState.capabilities = { odds: capabilities?.odds !== false };
+  const odds = capabilities?.odds !== false;
+  tablesState.capabilities = {
+    odds,
+    chances: capabilities?.chances ?? odds,
+  };
   // Which table each group is entered from, for the chances estimate and the
   // note; a plain table has no entry.
   tablesState.parents = {};
@@ -5817,7 +5821,7 @@ function renderTableBullets() {
     });
     row.appendChild(weightInput);
 
-    if (tablesState.capabilities.odds) {
+    if (tablesState.capabilities.chances) {
       const chance = document.createElement('span');
       chance.className = 'chance-cell';
       row.appendChild(chance);
@@ -6059,10 +6063,12 @@ async function setBulletFlag(tableName, bullet, flag, boxEl) {
  * pool, and generate-npc.py filters most tables before drawing from them - a
  * Stance flagged '|| gun' needs the Weapon roll to have produced a firearm.
  *
- * So there are two numbers, and the cell shows both in turn. The estimate is
- * the local weight share, computed here, instantly, on every keystroke. The
- * settled figure comes from `generate-npc.py --trait-odds`, which samples its
- * own roller, and takes a few seconds.
+ * For NPCs and spaceships there are two numbers, and the cell shows both in
+ * turn. The estimate is the local weight share, computed here, instantly, on
+ * every keystroke. The settled figure comes from the generator's
+ * `--trait-odds`, which samples its own roller and takes a few seconds.
+ * Expression tables need only the first number: their requested label chooses
+ * the table directly, so the enabled weight share is the exact probability.
  *
  * The tilde on the estimate is doing real work. On a filtered table the two
  * legitimately differ - that is the entire point of the feature - so the cell
@@ -6106,7 +6112,7 @@ function formatChance(probability) {
 
 /** Repaint every chance cell in the open table from whatever is currently known. */
 function renderChances() {
-  if (!tablesState.capabilities.odds) {
+  if (!tablesState.capabilities.chances) {
     elTables.chanceNote.hidden = true;
     return;
   }
@@ -6142,6 +6148,12 @@ function renderChances() {
       return;
     }
 
+    if (!tablesState.capabilities.odds) {
+      cell.textContent = formatChance(weightShare(table, bullet) * entry);
+      cell.title = `Exact chance from enabled weights when ${table.name} is requested`;
+      return;
+    }
+
     const sampled = settled ? settled[bullet.text] : undefined;
     if (sampled === undefined || tablesState.oddsStale || typing) {
       cell.textContent = `~${formatChance(weightShare(table, bullet) * entry)}`;
@@ -6163,7 +6175,10 @@ function renderChanceNote(table) {
   const note = elTables.chanceNote;
   const lines = [];
 
-  if (tablesState.oddsReason) {
+  if (!tablesState.capabilities.odds) {
+    lines.push(`Chance this description is selected when ${table.name} is requested. `
+      + 'Percentages are exact from the enabled weights.');
+  } else if (tablesState.oddsReason) {
     lines.push(`Percentages are estimates from the weights alone — the generator could not be sampled (${tablesState.oddsReason}).`);
   } else if (!tablesState.odds || tablesState.oddsStale) {
     lines.push('Percentages are estimates from the weights alone; sampling the generator…');
@@ -6194,13 +6209,18 @@ function renderChanceNote(table) {
 }
 
 /**
- * Debounce beyond the weight input's own 400ms, so holding an arrow key is one
- * run and not thirty. A run costs a Python process and several seconds.
+ * Repaint exact local chances immediately. For sampled kinds, debounce beyond
+ * the weight input's own 400ms, so holding an arrow key is one run and not
+ * thirty. A run costs a Python process and several seconds.
  */
 const ODDS_DEBOUNCE_MS = 1000;
 
 function queueOdds() {
-  if (!tablesState.capabilities.odds) return;
+  if (!tablesState.capabilities.chances) return;
+  if (!tablesState.capabilities.odds) {
+    renderChances();
+    return;
+  }
   tablesState.oddsStale = true;
   renderChances();
   clearTimeout(tablesState.oddsTimer);

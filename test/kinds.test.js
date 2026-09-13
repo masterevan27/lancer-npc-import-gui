@@ -65,8 +65,10 @@ test('expression is deliberately tables-only and cannot expose a generated item 
     const expression = KINDS.expression;
     assert.deepEqual(Object.keys(expression).sort(), ['id', 'label', 'presetsDir', 'subject', 'supports', 'tables']);
     assert.equal(expression.supports.tables, true);
+    assert.equal(expression.supports.chances, true);
     for (const [name, enabled] of Object.entries(expression.supports)) {
-        assert.ok(name === 'tables' || enabled === false, `${name} must be disabled for expressions`);
+        assert.ok(['tables', 'chances'].includes(name) || enabled === false,
+            `${name} must be disabled for expressions`);
     }
     for (const field of ['script', 'createArgs', 'regenArgs', 'stagedImportsDir', 'stagedRefsDir',
         'foundrySubdir', 'foundryActorType', 'createPresetsDir']) {

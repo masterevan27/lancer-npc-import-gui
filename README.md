@@ -110,7 +110,8 @@ Everything else in `config.example.json` is optional and derived by default:
   disk, since at roughly a megabyte an image they are the one thing here that
   gets large.
 - `presetsDir` — where saved table presets are written.
-- `traitOddsSamples` — rolls behind each percentage on the **Tables** tab.
+- `traitOddsSamples` — rolls behind each sampled NPC/spaceship percentage on
+  the **Tables** tab. Expression percentages are exact and do not use it.
   Default 20000, about six seconds; fewer settles sooner and wobbles more.
 
 Eleven more exist for spaceships, and every one of them is optional in the same
@@ -552,8 +553,8 @@ and open <http://127.0.0.1:5089>.
   `npc-generator-tables.md`, with a selector at the top to switch the whole tab
   to `spaceship-generator-tables.md` or the expression tables instead. The
   **Expressions** choice is tables-and-presets only: it has no Create or
-  generated-content category, and no odds sampling because expression pools
-  are chosen per requested label rather than by the NPC roller. NPC headings are grouped as
+  generated-content category. Its chances need no sampling because each
+  expression pool is chosen directly by its requested label. NPC headings are grouped as
   Identity, Body, Appearance, Kit and Scene; a ship's as Identity, Structure,
   Systems and Scene (a table the generator adds later that fits none of its
   kind's groups falls into a trailing Other rather than disappearing), with
@@ -611,6 +612,11 @@ helmet`, `|| notac` segment, editable without opening the tables file. Only
   still being calculated, and a dash marks a disabled bullet. Percentages on a
   per-pronoun variant table total less than 100%, because only some NPCs roll
   from it at all.
+
+  Expression descriptions use the same Chances column, but their percentages
+  are exact: each enabled description's weight is divided by the expression's
+  total enabled weight. They update immediately while a weight is edited, and
+  a disabled description shows a dash.
 
   Sampling takes a few seconds. `traitOddsSamples` in `config.json` trades
   precision for speed; the default 20,000 holds still at whole-percent

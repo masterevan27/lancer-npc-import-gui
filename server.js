@@ -160,8 +160,10 @@ const DEFAULT_CONFIG = {
     // SillyTavern's data/<user>/characters folder. Expression sprites are
     // copied only by the explicit expressions Import action.
     sillyTavernCharactersDir: '',
-    // Rolls behind each percentage on the Tables page. The trade is precision
-    // against how long the number takes to settle after an edit: 20,000 rolls
+    // Rolls behind each sampled NPC/spaceship percentage on the Tables page.
+    // Expression chances are exact weight shares and do not use this setting.
+    // The trade is precision against how long the number takes to settle after
+    // an edit: 20,000 rolls
     // is about six seconds and holds still at whole-percent precision, while
     // 8,000 settles in half the time and wobbles a point either way. A
     // property of the machine rather than of any one request, so it lives
@@ -4795,7 +4797,10 @@ async function handleApi(req, res, url) {
         return sendJson(res, 200, {
             groups: tableGroups.groupTables(tables, kind.id),
             flags,
-            capabilities: { odds: !!kind.supports.odds },
+            capabilities: {
+                odds: !!kind.supports.odds,
+                chances: !!(kind.supports.odds || kind.supports.chances),
+            },
             // The expression panel consumes the generator's label order from
             // this one API source rather than maintaining a browser duplicate.
             ...(kind.id === 'expression' ? { defaultExpressionLabels: DEFAULT_EXPRESSION_LABELS } : {}),
