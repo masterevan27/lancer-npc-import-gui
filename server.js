@@ -1600,6 +1600,37 @@ function safeGeneratedImageName(name) {
         .replace(/^[ .]+|[ .]+$/g, '');
 }
 
+/** Resolve a source file while retaining whether a missing path escaped through a link. */
+function resolveExpressionSourceInside(folder, candidate) {
+    let folderReal;
+    try {
+        folderReal = fs.realpathSync(folder);
+    } catch {
+        return { file: null, escaped: false };
+    }
+
+    let probe = candidate;
+    while (expressionFiles.isInside(folder, probe)) {
+        try {
+            const real = fs.realpathSync(probe);
+            if (!expressionFiles.isInside(folderReal, real)) {
+                return { file: null, escaped: true };
+            }
+            if (probe !== candidate) return { file: null, escaped: false };
+            return { file: fs.statSync(real).isFile() ? real : null, escaped: false };
+        } catch (err) {
+            if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') {
+                return { file: null, escaped: false };
+            }
+        }
+        if (probe === folder) break;
+        const parent = path.dirname(probe);
+        if (parent === probe) break;
+        probe = parent;
+    }
+    return { file: null, escaped: false };
+}
+
 /** Match generate-expressions.py's manifest filename rules without trusting sidecar paths. */
 function expressionSourceFile(item, kind) {
     let filename;
@@ -1629,7 +1660,14 @@ function expressionSourceFile(item, kind) {
             error: `unsafe ${kind} filename outside NPC folder: ${filename}`,
         };
     }
-    const file = expressionFiles.resolveFileInside(folder, candidate);
+    const resolved = resolveExpressionSourceInside(folder, candidate);
+    if (resolved.escaped) {
+        return {
+            kind, available: false, file: null, relative: null,
+            error: `unsafe ${kind} filename outside NPC folder: ${filename}`,
+        };
+    }
+    const file = resolved.file;
     return {
         kind, available: !!file, file,
         relative: file ? path.relative(folder, file) : path.relative(folder, candidate),

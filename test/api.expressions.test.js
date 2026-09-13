@@ -275,6 +275,59 @@ test('POST preflights explicit sources and forwards only intentional selections'
     assert.match(none.body.error, /no usable token or portrait/i);
 });
 
+test('POST rejects an omitted source when its preferred token resolves through an outward junction', async (t) => {
+    const marker = 'require("node:fs").writeFileSync(require("node:path").join(__dirname, "spawned"), "yes");';
+    const { server, stubDir } = await startWithStub(t, marker);
+    const folder = seedItem(server);
+    const outside = path.join(server.dir, 'outside-expression-sources');
+    const link = path.join(folder, 'linked-sources');
+    fs.mkdirSync(outside);
+    fs.writeFileSync(path.join(outside, 'token.png'), 'OUTSIDE TOKEN');
+    try {
+        fs.symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (err) {
+        if (err.code === 'EPERM') return t.skip('creating directory links requires OS permission');
+        throw err;
+    }
+    const manifest = JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'));
+    manifest[folder].token = path.join('linked-sources', 'token.png');
+    fs.writeFileSync(server.manifestPath, JSON.stringify(manifest));
+
+    const rejected = await post(server, '/api/expressions', { id: NPC_ID, labels: ['joy'] });
+    assert.equal(rejected.status, 400,
+        'omitted source must not fall back to the valid portrait after a real-path escape');
+    assert.match(rejected.body.error, /unsafe token/i);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(fs.existsSync(path.join(stubDir, 'spawned')), false,
+        'unsafe omitted source must be rejected before spawning the generator');
+});
+
+test('POST rejects an omitted source with a missing leaf beneath an outward junction', async (t) => {
+    const marker = 'require("node:fs").writeFileSync(require("node:path").join(__dirname, "spawned"), "yes");';
+    const { server, stubDir } = await startWithStub(t, marker);
+    const folder = seedItem(server);
+    const outside = path.join(server.dir, 'outside-expression-sources');
+    const link = path.join(folder, 'linked-sources');
+    fs.mkdirSync(outside);
+    try {
+        fs.symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (err) {
+        if (err.code === 'EPERM') return t.skip('creating directory links requires OS permission');
+        throw err;
+    }
+    const manifest = JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'));
+    manifest[folder].token = path.join('linked-sources', 'missing-token.png');
+    fs.writeFileSync(server.manifestPath, JSON.stringify(manifest));
+
+    const rejected = await post(server, '/api/expressions', { id: NPC_ID, labels: ['joy'] });
+    assert.equal(rejected.status, 400,
+        'a missing leaf must not hide that its nearest existing parent escaped the NPC folder');
+    assert.match(rejected.body.error, /unsafe token/i);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(fs.existsSync(path.join(stubDir, 'spawned')), false,
+        'unsafe omitted source must be rejected before spawning the generator');
+});
+
 test('prototype-named sprites remain usable through items, list, image, and delete APIs', async (t) => {
     const { server } = await startWithStub(t, 'process.exit(0);');
     const folder = seedItem(server);
