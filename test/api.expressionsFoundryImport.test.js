@@ -223,3 +223,35 @@ test('Foundry relocation refuses a linked source destination before writing outs
     const manifest = JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'));
     assert.ok(manifest[folder], 'manifest moved after rejecting the linked source destination');
 });
+
+test('Foundry relocation rejects a nested parent junction before creating through it', async (t) => {
+    const { server } = await fixture(t);
+    const { folder } = seedNpc(server);
+    const nestedToken = path.join(folder, 'art', 'tokens', 'token.png');
+    fs.mkdirSync(path.dirname(nestedToken), { recursive: true });
+    fs.writeFileSync(nestedToken, 'NESTED TOKEN');
+    const manifest = JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'));
+    manifest[folder].token = path.join('art', 'tokens', 'token.png');
+    fs.writeFileSync(server.manifestPath, JSON.stringify(manifest));
+
+    const destination = path.join(server.dir, 'FoundryData', 'LancerNPCs', 'Pilots', NPC_NAME);
+    const outside = path.join(server.dir, 'outside-token-parent');
+    fs.mkdirSync(destination, { recursive: true });
+    fs.mkdirSync(outside);
+    try {
+        fs.symlinkSync(outside, path.join(destination, 'art'),
+            process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (err) {
+        t.skip(`directory links unavailable: ${err.message}`);
+        return;
+    }
+
+    const imported = await post(server, '/api/import', { ids: [NPC_ID] });
+    assert.equal(imported.status, 200);
+    assert.equal(imported.body.results[0].queued, false);
+    assert.match(imported.body.results[0].reason, /unsafe token destination/i);
+    assert.equal(fs.existsSync(path.join(outside, 'tokens')), false,
+        'recursive mkdir created a directory through the escaping junction');
+    assert.ok(JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'))[folder],
+        'manifest moved after rejecting the nested source destination');
+});

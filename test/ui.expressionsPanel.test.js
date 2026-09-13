@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const vm = require('node:vm');
 const { startTestServer } = require('./helpers/testServer');
 
 const PORT = 5245;
@@ -39,6 +40,26 @@ function liftAsyncFunction(js, name, helpers = {}) {
     // eslint-disable-next-line no-new-func
     return new Function(...names, `${source}\nreturn ${name};`)(
         ...names.map((key) => helpers[key]));
+}
+
+function liftListenerSource(js, target, eventName) {
+    const marker = `${target}.addEventListener('${eventName}',`;
+    const start = js.indexOf(marker);
+    assert.notEqual(start, -1, `app.js no longer registers ${target} ${eventName}`);
+    const body = js.indexOf('{', start + marker.length);
+    let depth = 0;
+    for (let i = body; i < js.length; i += 1) {
+        if (js[i] === '{') depth += 1;
+        if (js[i] === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                const end = js.indexOf(');', i);
+                assert.notEqual(end, -1, `could not find the end of ${target} ${eventName}`);
+                return js.slice(start, end + 2);
+            }
+        }
+    }
+    throw new Error(`could not find the callback body for ${target} ${eventName}`);
 }
 
 const escapeHtml = (text) => String(text ?? '')
@@ -459,12 +480,10 @@ test('generate, redo, cancel and delete use the expression endpoints and refresh
 
     const generate = /el\.expressionsGenerate\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
     assert.ok(generate, 'Generate handler is missing');
-    assert.match(generate[0], /source: el\.expressionsSource\.value/);
 
     const click = /el\.expressionsSprites\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
     assert.ok(click, 'sprite actions are not delegated');
     assert.match(click[0], /dataset\.expressionRedo/);
-    assert.match(click[0], /source: el\.expressionsSource\.value/);
     assert.match(click[0], /file/);
     assert.match(click[0], /dataset\.expressionDeleteConfirm/);
     assert.match(click[0], /DELETE/);
@@ -472,6 +491,87 @@ test('generate, redo, cancel and delete use the expression endpoints and refresh
 
     assert.match(js, /fetch\('\/api\/expressions\/cancel'/);
     assert.match(js, /api\('\/api\/expressions\/import'/);
+});
+
+test('registered Generate and Redo handlers post the current rendered source selection', async (t) => {
+    const { js } = await served(t);
+    const registered = {};
+    const listener = (name, extra = {}) => ({
+        ...extra,
+        addEventListener(type, handler) { registered[`${name}:${type}`] = handler; },
+    });
+    const requests = [];
+    const fixtures = {
+        el: {
+            expressionsGenerate: listener('generate', { disabled: false }),
+            expressionsSprites: listener('sprites'),
+            expressionsSource: { value: 'token' },
+            expressionsCount: { value: '2' },
+            expressionsKeepBackground: { checked: true },
+            expressionsStage: { textContent: '' },
+        },
+        state: {
+            detailItemId: 'n1', expressionCustom: [{ label: 'battle_focus', text: 'focused' }],
+            items: [{ id: 'n1' }], expressionOwnerId: 'n1',
+            expressionView: { job: null }, expressionStartPendingId: null,
+            expressionStartSerial: 0, expressionExpectedJobId: null,
+        },
+        document: { querySelector: () => ({ value: 'replace' }) },
+        selectedExpressionLabels: () => ['joy'],
+        expressionStartBlocked: () => false,
+        fetch: async (url, options) => {
+            requests.push({ url, body: JSON.parse(options.body) });
+            return {
+                ok: true, status: 202,
+                json: async () => ({ jobId: `job-${requests.length}`, status: 'running' }),
+            };
+        },
+        startPolling: () => {},
+        renderDetailFor: () => {},
+        refreshItems: async () => {},
+        refreshExpressions: async () => {},
+        setExpressionActionError: () => {},
+        rerenderCurrentExpressions: () => {},
+        expressionSpriteActionDisabled: () => false,
+    };
+    const source = [
+        'const el = fixtures.el; const state = fixtures.state; const document = fixtures.document;',
+        'const selectedExpressionLabels = fixtures.selectedExpressionLabels;',
+        'const expressionStartBlocked = fixtures.expressionStartBlocked;',
+        'const fetch = fixtures.fetch; const startPolling = fixtures.startPolling;',
+        'const renderDetailFor = fixtures.renderDetailFor;',
+        'const refreshItems = fixtures.refreshItems; const refreshExpressions = fixtures.refreshExpressions;',
+        'const setExpressionActionError = fixtures.setExpressionActionError;',
+        'const rerenderCurrentExpressions = fixtures.rerenderCurrentExpressions;',
+        'const expressionSpriteActionDisabled = fixtures.expressionSpriteActionDisabled;',
+        liftSource(js, 'expressionJobPayload'),
+        liftSource(js, 'startExpressionJob').replace(/^function /, 'async function '),
+        liftListenerSource(js, 'el.expressionsGenerate', 'click'),
+        liftListenerSource(js, 'el.expressionsSprites', 'click'),
+    ].join('\n');
+    const context = { fixtures };
+    vm.createContext(context);
+    vm.runInContext(source, context);
+
+    await registered['generate:click']();
+    fixtures.el.expressionsSource.value = 'portrait';
+    const redoButton = { dataset: { expressionRedo: 'joy.webp' } };
+    await registered['sprites:click']({ target: { closest: () => redoButton } });
+
+    assert.deepEqual(requests, [{
+        url: '/api/expressions',
+        body: {
+            id: 'n1', labels: ['joy'],
+            custom: [{ label: 'battle_focus', text: 'focused' }],
+            count: 2, mode: 'replace', keepBackground: true, source: 'token',
+        },
+    }, {
+        url: '/api/expressions',
+        body: {
+            id: 'n1', labels: [], custom: [], count: 1, mode: 'add',
+            keepBackground: true, source: 'portrait', file: 'joy.webp',
+        },
+    }]);
 });
 
 test('refresh rejects late item and job responses and polling treats expression jobs as running', async (t) => {

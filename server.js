@@ -381,14 +381,46 @@ function foundryDestFolder(item) {
     return path.join(config.foundryDataRoot, kind.foundrySubdir, category, name);
 }
 
+function ensureSafeFoundryDirectory(root, directory, label) {
+    const rootPath = path.resolve(root);
+    const directoryPath = path.resolve(directory);
+    if (!expressionFiles.isInside(rootPath, directoryPath)) {
+        throw new Error(`unsafe ${label} destination inside Foundry copy`);
+    }
+    const rootReal = fs.realpathSync(rootPath);
+    let current = rootPath;
+    const relative = path.relative(rootPath, directoryPath);
+    for (const part of relative.split(path.sep).filter(Boolean)) {
+        current = path.join(current, part);
+        let entry = null;
+        try {
+            entry = fs.lstatSync(current);
+        } catch (err) {
+            if (err.code !== 'ENOENT') throw err;
+        }
+        if (!entry) fs.mkdirSync(current);
+        let stat;
+        try {
+            stat = fs.statSync(current);
+        } catch {
+            throw new Error(`unsafe ${label} destination inside Foundry copy`);
+        }
+        if (!stat.isDirectory()
+            || !expressionFiles.isInside(rootReal, fs.realpathSync(current))) {
+            throw new Error(`unsafe ${label} destination inside Foundry copy`);
+        }
+    }
+    return fs.realpathSync(directoryPath);
+}
+
 function copySafeFileIntoFoundry(source, dest, relative, label = 'file') {
-    const destinationRoot = fs.realpathSync(dest);
+    const destinationRoot = ensureSafeFoundryDirectory(
+        config.foundryDataRoot, dest, label);
     const target = path.resolve(dest, relative);
     if (!expressionFiles.isInside(path.resolve(dest), target)) {
         throw new Error(`unsafe ${label} destination inside Foundry copy`);
     }
-    fs.mkdirSync(path.dirname(target), { recursive: true });
-    const parent = fs.realpathSync(path.dirname(target));
+    const parent = ensureSafeFoundryDirectory(dest, path.dirname(target), label);
     if (!expressionFiles.isInside(destinationRoot, parent)) {
         throw new Error(`unsafe ${label} destination inside Foundry copy`);
     }
@@ -476,7 +508,7 @@ function copyExpressionsIntoFoundry(item, dest, sourceRelocations) {
 function copyIntoFoundry(item) {
     const dest = foundryDestFolder(item);
     const sources = expressionSourceFiles(item);
-    fs.mkdirSync(dest, { recursive: true });
+    ensureSafeFoundryDirectory(config.foundryDataRoot, dest, 'file');
     // The animation pair too, when there is one. It is not in the manifest's
     // file list - generate-npc.py never wrote it - and a portrait that moved
     // without its loop would open an empty panel on the imported copy.

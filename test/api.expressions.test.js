@@ -251,6 +251,12 @@ test('POST preflights explicit sources and forwards only intentional selections'
     });
     assert.equal(unsafe.status, 400);
     assert.match(unsafe.body.error, /unsafe token/i);
+    const omittedUnsafe = await post(server, '/api/expressions', {
+        id: NPC_ID, labels: ['joy'],
+    });
+    assert.equal(omittedUnsafe.status, 400,
+        'omitting source must not mask an unsafe token manifest path with portrait fallback');
+    assert.match(omittedUnsafe.body.error, /unsafe token/i);
     assert.equal(fs.readFileSync(path.join(stubDir, 'argv.log'), 'utf8').trim().split('\n').length, 5,
         'unavailable and unsafe selections must fail before spawn');
 
