@@ -1,7 +1,7 @@
 # Choosing a trait's value from the detail sheet
 
 Date: 2026-09-06
-Status: approved, not yet implemented
+Status: implemented (merged to `main` at `2e57372`)
 Companion spec: `lancer-art-generator` →
 `docs/superpowers/specs/2026-09-06-set-trait-value-design.md`
 

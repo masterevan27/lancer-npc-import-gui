@@ -495,7 +495,9 @@ footer {
   <div class="prose">
     <p>
       An NPC is twenty-five draws from twenty-five markdown tables, taken in a fixed
-      order, from a single random stream. Nothing about that is unusual. The three
+      order, from a single random stream — plus one more draw for each table whose first
+      draw lands on a <code>=&gt; Name</code> group reference, which picks a member of that
+      group. Nothing about that is unusual. The three
       things worth knowing before reading any of the code are:
     </p>
     <p>
@@ -933,8 +935,10 @@ footer {
 
   <div class="prose">
     <p>
-      Every table consumes exactly one <code>rng.choice</code>, from the same
-      <code>random.Random(base_seed + n)</code>, in <code>REQUIRED_TABLES</code> order. The
+      Every table consumes one <code>rng.choice</code>, from the same
+      <code>random.Random(base_seed + n)</code>, in <code>REQUIRED_TABLES</code> order — two
+      when that draw lands on a <code>=&gt; Name</code> group reference, whose second draw
+      picks the group's member. A file with no groups draws exactly one per table. The
       same integer is then handed to ComfyUI as the sampler seed for both images. So the value
       of trait N depends on how many draws preceded it: <b>adding a table, or changing a
       pool's length, changes every subsequent trait at the same seed.</b>
@@ -943,7 +947,9 @@ footer {
       A forced trait is still drawn and the draw discarded, precisely so that forcing one
       trait does not shift the stream and change every NPC after it in the batch. The
       exception is unavoidable — a forced trait that <em>filters</em> a later pool changes
-      that pool's length, and a shorter pool draws differently.
+      that pool's length, and a shorter pool draws differently. So is a forced trait whose
+      discarded draw was a group reference: the member draw is skipped, and the stream after
+      it moves by one.
     </p>
   </div>
 

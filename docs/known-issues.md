@@ -2,7 +2,8 @@
 
 Parked technical debt in this tool, recorded because this repo has no ticket
 system and these would otherwise only exist in the head of whoever last touched
-the code. Everything here is currently resolved; the entries are kept with
+the code. Everything here is resolved but one (item 7 under Resolved, still
+open); the fixed entries are kept with
 their original wording struck through rather than deleted, because the reason a
 thing was done is the part that goes missing first, and a fixed issue is the
 cheapest place to read it.
@@ -24,9 +25,11 @@ with `generate-npc.py`'s `REQUIRED_TABLES` (missing `Weapon`, `Theme`,
 
 ## Tables & Presets (Import GUI)
 
-Nothing open. Every item this file carried has been fixed; they are kept below
-rather than deleted, because the reason a thing was done is the part that goes
-missing first.
+One item open: item 7 below, a preset colliding on two bullets whose prose is
+identical and whose flags differ — thought unreachable today, but not fixed.
+Every other item this file carried has been fixed; they are kept below rather
+than deleted, because the reason a thing was done is the part that goes missing
+first.
 
 Two limitations survive their fixes and are recorded here as known shapes of
 the code rather than as bugs to chase:
@@ -47,7 +50,7 @@ the code rather than as bugs to chase:
 
 ## Kinds (NPCs and spaceships)
 
-Nothing open here either. These two are traps rather than bugs — the code is
+Nothing open here. These two are traps rather than bugs — the code is
 right today and both of these are cheap to get wrong the next time a kind is
 added, which is the only reason they are written down.
 
