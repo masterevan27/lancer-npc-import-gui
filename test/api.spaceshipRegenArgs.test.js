@@ -179,6 +179,21 @@ async function waitForShipArgv(s, send, expectCount = 1) {
     return { res, ...argv };
 }
 
+/** Wait until the item view reports that the current ship regen completed. */
+async function waitForShipRegenDone(s) {
+    for (let i = 0; i < 60; i++) {
+        const res = await fetch(`${s.baseUrl}/api/items?category=spaceship`);
+        const { items } = await res.json();
+        const ship = items.find((it) => it.id === SHIP_ID);
+        if (ship?.regenStatus === 'done') return;
+        if (ship?.regenStatus === 'error') {
+            throw new Error(`ship regeneration failed: ${ship.regenError}`);
+        }
+        await new Promise((r) => setTimeout(r, 40));
+    }
+    throw new Error('ship regeneration did not complete');
+}
+
 test('a regen spawns the ship script with --regen-manifest, --regen-id and --new-seed', async (t) => {
     const s = await startShipServer(t);
     const { res, argv, script, cwd } = await waitForShipArgv(s, () => regenerate(s, {
@@ -195,7 +210,7 @@ test('a regen spawns the ship script with --regen-manifest, --regen-id and --new
 });
 
 test('which:"portrait" adds --no-token, which:"token" adds --no-portrait', async (t) => {
-    const s = await startShipServer(t);
+    const s = await startShipServer(t, { sleepMs: 100 });
 
     let { res, argv } = await waitForShipArgv(s, () => regenerate(s, {
         id: SHIP_ID, which: 'portrait', seedMode: 'specific', seed: 1,
@@ -203,6 +218,7 @@ test('which:"portrait" adds --no-token, which:"token" adds --no-portrait', async
     assert.equal(res.status, 202);
     assert.match(argv.join(' '), /--no-token/);
     assert.doesNotMatch(argv.join(' '), /--no-portrait/);
+    await waitForShipRegenDone(s);
 
     ({ res, argv } = await waitForShipArgv(s, () => regenerate(s, {
         id: SHIP_ID, which: 'token', seedMode: 'specific', seed: 2,
@@ -210,6 +226,7 @@ test('which:"portrait" adds --no-token, which:"token" adds --no-portrait', async
     assert.equal(res.status, 202);
     assert.match(argv.join(' '), /--no-portrait/);
     assert.doesNotMatch(argv.join(' '), /--no-token/);
+    await waitForShipRegenDone(s);
 });
 
 test('reroll-trait on a ship spawns --reroll-trait', async (t) => {
