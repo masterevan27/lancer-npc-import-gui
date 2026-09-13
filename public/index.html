@@ -512,6 +512,59 @@
         <p class="regen-status" id="animate-status"></p>
       </div>
 
+      <div class="regen-panel expressions-panel" id="expressions-panel" hidden>
+        <h3>NPC expressions</h3>
+        <div class="expressions-picker-head">
+          <span>Expressions to generate</span>
+          <button type="button" id="expressions-all">All</button>
+          <button type="button" id="expressions-none">None</button>
+          <button type="button" id="expressions-missing">Missing only</button>
+        </div>
+        <div class="expressions-labels" id="expressions-labels"></div>
+
+        <div class="expressions-custom-row">
+          <label>Custom expression
+            <input type="text" id="expression-custom-label" placeholder="battle focus">
+          </label>
+          <label>Prompt <span class="hint">(optional for a table label)</span>
+            <input type="text" id="expression-custom-prompt" placeholder="cold, focused resolve">
+          </label>
+          <button type="button" id="expression-custom-add">Add</button>
+        </div>
+        <p class="regen-status" id="expression-custom-status"></p>
+        <div class="expression-custom-chips" id="expression-custom-chips"></div>
+
+        <div class="regen-row expressions-options">
+          <label>Variants per label
+            <input type="number" id="expressions-count" min="1" max="8" value="1">
+          </label>
+          <label><input type="radio" name="expressions-mode" value="add" checked> Add variants</label>
+          <label><input type="radio" name="expressions-mode" value="replace"> Replace</label>
+          <label><input type="checkbox" id="expressions-keep-background"> Keep background</label>
+        </div>
+        <div class="regen-row">
+          <button id="expressions-generate" type="button">Generate</button>
+          <button id="expressions-cancel" type="button" disabled>Cancel</button>
+        </div>
+        <p class="regen-status" id="expressions-stage"></p>
+        <details class="expressions-log-details">
+          <summary>Log</summary>
+          <pre class="job-log" id="expressions-log"></pre>
+        </details>
+
+        <div class="expressions-sprites" id="expressions-sprites"></div>
+
+        <div class="expressions-import">
+          <h4>Import into SillyTavern</h4>
+          <label>Character folder
+            <input type="text" id="expressions-import-folder">
+          </label>
+          <p class="model3d-files" id="expressions-import-target"></p>
+          <button type="button" id="expressions-import">Import</button>
+          <p class="regen-status" id="expressions-import-status"></p>
+        </div>
+      </div>
+
       <p class="scope-legend" id="scope-legend" hidden>
         Most traits reach both image prompts. Those marked
         <span class="scope-pill scope-portrait">Portrait only</span> reach only the portrait's,

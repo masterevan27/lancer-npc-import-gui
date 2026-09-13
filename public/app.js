@@ -67,6 +67,20 @@ const state = {
   animationView: null,
   animationOwnerId: null,
   animateLastStatus: null,
+  // The expression form belongs to the person looking at it, while the view
+  // belongs to the server. Poll ticks replace only the latter: a half-written
+  // custom expression or an unticked label must not jump back every two
+  // seconds. The request serial also prevents an older GET for this same NPC
+  // from painting after a newer one.
+  expressionView: null,
+  expressionOwnerId: null,
+  expressionFormOwnerId: null,
+  expressionCustom: [],
+  expressionDeleteFile: null,
+  expressionExpectedJobId: null,
+  expressionLastStatus: null,
+  expressionRequestSerial: 0,
+  expressionStartSerial: 0,
   category: null,
   items: [],
   visibleItems: [],
@@ -152,6 +166,27 @@ const el = {
   animateBuilt: document.getElementById('animate-built'),
   animateBtn: document.getElementById('animate-btn'),
   animateStatus: document.getElementById('animate-status'),
+  expressionsPanel: document.getElementById('expressions-panel'),
+  expressionsLabels: document.getElementById('expressions-labels'),
+  expressionsAll: document.getElementById('expressions-all'),
+  expressionsNone: document.getElementById('expressions-none'),
+  expressionsMissing: document.getElementById('expressions-missing'),
+  expressionCustomLabel: document.getElementById('expression-custom-label'),
+  expressionCustomPrompt: document.getElementById('expression-custom-prompt'),
+  expressionCustomAdd: document.getElementById('expression-custom-add'),
+  expressionCustomStatus: document.getElementById('expression-custom-status'),
+  expressionCustomChips: document.getElementById('expression-custom-chips'),
+  expressionsCount: document.getElementById('expressions-count'),
+  expressionsKeepBackground: document.getElementById('expressions-keep-background'),
+  expressionsGenerate: document.getElementById('expressions-generate'),
+  expressionsCancel: document.getElementById('expressions-cancel'),
+  expressionsStage: document.getElementById('expressions-stage'),
+  expressionsLog: document.getElementById('expressions-log'),
+  expressionsSprites: document.getElementById('expressions-sprites'),
+  expressionsImportFolder: document.getElementById('expressions-import-folder'),
+  expressionsImportTarget: document.getElementById('expressions-import-target'),
+  expressionsImport: document.getElementById('expressions-import'),
+  expressionsImportStatus: document.getElementById('expressions-import-status'),
   scopeLegend: document.getElementById('scope-legend'),
   detailDeleteBtn: document.getElementById('detail-delete-btn'),
 };
@@ -1393,6 +1428,8 @@ function renderDetailFor(item) {
   renderDetailPrompts(item);
   renderRegenPanel(item);
   renderAnimationPanel(item, state.animationOwnerId === item.id ? state.animationView : null);
+  renderExpressionsPanel(item,
+    state.expressionOwnerId === item.id ? state.expressionView : null);
 }
 
 /**
@@ -1438,6 +1475,7 @@ function openBackgroundDetail(item) {
   el.regenPanel.hidden = true;
   el.model3dPanel.hidden = true;
   el.animatePanel.hidden = true;
+  el.expressionsPanel.hidden = true;
   renderBackgroundDetail(item);
 
   state.detailItemId = item.id;
@@ -1510,6 +1548,20 @@ function openDetail(item) {
   renderAnimationPanel(item, null);
   refreshAnimation(item.id);
 
+  // Expression labels are deliberately fetched from the server. Reset only
+  // on a new sheet owner; subsequent poll paints retain every unsent choice.
+  state.expressionRequestSerial += 1;
+  state.expressionView = null;
+  state.expressionOwnerId = null;
+  state.expressionFormOwnerId = null;
+  state.expressionCustom = [];
+  state.expressionDeleteFile = null;
+  state.expressionExpectedJobId = null;
+  state.expressionLastStatus = item.expressionStatus ?? null;
+  renderExpressionsPanel(item, null);
+  const expressionsSupported = item.supports ? item.supports.expressions : item.kind === 'npc';
+  if (expressionsSupported) refreshExpressions(item.id);
+
   // Opening the sheet is the one unambiguous "I have looked at this": it is
   // where the portrait at full size, the traits and the prompts actually are.
   // Not on grid presence, which a ten-NPC batch would clear before the user
@@ -1567,13 +1619,14 @@ function renderRegenPanel(item) {
   // rewrites the whole manifest entry, and a Regenerate landing mid-write would
   // render a half-applied NPC.
   const running = item.regenStatus === 'running' || state.stagingItemId === item.id;
+  const blocked = running || item.expressionStatus === 'running';
   const seedMode = document.querySelector('input[name="regen-seed-mode"]:checked')?.value;
-  el.regenBtn.disabled = running;
+  el.regenBtn.disabled = blocked;
   el.regenBtn.textContent = running ? 'Regenerating…' : 'Regenerate';
-  el.regenBtn.classList.toggle('accent', !!item.artStale && !running);
-  for (const radio of document.querySelectorAll('#regen-panel input[type="radio"]')) radio.disabled = running;
-  el.regenSeedInput.disabled = running || seedMode !== 'specific';
-  setTraitGuttersDisabled(running);
+  el.regenBtn.classList.toggle('accent', !!item.artStale && !blocked);
+  for (const radio of document.querySelectorAll('#regen-panel input[type="radio"]')) radio.disabled = blocked;
+  el.regenSeedInput.disabled = blocked || seedMode !== 'specific';
+  setTraitGuttersDisabled(blocked);
 
   const justFinished = item.regenStatus === 'done' && state.regenLastStatus !== 'done';
   if (running) {
@@ -1622,9 +1675,10 @@ function renderModel3dPanel(item, view) {
 
   const status = view ? view.status : item.model3dStatus;
   const running = status === 'running';
+  const blocked = running || item.expressionStatus === 'running';
   const built = view ? Boolean(view.shell || view.turnarounds.length) : Boolean(item.has3d);
 
-  el.model3dBtn.disabled = running;
+  el.model3dBtn.disabled = blocked;
   el.model3dBtn.textContent = running ? 'Building…'
     : built ? 'Rebuild 3D model' : 'Create 3D model';
 
@@ -1632,8 +1686,8 @@ function renderModel3dPanel(item, view) {
   // an NPC whose 3d/ folder is non-empty unless --overwrite. Without this the
   // obvious way to rebuild is a run that does nothing and reports success.
   if (built) el.model3dOverwrite.checked = true;
-  el.model3dOverwrite.disabled = running || built;
-  el.model3dRig.disabled = running;
+  el.model3dOverwrite.disabled = blocked || built;
+  el.model3dRig.disabled = blocked;
 
   el.model3dBuilt.textContent = view?.builtAt
     ? `Built ${new Date(view.builtAt).toLocaleString(undefined, {
@@ -1712,16 +1766,17 @@ function renderAnimationPanel(item, view) {
 
   const status = view ? view.status : item.animationStatus;
   const running = status === 'running';
+  const blocked = running || item.expressionStatus === 'running';
   const built = view ? Boolean(view.url) : Boolean(item.hasAnimation);
   const chosen = view ? (view.pending || view.description || '') : '';
   const nothingToSend = !!view && !chosen && !view.descriptions.length;
   const staged = !!view && !!view.pending && view.pending !== (view.description || null);
 
-  el.animateBtn.disabled = running || nothingToSend;
+  el.animateBtn.disabled = blocked || nothingToSend;
   el.animateBtn.textContent = running ? 'Animating…' : built ? 'Re-animate portrait' : 'Animate portrait';
   // Amber for the same reason Regenerate goes amber: something chosen or
   // changed that the loop on disk does not yet show.
-  el.animateBtn.classList.toggle('accent', !running && built && !!view && (view.stale || staged));
+  el.animateBtn.classList.toggle('accent', !blocked && built && !!view && (view.stale || staged));
   el.animateStale.hidden = !(view && view.stale);
 
   el.animateDescription.textContent = view
@@ -1733,9 +1788,9 @@ function renderAnimationPanel(item, view) {
     : '';
 
   const seedMode = document.querySelector('input[name="animate-seed-mode"]:checked')?.value;
-  for (const radio of document.querySelectorAll('#animate-panel input[type="radio"]')) radio.disabled = running;
-  el.animateSeedInput.disabled = running || seedMode !== 'specific';
-  el.animatePingpong.disabled = running;
+  for (const radio of document.querySelectorAll('#animate-panel input[type="radio"]')) radio.disabled = blocked;
+  el.animateSeedInput.disabled = blocked || seedMode !== 'specific';
+  el.animatePingpong.disabled = blocked;
 
   // "· one way" only when the record says so: a loop from before the choice
   // was recorded is not known to be either, and the default is the quiet one.
@@ -1790,6 +1845,430 @@ async function refreshAnimation(id) {
     }
   } catch { /* leave the panel showing whatever it last knew */ }
 }
+
+/* ---- NPC expression sprites ---- */
+
+/** Browser mirror of the generator's documented custom-label normalization. */
+function sanitizeExpressionLabel(value) {
+  return String(value ?? '').trim().toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+/** The checkbox grid is server-owned: `labels` is the API's shared list. */
+function expressionLabelGridMarkup(labels, selected) {
+  return (labels || []).map((label) => `<label class="expression-label">
+    <input type="checkbox" value="${escapeHtml(label)}"${selected.has(label) ? ' checked' : ''}>
+    ${escapeHtml(label)}
+  </label>`).join('');
+}
+
+function missingExpressionLabels(view) {
+  const byLabel = new Map((view.groups || []).map((group) => [group.label, group.files || []]));
+  return (view.labels || []).filter((label) => !(byLabel.get(label) || []).length);
+}
+
+function expressionCustomChipsMarkup(custom) {
+  return (custom || []).map((entry, index) => `<span class="expression-custom-chip">
+    <strong>${escapeHtml(entry.label)}</strong>
+    <span>${entry.text ? escapeHtml(entry.text) : 'table prompt'}</span>
+    <button type="button" data-custom-remove="${index}" aria-label="Remove ${escapeHtml(entry.label)}">&times;</button>
+  </span>`).join('');
+}
+
+/** Rows arrive in display order from the API: defaults first, custom last. */
+function expressionSpriteRowsMarkup(id, groups, pendingDeleteFile) {
+  return (groups || []).map((group) => {
+    const files = group.files || [];
+    const sprites = files.length ? files.map((sprite) => {
+      const file = sprite.file;
+      const meta = [sprite.prompt || '', Number.isInteger(sprite.seed) ? `seed ${sprite.seed}` : '']
+        .filter(Boolean).join(' · ');
+      const url = `/api/expression-image?id=${encodeURIComponent(id)}&file=${encodeURIComponent(file)}`;
+      const actions = pendingDeleteFile === file
+        ? `<span class="expression-delete-confirm">Delete this sprite?
+            <button type="button" class="danger" data-expression-delete-confirm="${escapeHtml(file)}">Delete</button>
+            <button type="button" data-expression-delete-cancel="${escapeHtml(file)}">Cancel</button>
+          </span>`
+        : `<button type="button" data-expression-redo="${escapeHtml(file)}">Redo</button>
+          <button type="button" data-expression-delete="${escapeHtml(file)}">Delete</button>`;
+      return `<figure class="expression-sprite">
+        <div class="expression-image-wrap">
+          <img src="${escapeHtml(url)}" alt="${escapeHtml(group.label)} expression"
+            title="${escapeHtml(meta || file)}">
+          ${sprite.stale ? '<span class="expression-stale">old portrait</span>' : ''}
+        </div>
+        <figcaption><span>${escapeHtml(file)}</span><span class="expression-sprite-actions">${actions}</span></figcaption>
+      </figure>`;
+    }).join('') : '<div class="expression-empty">No sprite yet</div>';
+    return `<section class="expression-sprite-row">
+      <h4>${escapeHtml(group.label)}</h4>
+      <div class="expression-sprite-list">${sprites}</div>
+    </section>`;
+  }).join('');
+}
+
+/** Validate and shape one POST body independently of its DOM controls. */
+function expressionJobPayload(opts) {
+  const count = Number(opts.count);
+  if (!Number.isInteger(count) || count < 1 || count > 8) {
+    throw new Error('Variants per label must be a whole number between 1 and 8.');
+  }
+  const body = {
+    id: opts.id,
+    labels: opts.labels || [],
+    custom: opts.custom || [],
+    count,
+    mode: opts.mode === 'replace' ? 'replace' : 'add',
+    keepBackground: !!opts.keepBackground,
+  };
+  if (opts.file) body.file = opts.file;
+  return body;
+}
+
+function selectedExpressionLabels() {
+  return [...el.expressionsLabels.querySelectorAll('input[type="checkbox"]:checked')]
+    .map((input) => input.value);
+}
+
+function renderExpressionCustomChips() {
+  el.expressionCustomChips.innerHTML = expressionCustomChipsMarkup(state.expressionCustom);
+}
+
+/** Reset the form exactly once for a new sheet owner, never on a poll tick. */
+function renderExpressionForm(view) {
+  const selected = new Set(view.labels || []);
+  el.expressionsLabels.innerHTML = expressionLabelGridMarkup(view.labels, selected);
+  state.expressionCustom = [];
+  renderExpressionCustomChips();
+  el.expressionCustomLabel.value = '';
+  el.expressionCustomPrompt.value = '';
+  el.expressionCustomStatus.textContent = '';
+  el.expressionsCount.value = '1';
+  document.querySelector('input[name="expressions-mode"][value="add"]').checked = true;
+  el.expressionsKeepBackground.checked = false;
+  el.expressionsImportFolder.value = view.importTarget?.folderName || '';
+  el.expressionsImportStatus.textContent = '';
+}
+
+function updateExpressionImportTarget(view) {
+  if (!view?.importTarget) {
+    el.expressionsImportTarget.textContent = '';
+    return;
+  }
+  if (view.importTarget.error) {
+    el.expressionsImportTarget.textContent = view.importTarget.error;
+    return;
+  }
+  const directory = view.importTarget.directory || '';
+  const separator = directory.includes('\\') ? '\\' : '/';
+  const folder = el.expressionsImportFolder.value.trim();
+  el.expressionsImportTarget.textContent = folder
+    ? `${directory.replace(/[\\/]+$/, '')}${separator}${folder}`
+    : view.importTarget.path || directory;
+}
+
+/** Paint server results without replacing any control the user can edit. */
+function renderExpressionsPanel(item, view) {
+  const unsupported = item.supports ? !item.supports.expressions : item.kind !== 'npc';
+  el.expressionsPanel.hidden = unsupported;
+  if (unsupported) return;
+
+  if (view && state.expressionFormOwnerId !== item.id) {
+    renderExpressionForm(view);
+    state.expressionFormOwnerId = item.id;
+  }
+
+  const job = view?.job || null;
+  const status = job ? job.status : item.expressionStatus;
+  const running = status === 'running';
+  const anotherPortraitJob = item.regenStatus === 'running'
+    || item.model3dStatus === 'running' || item.animationStatus === 'running';
+  const chosen = selectedExpressionLabels().length + state.expressionCustom.length;
+
+  el.expressionsGenerate.disabled = running || anotherPortraitJob || chosen === 0 || !view;
+  el.expressionsGenerate.textContent = running ? 'Generating…' : 'Generate';
+  el.expressionsCancel.disabled = !running;
+  for (const input of el.expressionsPanel.querySelectorAll('input, button')) {
+    if (input === el.expressionsCancel) continue;
+    if (input === el.expressionsImport) continue;
+    input.disabled = running;
+  }
+  // Generate can also be unavailable for selection/conflict reasons after the
+  // broad running-state pass above.
+  el.expressionsGenerate.disabled = running || anotherPortraitJob || chosen === 0 || !view;
+
+  if (running) {
+    el.expressionsStage.textContent = job?.stage
+      ? `Generating… ${job.stage}` : 'Generating… this can take several minutes per sprite.';
+  } else if (status === 'error') {
+    el.expressionsStage.textContent = `Failed: ${job?.error || 'unknown error'}`;
+  } else if (status === 'done' && state.expressionLastStatus === 'running') {
+    el.expressionsStage.textContent = 'Done.';
+  } else if (status === 'canceled') {
+    el.expressionsStage.textContent = 'Canceled.';
+  } else if (status !== 'done') {
+    el.expressionsStage.textContent = '';
+  }
+  el.expressionsLog.textContent = job?.log || '';
+  state.expressionLastStatus = status ?? null;
+
+  if (view) {
+    el.expressionsSprites.innerHTML = expressionSpriteRowsMarkup(
+      item.id, view.groups, state.expressionDeleteFile);
+    updateExpressionImportTarget(view);
+    const hasFiles = (view.groups || []).some((group) => (group.files || []).length);
+    el.expressionsImport.disabled = running || !hasFiles || !!view.importTarget?.error
+      || !el.expressionsImportFolder.value.trim();
+    for (const button of el.expressionsSprites.querySelectorAll('button')) button.disabled = running;
+  } else {
+    el.expressionsSprites.textContent = '';
+    el.expressionsImportTarget.textContent = '';
+    el.expressionsImport.disabled = true;
+  }
+}
+
+function expressionResponseIsCurrent(id, requestSerial, view) {
+  if (state.detailItemId !== id || requestSerial !== state.expressionRequestSerial) return false;
+  if (state.expressionExpectedJobId
+      && (!view.job || view.job.jobId !== state.expressionExpectedJobId)) return false;
+  return true;
+}
+
+/** Fetch one current view, rejecting both changed-owner and out-of-order GETs. */
+async function refreshExpressions(id) {
+  if (!id) return;
+  const item = state.items.find((entry) => entry.id === id);
+  const unsupported = item
+    && (item.supports ? !item.supports.expressions : item.kind !== 'npc');
+  if (unsupported) return;
+  const requestSerial = ++state.expressionRequestSerial;
+  try {
+    const res = await fetch(`/api/expressions?id=${encodeURIComponent(id)}`);
+    if (!res.ok) return;
+    const view = await res.json();
+    if (!expressionResponseIsCurrent(id, requestSerial, view)) return;
+    state.expressionView = view;
+    state.expressionOwnerId = id;
+    if (view.job && view.job.jobId === state.expressionExpectedJobId
+        && view.job.status !== 'running') state.expressionExpectedJobId = null;
+    if (item) renderExpressionsPanel(item, view);
+  } catch { /* preserve the last useful panel during a transient poll failure */ }
+}
+
+/** Start a normal run or an exact-file Redo using the same guarded path. */
+async function startExpressionJob(body) {
+  const id = body.id;
+  const startSerial = ++state.expressionStartSerial;
+  const res = await fetch('/api/expressions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const job = await res.json();
+  if (!res.ok) throw new Error(job.error || `HTTP ${res.status}`);
+  startPolling();
+  if (state.detailItemId !== id || startSerial !== state.expressionStartSerial) return job;
+  state.expressionExpectedJobId = job.jobId;
+  const item = state.items.find((entry) => entry.id === id);
+  if (item) item.expressionStatus = 'running';
+  state.expressionView = { ...(state.expressionView || {}), job };
+  state.expressionOwnerId = id;
+  if (item) renderDetailFor(item);
+  await refreshItems();
+  await refreshExpressions(id);
+  return job;
+}
+
+function rerenderCurrentExpressions() {
+  const id = state.detailItemId;
+  const item = state.items.find((entry) => entry.id === id);
+  if (item) renderExpressionsPanel(item,
+    state.expressionOwnerId === id ? state.expressionView : null);
+}
+
+el.expressionsAll.addEventListener('click', () => {
+  for (const input of el.expressionsLabels.querySelectorAll('input[type="checkbox"]')) {
+    input.checked = true;
+  }
+  rerenderCurrentExpressions();
+});
+
+el.expressionsNone.addEventListener('click', () => {
+  for (const input of el.expressionsLabels.querySelectorAll('input[type="checkbox"]')) {
+    input.checked = false;
+  }
+  rerenderCurrentExpressions();
+});
+
+el.expressionsMissing.addEventListener('click', () => {
+  const missing = new Set(missingExpressionLabels(state.expressionView || {}));
+  for (const input of el.expressionsLabels.querySelectorAll('input[type="checkbox"]')) {
+    input.checked = missing.has(input.value);
+  }
+  rerenderCurrentExpressions();
+});
+
+el.expressionsLabels.addEventListener('change', rerenderCurrentExpressions);
+
+el.expressionCustomAdd.addEventListener('click', () => {
+  const label = sanitizeExpressionLabel(el.expressionCustomLabel.value);
+  if (!label) {
+    el.expressionCustomStatus.textContent = 'Enter a custom label containing a letter or number.';
+    return;
+  }
+  if (state.expressionCustom.some((entry) => entry.label === label)) {
+    el.expressionCustomStatus.textContent = `Custom expression “${label}” is already in this run.`;
+    return;
+  }
+  state.expressionCustom.push({ label, text: el.expressionCustomPrompt.value.trim() });
+  el.expressionCustomLabel.value = '';
+  el.expressionCustomPrompt.value = '';
+  el.expressionCustomStatus.textContent = '';
+  renderExpressionCustomChips();
+  rerenderCurrentExpressions();
+});
+
+el.expressionCustomChips.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-custom-remove]');
+  if (!button) return;
+  state.expressionCustom.splice(Number(button.dataset.customRemove), 1);
+  renderExpressionCustomChips();
+  rerenderCurrentExpressions();
+});
+
+el.expressionsGenerate.addEventListener('click', async () => {
+  const id = state.detailItemId;
+  if (!id) return;
+  try {
+    const body = expressionJobPayload({
+      id,
+      labels: selectedExpressionLabels(),
+      custom: state.expressionCustom.map((entry) => ({ ...entry })),
+      count: el.expressionsCount.value,
+      mode: document.querySelector('input[name="expressions-mode"]:checked')?.value || 'add',
+      keepBackground: el.expressionsKeepBackground.checked,
+    });
+    if (!body.labels.length && !body.custom.length) {
+      el.expressionsStage.textContent = 'Select at least one expression or add a custom one.';
+      return;
+    }
+    el.expressionsGenerate.disabled = true;
+    el.expressionsStage.textContent = 'Starting…';
+    await startExpressionJob(body);
+  } catch (err) {
+    if (state.detailItemId === id) {
+      el.expressionsStage.textContent = `Couldn't start: ${err.message}`;
+      rerenderCurrentExpressions();
+    }
+  }
+});
+
+el.expressionsCancel.addEventListener('click', async () => {
+  const id = state.detailItemId;
+  if (!id) return;
+  el.expressionsCancel.disabled = true;
+  try {
+    const res = await fetch('/api/expressions/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    const job = await res.json();
+    if (!res.ok) throw new Error(job.error || `HTTP ${res.status}`);
+    if (state.detailItemId !== id
+        || (state.expressionExpectedJobId && job.jobId !== state.expressionExpectedJobId)) return;
+    const item = state.items.find((entry) => entry.id === id);
+    if (item) item.expressionStatus = job.status;
+    state.expressionView = { ...(state.expressionView || {}), job };
+    if (item) renderDetailFor(item);
+    await refreshItems();
+    await refreshExpressions(id);
+  } catch (err) {
+    if (state.detailItemId === id) {
+      el.expressionsStage.textContent = `Couldn't cancel: ${err.message}`;
+      rerenderCurrentExpressions();
+    }
+  }
+});
+
+el.expressionsSprites.addEventListener('click', async (event) => {
+  const button = event.target.closest('button');
+  const id = state.detailItemId;
+  if (!button || !id) return;
+  const item = state.items.find((entry) => entry.id === id);
+  if (!item || item.expressionStatus === 'running') return;
+
+  const redo = button.dataset.expressionRedo;
+  if (redo) {
+    try {
+      el.expressionsStage.textContent = `Starting Redo for ${redo}…`;
+      await startExpressionJob(expressionJobPayload({
+        id, labels: [], custom: [], count: 1, mode: 'add',
+        keepBackground: el.expressionsKeepBackground.checked, file: redo,
+      }));
+    } catch (err) {
+      if (state.detailItemId === id) el.expressionsStage.textContent = `Couldn't redo: ${err.message}`;
+    }
+    return;
+  }
+
+  const ask = button.dataset.expressionDelete;
+  if (ask) {
+    state.expressionDeleteFile = ask;
+    rerenderCurrentExpressions();
+    return;
+  }
+  if (button.dataset.expressionDeleteCancel) {
+    state.expressionDeleteFile = null;
+    rerenderCurrentExpressions();
+    return;
+  }
+  const confirmed = button.dataset.expressionDeleteConfirm;
+  if (!confirmed) return;
+  try {
+    button.disabled = true;
+    await api(`/api/expressions/file?id=${encodeURIComponent(id)}&file=${encodeURIComponent(confirmed)}`,
+      { method: 'DELETE' });
+    if (state.detailItemId !== id) return;
+    state.expressionDeleteFile = null;
+    el.expressionsStage.textContent = `Deleted ${confirmed}.`;
+    await refreshItems();
+    await refreshExpressions(id);
+  } catch (err) {
+    if (state.detailItemId === id) {
+      state.expressionDeleteFile = null;
+      el.expressionsStage.textContent = `Couldn't delete: ${err.message}`;
+      rerenderCurrentExpressions();
+    }
+  }
+});
+
+el.expressionsImportFolder.addEventListener('input', () => {
+  updateExpressionImportTarget(state.expressionView);
+  rerenderCurrentExpressions();
+});
+
+el.expressionsImport.addEventListener('click', async () => {
+  const id = state.detailItemId;
+  if (!id) return;
+  el.expressionsImport.disabled = true;
+  el.expressionsImportStatus.textContent = 'Importing…';
+  try {
+    const result = await api('/api/expressions/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, folderName: el.expressionsImportFolder.value.trim() }),
+    });
+    if (state.detailItemId !== id) return;
+    el.expressionsImportStatus.textContent = `Imported: copied ${result.copied}, replaced ${result.replaced} · ${result.path}`;
+    rerenderCurrentExpressions();
+  } catch (err) {
+    if (state.detailItemId === id) {
+      el.expressionsImportStatus.textContent = `Couldn't import: ${err.message}`;
+      rerenderCurrentExpressions();
+    }
+  }
+});
 
 /**
  * The description picker: the Set... dialog's frame over the Animation
@@ -2433,12 +2912,14 @@ function startPolling() {
         renderDetailFor(openItem);
         await refreshModel3d(state.detailItemId);
         await refreshAnimation(state.detailItemId);
+        await refreshExpressions(state.detailItemId);
       }
     }
 
     const building3d = state.items.some((i) => i.model3dStatus === 'running');
     const animating = state.items.some((i) => i.animationStatus === 'running');
-    const stillPending = building3d || animating || state.items.some((i) =>
+    const expressionsRunning = state.items.some((i) => i.expressionStatus === 'running');
+    const stillPending = building3d || animating || expressionsRunning || state.items.some((i) =>
       i.jobStatus === 'queued' || i.jobStatus === 'sent' || i.regenStatus === 'running');
     // An empty list is not "nothing is pending". generate-npc.py rewrites the
     // whole manifest at the very end of a regen and the server answers [] for a

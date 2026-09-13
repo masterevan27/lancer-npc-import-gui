@@ -860,7 +860,9 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .regen-current-seed { color: var(--text-3); flex: 1; }
 #regen-btn,
 #model3d-btn,
-#animate-btn {
+#animate-btn,
+#expressions-generate,
+#expressions-import {
   background: var(--accent);
   border: none;
   color: white;
@@ -872,10 +874,14 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 }
 #regen-btn:disabled,
 #model3d-btn:disabled,
-#animate-btn:disabled { background: #2c2f38; color: var(--text-disabled); cursor: default; }
+#animate-btn:disabled,
+#expressions-generate:disabled,
+#expressions-import:disabled { background: #2c2f38; color: var(--text-disabled); cursor: default; }
 #regen-btn:hover:not(:disabled):not(.accent),
 #model3d-btn:hover:not(:disabled),
-#animate-btn:hover:not(:disabled):not(.accent) { background: var(--accent-hover); }
+#animate-btn:hover:not(:disabled):not(.accent),
+#expressions-generate:hover:not(:disabled),
+#expressions-import:hover:not(:disabled) { background: var(--accent-hover); }
 /* The one button on the sheet with something outstanding to do. Amber rather
    than a brighter blue: the panel's default blue is already the "go" colour, so
    a louder blue would read as the same button rather than a changed one, and
@@ -1842,6 +1848,157 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   margin: 0.5rem 0 0;
   font-size: 0.75rem;
   color: var(--text-4);
+}
+
+/* Expression generation is denser than the other portrait actions, but keeps
+   their panel vocabulary: compact secondary controls, one blue primary
+   action, and quiet metadata. The defaults wrap into a grid so all 28 remain
+   scannable without making the sheet wider. */
+.expressions-panel { padding-bottom: var(--sp-4); }
+.expressions-picker-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  margin-bottom: var(--sp-2);
+}
+.expressions-picker-head > span { margin-right: auto; font-weight: 600; }
+.expressions-picker-head button,
+.expressions-custom-row button,
+.expression-custom-chip button,
+.expression-sprite-actions button,
+#expressions-cancel {
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  padding: 0.25rem 0.55rem;
+}
+.expressions-picker-head button:hover:not(:disabled),
+.expressions-custom-row button:hover:not(:disabled),
+.expression-custom-chip button:hover:not(:disabled),
+.expression-sprite-actions button:hover:not(:disabled),
+#expressions-cancel:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: var(--line-hover);
+  color: var(--text);
+}
+.expressions-labels {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 0.25rem 0.6rem;
+  margin-bottom: var(--sp-3);
+}
+.expression-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.expressions-custom-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.7fr) minmax(12rem, 1.3fr) auto;
+  gap: var(--sp-2);
+  align-items: end;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+.expressions-custom-row label,
+.expressions-import label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.expressions-custom-row input,
+.expressions-import input,
+#expressions-count {
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+}
+.expression-custom-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0 var(--sp-3);
+}
+.expression-custom-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  padding: 0.2rem 0.25rem 0.2rem 0.6rem;
+}
+.expression-custom-chip strong,
+.expression-custom-chip span { overflow-wrap: anywhere; }
+.expressions-options { padding-top: var(--sp-2); }
+#expressions-count { width: 3.5rem; }
+.expressions-log-details { margin: var(--sp-2) 0; color: var(--text-3); font-size: var(--fs-sm); }
+.expressions-log-details .job-log { margin-top: var(--sp-2); max-height: 12rem; overflow: auto; }
+.expressions-sprites { margin-top: var(--sp-4); border-top: 1px solid var(--line); }
+.expression-sprite-row { padding: var(--sp-3) 0; border-bottom: 1px solid var(--line); }
+.expression-sprite-row h4 { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--text-2); }
+.expression-sprite-list { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+.expression-empty {
+  display: grid;
+  place-items: center;
+  width: 112px;
+  aspect-ratio: 1;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+}
+.expression-sprite { width: 112px; margin: 0; min-width: 0; }
+.expression-image-wrap { position: relative; }
+.expression-sprite img {
+  display: block;
+  width: 112px;
+  height: 112px;
+  object-fit: contain;
+  background: repeating-conic-gradient(#20242c 0% 25%, #191c22 0% 50%) 50% / 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.expression-stale {
+  position: absolute;
+  left: 0.25rem;
+  bottom: 0.25rem;
+  padding: 0.12rem 0.35rem;
+  border-radius: 999px;
+  background: var(--warn);
+  color: var(--on-warn);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+.expression-sprite figcaption { margin-top: 0.3rem; font-size: 0.68rem; color: var(--text-4); overflow-wrap: anywhere; }
+.expression-sprite-actions { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.3rem; }
+.expression-sprite-actions .danger,
+.expression-delete-confirm .danger { color: var(--danger-text); }
+.expression-delete-confirm { display: flex; flex-wrap: wrap; gap: 0.25rem; color: var(--danger-text); }
+.expressions-import { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--line); }
+.expressions-import h4 { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--text-2); }
+.expressions-import input { width: min(100%, 24rem); }
+
+@media (max-width: 700px) {
+  .expressions-custom-row { grid-template-columns: 1fr; }
+  .expressions-labels { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* Backgrounds tab */

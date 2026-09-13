@@ -54,9 +54,11 @@ test('the Animate button posts the checkbox, and the sheet follows the loop on d
         /state\.animationOwnerId !== id && typeof view\.pingpong === 'boolean'[\s\S]{0,120}?el\.animatePingpong\.checked = view\.pingpong/,
         'refreshAnimation does not set the checkbox from the record on a change of owner');
 
-    // Locked while a render runs, the way the seed radios are.
+    // Locked while either portrait consumer runs, the way the seed radios are.
     const panel = /function renderAnimationPanel\([\s\S]*?\n\}/.exec(js);
     assert.ok(panel, 'renderAnimationPanel is no longer a top-level function');
-    assert.match(panel[0], /el\.animatePingpong\.disabled = running/,
-        'the checkbox is not locked while a render is running');
+    assert.match(panel[0], /const blocked = running \|\| item\.expressionStatus === 'running'/,
+        'the animation panel does not include expression rendering in its exclusion state');
+    assert.match(panel[0], /el\.animatePingpong\.disabled = blocked/,
+        'the checkbox is not locked while a render or expression job is running');
 });
