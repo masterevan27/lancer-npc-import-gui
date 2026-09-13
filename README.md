@@ -158,7 +158,11 @@ and open <http://127.0.0.1:5089>.
   portrait and token, check the ones you want, and **Import Selected**.
   Importing copies the files into `foundryDataRoot` for you if they aren't
   there already, so nothing needs pre-staging under your Foundry Data folder by
-  hand. Sort and filter the grid, see when each NPC was generated and the prompt
+  hand. NPC expression sprites and their metadata travel with that copy, so
+  custom-label rows, exact-file Redo, and old-portrait status still work after
+  import. Relocation is refused while that NPC is generating expressions, before
+  any file is copied or its manifest entry moves. Sort and filter the grid, see
+  when each NPC was generated and the prompt
   that produced its art, regenerate art on any of them, and **Delete Selected**
   to remove an NPC's generated files entirely (blocked while an import or regen
   is in flight; never touches an Actor already created in Foundry).
@@ -265,7 +269,8 @@ and open <http://127.0.0.1:5089>.
   and imports only after you click **Import**. The result reports `copied` for
   new filenames and `replaced` for existing safe filenames; matching sprites
   are overwritten, while destination-only files are preserved. No import runs
-  automatically.
+  automatically. If the NPC's default name is not a safe flat folder name, edit
+  it in the box; configuration errors for the characters base remain blocked.
   The trait table also says which image each trait actually reaches. Most
   reach both prompts; the ones that do not carry a pill after their name —
   **Portrait only** (Backdrop, Weather, Glow placement), **Token only**

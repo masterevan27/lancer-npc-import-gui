@@ -82,6 +82,7 @@ const state = {
   expressionRequestSerial: 0,
   expressionStartSerial: 0,
   expressionStartPendingId: null,
+  expressionActionError: null,
   category: null,
   items: [],
   visibleItems: [],
@@ -1950,6 +1951,10 @@ function expressionSpriteActionDisabled(action, item, job, startPendingId) {
   return expressionStartBlocked(item, job, startPendingId);
 }
 
+function setExpressionActionError(id, message) {
+  state.expressionActionError = message ? { id, message } : null;
+}
+
 function selectedExpressionLabels() {
   return [...el.expressionsLabels.querySelectorAll('input[type="checkbox"]:checked')]
     .map((input) => input.value);
@@ -1975,18 +1980,37 @@ function renderExpressionForm(view) {
   el.expressionsImportStatus.textContent = '';
 }
 
+function expressionImportFolderError(folderName) {
+  if (typeof folderName !== 'string' || !folderName.trim()) return 'Folder name must not be empty.';
+  if (folderName.includes('/') || folderName.includes('\\') || folderName.includes('..')) {
+    return 'Folder name must not contain path separators or "..".';
+  }
+  return null;
+}
+
+function expressionConfiguredBaseError(importTarget) {
+  if (!importTarget) return null;
+  return Object.hasOwn(importTarget, 'baseError') ? importTarget.baseError : importTarget.error;
+}
+
 function updateExpressionImportTarget(view) {
   if (!view?.importTarget) {
     el.expressionsImportTarget.textContent = '';
     return;
   }
-  if (view.importTarget.error) {
-    el.expressionsImportTarget.textContent = view.importTarget.error;
+  const baseError = expressionConfiguredBaseError(view.importTarget);
+  if (baseError) {
+    el.expressionsImportTarget.textContent = baseError;
     return;
   }
   const directory = view.importTarget.directory || '';
   const separator = directory.includes('\\') ? '\\' : '/';
   const folder = el.expressionsImportFolder.value.trim();
+  const folderError = expressionImportFolderError(folder);
+  if (folderError) {
+    el.expressionsImportTarget.textContent = folderError;
+    return;
+  }
   el.expressionsImportTarget.textContent = folder
     ? `${directory.replace(/[\\/]+$/, '')}${separator}${folder}`
     : view.importTarget.path || directory;
@@ -2024,7 +2048,11 @@ function renderExpressionsPanel(item, view) {
   // broad running-state pass above.
   el.expressionsGenerate.disabled = expressionBusy || anotherPortraitJob || chosen === 0 || !view;
 
-  if (running) {
+  const actionError = state.expressionActionError?.id === item.id
+    ? state.expressionActionError.message : null;
+  if (actionError) {
+    el.expressionsStage.textContent = actionError;
+  } else if (running) {
     el.expressionsStage.textContent = job?.stage
       ? `Generating… ${job.stage}` : 'Generating… this can take several minutes per sprite.';
   } else if (status === 'error') {
@@ -2044,8 +2072,9 @@ function renderExpressionsPanel(item, view) {
       item.id, view.groups, state.expressionDeleteFile);
     updateExpressionImportTarget(view);
     const hasFiles = (view.groups || []).some((group) => (group.files || []).length);
-    el.expressionsImport.disabled = expressionBusy || !hasFiles || !!view.importTarget?.error
-      || !el.expressionsImportFolder.value.trim();
+    const importFolderError = expressionImportFolderError(el.expressionsImportFolder.value.trim());
+    const importBaseError = expressionConfiguredBaseError(view.importTarget);
+    el.expressionsImport.disabled = expressionBusy || !hasFiles || !!importBaseError || !!importFolderError;
     for (const button of el.expressionsSprites.querySelectorAll('button')) {
       const action = button.dataset.expressionRedo ? 'redo' : 'delete';
       button.disabled = expressionSpriteActionDisabled(
@@ -2098,6 +2127,7 @@ async function startExpressionJob(body) {
     throw new Error('A portrait job is already running.');
   }
   const startSerial = ++state.expressionStartSerial;
+  setExpressionActionError(id, null);
   state.expressionStartPendingId = id;
   rerenderCurrentExpressions();
   try {
@@ -2119,6 +2149,12 @@ async function startExpressionJob(body) {
     await refreshItems();
     await refreshExpressions(id);
     return job;
+  } catch (err) {
+    if (startSerial === state.expressionStartSerial) {
+      setExpressionActionError(id, `Couldn't start: ${err.message}`);
+      if (state.detailItemId === id) rerenderCurrentExpressions();
+    }
+    throw err;
   } finally {
     if (startSerial === state.expressionStartSerial
         && state.expressionStartPendingId === id) {
@@ -2198,7 +2234,8 @@ el.expressionsGenerate.addEventListener('click', async () => {
       keepBackground: el.expressionsKeepBackground.checked,
     });
     if (!body.labels.length && !body.custom.length) {
-      el.expressionsStage.textContent = 'Select at least one expression or add a custom one.';
+      setExpressionActionError(id, 'Select at least one expression or add a custom one.');
+      rerenderCurrentExpressions();
       return;
     }
     el.expressionsGenerate.disabled = true;
@@ -2206,7 +2243,7 @@ el.expressionsGenerate.addEventListener('click', async () => {
     await startExpressionJob(body);
   } catch (err) {
     if (state.detailItemId === id) {
-      el.expressionsStage.textContent = `Couldn't start: ${err.message}`;
+      setExpressionActionError(id, `Couldn't start: ${err.message}`);
       rerenderCurrentExpressions();
     }
   }
@@ -2215,6 +2252,7 @@ el.expressionsGenerate.addEventListener('click', async () => {
 el.expressionsCancel.addEventListener('click', async () => {
   const id = state.detailItemId;
   if (!id) return;
+  setExpressionActionError(id, null);
   el.expressionsCancel.disabled = true;
   try {
     const res = await fetch('/api/expressions/cancel', {
@@ -2234,7 +2272,7 @@ el.expressionsCancel.addEventListener('click', async () => {
     await refreshExpressions(id);
   } catch (err) {
     if (state.detailItemId === id) {
-      el.expressionsStage.textContent = `Couldn't cancel: ${err.message}`;
+      setExpressionActionError(id, `Couldn't cancel: ${err.message}`);
       rerenderCurrentExpressions();
     }
   }
@@ -2253,13 +2291,17 @@ el.expressionsSprites.addEventListener('click', async (event) => {
     if (expressionSpriteActionDisabled(
       'redo', item, viewJob, state.expressionStartPendingId)) return;
     try {
+      setExpressionActionError(id, null);
       el.expressionsStage.textContent = `Starting Redo for ${redo}…`;
       await startExpressionJob(expressionJobPayload({
         id, labels: [], custom: [], count: 1, mode: 'add',
         keepBackground: el.expressionsKeepBackground.checked, file: redo,
       }));
     } catch (err) {
-      if (state.detailItemId === id) el.expressionsStage.textContent = `Couldn't redo: ${err.message}`;
+      if (state.detailItemId === id) {
+        setExpressionActionError(id, `Couldn't redo: ${err.message}`);
+        rerenderCurrentExpressions();
+      }
     }
     return;
   }
@@ -2280,6 +2322,7 @@ el.expressionsSprites.addEventListener('click', async (event) => {
   const confirmed = button.dataset.expressionDeleteConfirm;
   if (!confirmed) return;
   try {
+    setExpressionActionError(id, null);
     button.disabled = true;
     await api(`/api/expressions/file?id=${encodeURIComponent(id)}&file=${encodeURIComponent(confirmed)}`,
       { method: 'DELETE' });
@@ -2291,7 +2334,7 @@ el.expressionsSprites.addEventListener('click', async (event) => {
   } catch (err) {
     if (state.detailItemId === id) {
       state.expressionDeleteFile = null;
-      el.expressionsStage.textContent = `Couldn't delete: ${err.message}`;
+      setExpressionActionError(id, `Couldn't delete: ${err.message}`);
       rerenderCurrentExpressions();
     }
   }
@@ -2305,6 +2348,7 @@ el.expressionsImportFolder.addEventListener('input', () => {
 el.expressionsImport.addEventListener('click', async () => {
   const id = state.detailItemId;
   if (!id) return;
+  setExpressionActionError(id, null);
   el.expressionsImport.disabled = true;
   el.expressionsImportStatus.textContent = 'Importing…';
   try {
@@ -5529,6 +5573,10 @@ const tablesState = {
   odds: null,          // the last settled /api/table-odds report, or null
   oddsStale: false,    // an edit has landed that the settled odds predate
   oddsReason: null,    // why the last run failed, or null
+  tableRequest: 0,
+  presetRequest: 0,
+  oddsRequest: 0,
+  oddsTimer: null,
 };
 
 const elTables = {
@@ -5556,16 +5604,42 @@ const elTables = {
  * at all for this: every route below already reads `?kind=` and resolves its
  * own tables file server-side, so the client only has to ask again.
  */
-elTables.kindSelect.addEventListener('change', () => {
-  if (!elTables.preview.hidden) cancelPresetPreview();
-  tablesState.kind = elTables.kindSelect.value;
+function beginTablesKindLoad(kind) {
+  tablesState.kind = kind;
+  tablesState.tableRequest += 1;
+  tablesState.presetRequest += 1;
+  tablesState.oddsRequest += 1;
+  clearTimeout(tablesState.oddsTimer);
+  tablesState.oddsTimer = null;
+  tablesState.tables = [];
+  tablesState.groups = [];
+  tablesState.flags = {};
+  tablesState.parents = {};
+  tablesState.presets = [];
   tablesState.selectedTable = null;
   tablesState.odds = null;
   tablesState.oddsStale = false;
   tablesState.oddsReason = null;
-  tablesState.capabilities = { odds: true };
+  // Disabled until the selected kind's response establishes its capabilities.
+  tablesState.capabilities = { odds: false };
   tablesState.pendingPreset = null;
+  elTables.headingList.innerHTML = '';
+  elTables.bulletHeading.textContent = '';
+  elTables.bulletList.innerHTML = '';
+  elTables.presetList.innerHTML = '';
+  elTables.presetList.textContent = 'Loading…';
+  elTables.empty.hidden = false;
+  elTables.empty.textContent = 'Loading…';
+  elTables.saveBtn.disabled = true;
+  elTables.importInput.disabled = true;
+}
+
+elTables.kindSelect.addEventListener('change', () => {
+  if (!elTables.preview.hidden) cancelPresetPreview();
+  beginTablesKindLoad(elTables.kindSelect.value);
+  const kind = tablesState.kind;
   loadTables().catch((err) => {
+    if (tablesState.kind !== kind) return;
     elTables.empty.hidden = false;
     elTables.empty.textContent = `Failed to load: ${err.message}`;
   });
@@ -5573,7 +5647,10 @@ elTables.kindSelect.addEventListener('change', () => {
 });
 
 async function loadTables() {
+  const kind = tablesState.kind;
+  const request = ++tablesState.tableRequest;
   const { groups, flags, capabilities } = await api(`/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`);
+  if (kind !== tablesState.kind || request !== tablesState.tableRequest) return false;
   tablesState.groups = groups;
   // An older server did not send this field; retain its historic odds UI in
   // that case, but never ask a new server to sample a tables-only kind.
@@ -5593,6 +5670,9 @@ async function loadTables() {
   // including the next renderTableHeadingList() rebuild.
   const tables = groups.flatMap((g) => g.rows.map((r) => r.table));
   tablesState.tables = tables;
+  elTables.saveBtn.disabled = false;
+  elTables.importInput.disabled = false;
+  elTables.empty.textContent = '';
   elTables.empty.hidden = tables.length > 0;
   if (!tablesState.selectedTable || !tables.some((t) => t.name === tablesState.selectedTable)) {
     tablesState.selectedTable = tables[0]?.name ?? null;
@@ -5604,6 +5684,7 @@ async function loadTables() {
   // what makes the odds follow a trait import with no plumbing of its own -
   // importing rewrites the tables file, and coming back to this tab reloads.
   refreshOdds();
+  return true;
 }
 
 function renderTableHeadingList() {
@@ -6055,28 +6136,31 @@ function renderChanceNote(table) {
  * run and not thirty. A run costs a Python process and several seconds.
  */
 const ODDS_DEBOUNCE_MS = 1000;
-let oddsTimer = null;
-let oddsRequest = 0;
 
 function queueOdds() {
   if (!tablesState.capabilities.odds) return;
   tablesState.oddsStale = true;
   renderChances();
-  clearTimeout(oddsTimer);
-  oddsTimer = setTimeout(refreshOdds, ODDS_DEBOUNCE_MS);
+  clearTimeout(tablesState.oddsTimer);
+  const kind = tablesState.kind;
+  tablesState.oddsTimer = setTimeout(() => {
+    tablesState.oddsTimer = null;
+    if (tablesState.kind === kind) refreshOdds();
+  }, ODDS_DEBOUNCE_MS);
 }
 
 async function refreshOdds() {
   if (!tablesState.capabilities.odds) return;
-  const mine = ++oddsRequest;
+  const kind = tablesState.kind;
+  const mine = ++tablesState.oddsRequest;
   let result;
   try {
-    result = await api(`/api/table-odds?kind=${encodeURIComponent(tablesState.kind)}`);
+    result = await api(`/api/table-odds?kind=${encodeURIComponent(kind)}`);
   } catch (err) {
     result = { ok: false, reason: err.message };
   }
   // A slower earlier run must not overwrite a newer one's answer.
-  if (mine !== oddsRequest) return;
+  if (mine !== tablesState.oddsRequest || kind !== tablesState.kind) return;
 
   if (result.ok) {
     tablesState.odds = result;
@@ -6187,12 +6271,17 @@ async function setBulletWeight(tableName, bullet, inputEl) {
 /* ==================================================================== */
 
 async function loadPresets() {
-  const { presets } = await api(`/api/presets?kind=${encodeURIComponent(tablesState.kind)}`);
+  const kind = tablesState.kind;
+  const request = ++tablesState.presetRequest;
+  const { presets } = await api(`/api/presets?kind=${encodeURIComponent(kind)}`);
+  if (kind !== tablesState.kind || request !== tablesState.presetRequest) return false;
   tablesState.presets = presets;
-  renderPresetList();
+  renderPresetList(kind);
+  return true;
 }
 
-function renderPresetList() {
+function renderPresetList(kind = tablesState.kind) {
+  if (kind !== tablesState.kind) return;
   elTables.presetList.innerHTML = '';
   if (!tablesState.presets.length) {
     elTables.presetList.textContent = 'No saved presets yet.';
@@ -6228,19 +6317,20 @@ function renderPresetList() {
     del.type = 'button';
     del.className = 'danger';
     del.textContent = 'Delete';
-    del.addEventListener('click', () => deletePresetRow(preset.slug));
+    del.addEventListener('click', () => deletePresetRow(preset.slug, kind));
     row.appendChild(del);
 
     elTables.presetList.appendChild(row);
   }
 }
 
-async function deletePresetRow(slug) {
+async function deletePresetRow(slug, kind = tablesState.kind) {
+  if (kind !== tablesState.kind) return;
   if (!confirm('Delete this preset? This cannot be undone.')) return;
   await api('/api/presets/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kind: tablesState.kind, slug }),
+    body: JSON.stringify({ kind, slug }),
   });
   await loadPresets();
 }

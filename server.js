@@ -56,7 +56,12 @@ const presets = require('./lib/presets');
 const createPresets = require('./lib/createPresets');
 const { derivePaths } = require('./lib/paths');
 const { buildKinds, kindFor, kindOf, requestKind, available, DEFAULT_KIND } = require('./lib/kinds');
-const { DEFAULT_EXPRESSION_LABELS, classifyExpressionFiles, expressionArgs } = require('./lib/expressions');
+const {
+    DEFAULT_EXPRESSION_LABELS,
+    classifyExpressionFiles,
+    expressionArgs,
+    expressionJobAcceptsOutput,
+} = require('./lib/expressions');
 const expressionFiles = require('./lib/expression-files');
 const pronouns = require('./lib/pronouns');
 const traitOptions = require('./lib/traitOptions');
@@ -376,6 +381,63 @@ function foundryDestFolder(item) {
     return path.join(config.foundryDataRoot, kind.foundrySubdir, category, name);
 }
 
+function copyExpressionsIntoFoundry(item, dest, sourcePortraitMtime, destinationPortraitMtime) {
+    const names = expressionFiles.listSprites(item.folderPath);
+    if (!names.length) return;
+
+    const sourceSidecar = expressionFiles.readSidecar(item.folderPath);
+    const destinationPortrait = item.portrait ? path.join(dest, item.portrait) : null;
+    const destinationPath = expressionFiles.expressionDirectory(dest);
+    let destinationEntry = null;
+    try {
+        destinationEntry = fs.lstatSync(destinationPath);
+    } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+    }
+    if (!destinationEntry) fs.mkdirSync(destinationPath);
+    const destination = expressionFiles.safeExpressionDirectory(dest);
+    if (!destination) throw new Error('unsafe expressions directory in Foundry destination');
+    const sidecar = expressionFiles.readSidecar(dest);
+
+    for (const name of names) {
+        const source = expressionFiles.resolveSprite(item.folderPath, name);
+        if (source.error) continue;
+        const target = path.join(destination, name);
+        let targetEntry = null;
+        try {
+            targetEntry = fs.lstatSync(target);
+        } catch (err) {
+            if (err.code !== 'ENOENT') throw err;
+        }
+        if (targetEntry) {
+            if (targetEntry.isSymbolicLink() || !targetEntry.isFile()) {
+                throw new Error(`${name} is not a safe file inside the Foundry expressions directory`);
+            }
+            const targetReal = fs.realpathSync(target);
+            if (!expressionFiles.isInside(destination, targetReal)) {
+                throw new Error(`${name} is not a safe file inside the Foundry expressions directory`);
+            }
+        }
+        fs.copyFileSync(source.real, target);
+
+        const sourceEntry = sourceSidecar[name];
+        if (!sourceEntry || typeof sourceEntry !== 'object' || Array.isArray(sourceEntry)) {
+            delete sidecar[name];
+            continue;
+        }
+        const migrated = expressionFiles.migrateSidecarEntry(
+            sourceEntry,
+            sourcePortraitMtime,
+            destinationPortraitMtime,
+            destinationPortrait,
+        );
+        Object.defineProperty(sidecar, name, {
+            value: migrated, enumerable: true, configurable: true, writable: true,
+        });
+    }
+    expressionFiles.writeSidecarAtomic(dest, sidecar);
+}
+
 /**
  * Copies an item's files into foundryDataRoot and repoints its manifest
  * entry at the copy, in place. The manifest's own key *is* the folder path
@@ -387,6 +449,9 @@ function foundryDestFolder(item) {
  */
 function copyIntoFoundry(item) {
     const dest = foundryDestFolder(item);
+    const sourcePortrait = itemFile(item, 'portrait');
+    let sourcePortraitMtime = null;
+    try { sourcePortraitMtime = sourcePortrait ? fs.statSync(sourcePortrait).mtimeMs : null; } catch { /* optional */ }
     fs.mkdirSync(dest, { recursive: true });
     // The animation pair too, when there is one. It is not in the manifest's
     // file list - generate-npc.py never wrote it - and a portrait that moved
@@ -396,6 +461,10 @@ function copyIntoFoundry(item) {
         const src = path.join(item.folderPath, file);
         if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dest, file));
     }
+    const destinationPortrait = item.portrait && path.join(dest, item.portrait);
+    const destinationPortraitMtime = destinationPortrait && fs.existsSync(destinationPortrait)
+        ? fs.statSync(destinationPortrait).mtimeMs : null;
+    copyExpressionsIntoFoundry(item, dest, sourcePortraitMtime, destinationPortraitMtime);
 
     const raw = fs.readFileSync(config.npcManifestPath, 'utf8');
     const parsed = JSON.parse(raw);
@@ -1484,6 +1553,8 @@ function expressionImportTarget(item, folderName = item.name) {
         path: SILLYTAVERN_CHARACTERS_DIR && !nameError
             ? path.join(SILLYTAVERN_CHARACTERS_DIR, folderName) : '',
         error: baseError || nameError,
+        baseError,
+        folderError: nameError,
     };
 }
 
@@ -1548,6 +1619,19 @@ function startExpressionJob(item, options) {
     if (!portrait || !expressionFiles.resolveFileInside(item.folderPath, portrait)) {
         return { ok: false, status: 400, error: 'this NPC has no safe portrait on disk to render expressions from' };
     }
+    const outputDirectory = expressionFiles.expressionDirectory(item.folderPath);
+    let outputExists = false;
+    try {
+        fs.lstatSync(outputDirectory);
+        outputExists = true;
+    } catch (err) {
+        if (err.code !== 'ENOENT') {
+            return { ok: false, status: 400, error: `unsafe expressions output directory: ${err.message}` };
+        }
+    }
+    if (outputExists && !expressionFiles.safeExpressionDirectory(item.folderPath)) {
+        return { ok: false, status: 400, error: 'unsafe expressions output directory' };
+    }
     if (options.count !== undefined
         && (!Number.isInteger(options.count) || options.count < 1 || options.count > 8)) {
         return { ok: false, status: 400, error: 'count must be an integer between 1 and 8' };
@@ -1590,7 +1674,7 @@ function startExpressionJob(item, options) {
         return { ok: true, job: expressionJobView(job) };
     }
 
-    const current = () => expressionJobsByItemId.get(item.id)?.jobId === jobId;
+    const current = () => expressionJobAcceptsOutput(job, expressionJobsByItemId.get(item.id));
     const remember = (chunk) => {
         if (!current()) return;
         job.log = (job.log + chunk.toString()).slice(-EXPRESSION_LOG_LIMIT);
@@ -3522,6 +3606,9 @@ async function handleApi(req, res, url) {
                 return { id, queued: false, reason: 'kind cannot be imported' };
             }
             if (!isImportable(item)) return { id, queued: false, reason: 'source files missing on disk' };
+            if (expressionJobsByItemId.get(item.id)?.status === 'running') {
+                return { id, queued: false, reason: 'expression sprites are rendering - try again once they finish' };
+            }
             if (!isUnderFoundryRoot(item)) {
                 const regenJob = regenJobsByItemId.get(item.id);
                 if (regenJob?.status === 'running') {

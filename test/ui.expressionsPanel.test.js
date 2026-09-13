@@ -223,6 +223,8 @@ test('the panel treats a running item as newer than a stale done detail job', as
         renderExpressionForm: () => { throw new Error('same owner must not reset the form'); },
         expressionSpriteRowsMarkup: () => '<sprite-row>',
         updateExpressionImportTarget: () => {},
+        expressionImportFolderError: () => null,
+        expressionConfiguredBaseError: () => null,
         expressionJobRunning: liftFunction(js, 'expressionJobRunning'),
         expressionSpriteActionDisabled: liftFunction(js, 'expressionSpriteActionDisabled', {
             expressionJobRunning: liftFunction(js, 'expressionJobRunning'),
@@ -269,6 +271,7 @@ test('the shared expression starter closes the double-click window for Generate 
     const start = liftAsyncFunction(js, 'startExpressionJob', {
         state,
         expressionStartBlocked,
+        setExpressionActionError: () => {},
         fetch: async () => { fetchCalls += 1; return response; },
         startPolling: () => {},
         rerenderCurrentExpressions: () => { rerenders += 1; },
@@ -289,6 +292,77 @@ test('the shared expression starter closes the double-click window for Generate 
     assert.ok(rerenders >= 2, 'sprite actions must repaint when pending starts and ends');
     await assert.rejects(start({ id: 'n1' }), /already running/i);
     assert.equal(fetchCalls, 1, 'a stale panel must not send another POST for a running item');
+});
+
+test('failed expression actions survive repaint only for their owning NPC and success clears them', async (t) => {
+    const { js } = await served(t);
+    const state = {
+        detailItemId: 'n1', expressionStartSerial: 0, expressionStartPendingId: null,
+        expressionExpectedJobId: null, expressionView: { groups: [], job: null },
+        expressionOwnerId: 'n1', expressionFormOwnerId: 'n1', expressionCustom: [],
+        expressionLastStatus: null, expressionDeleteFile: null, expressionActionError: null,
+        items: [{
+            id: 'n1', kind: 'npc', supports: { expressions: true }, expressionStatus: null,
+            regenStatus: null, model3dStatus: null, animationStatus: null,
+        }, {
+            id: 'n2', kind: 'npc', supports: { expressions: true }, expressionStatus: null,
+            regenStatus: null, model3dStatus: null, animationStatus: null,
+        }],
+    };
+    const setExpressionActionError = liftFunction(js, 'setExpressionActionError', { state });
+    let rerenders = 0;
+    const expressionJobRunning = liftFunction(js, 'expressionJobRunning');
+    const expressionStartBlocked = liftFunction(js, 'expressionStartBlocked', { expressionJobRunning });
+    const start = liftAsyncFunction(js, 'startExpressionJob', {
+        state, expressionStartBlocked, setExpressionActionError,
+        fetch: async () => ({
+            ok: false, status: 400,
+            json: async () => ({ error: 'count must be an integer between 1 and 8' }),
+        }),
+        startPolling: () => {},
+        rerenderCurrentExpressions: () => { rerenders += 1; },
+        renderDetailFor: () => {}, refreshItems: async () => {}, refreshExpressions: async () => {},
+    });
+    await assert.rejects(start({ id: 'n1', labels: ['joy'], count: 9 }), /between 1 and 8/);
+    assert.deepEqual(state.expressionActionError, {
+        id: 'n1', message: "Couldn't start: count must be an integer between 1 and 8",
+    });
+    assert.ok(rerenders >= 2, 'the failed POST path must repaint after pending state clears');
+
+    const el = {
+        expressionsPanel: { hidden: false, querySelectorAll: () => [] },
+        expressionsGenerate: { disabled: false, textContent: '' }, expressionsCancel: { disabled: true },
+        expressionsImport: { disabled: true }, expressionsStage: { textContent: '' },
+        expressionsLog: { textContent: '' },
+        expressionsSprites: { innerHTML: '', textContent: '', querySelectorAll: () => [] },
+        expressionsImportFolder: { value: 'Vex' }, expressionsImportTarget: { textContent: '' },
+    };
+    const render = liftFunction(js, 'renderExpressionsPanel', {
+        el, state, selectedExpressionLabels: () => ['joy'], renderExpressionForm: () => {},
+        expressionSpriteRowsMarkup: () => '', updateExpressionImportTarget: () => {},
+        expressionImportFolderError: () => null, expressionConfiguredBaseError: () => null,
+        expressionJobRunning, expressionSpriteActionDisabled: () => false,
+    });
+    const view = {
+        labels: ['joy'], groups: [{ label: 'joy', files: [] }], job: null,
+        importTarget: { error: null, baseError: null },
+    };
+    render(state.items[0], view);
+    render(state.items[0], view);
+    assert.match(el.expressionsStage.textContent, /Couldn't start:.*count/);
+    render(state.items[1], view);
+    assert.equal(el.expressionsStage.textContent, '', 'n1 error leaked to n2');
+
+    for (const message of ["Couldn't cancel: no job", "Couldn't delete: disk denied"]) {
+        setExpressionActionError('n1', message);
+        render(state.items[0], view);
+        render(state.items[0], view);
+        assert.equal(el.expressionsStage.textContent, message);
+    }
+
+    setExpressionActionError('n1', null);
+    render(state.items[0], view);
+    assert.equal(el.expressionsStage.textContent, '');
 });
 
 test('generate, redo, cancel and delete use the expression endpoints and refresh safely', async (t) => {
@@ -366,10 +440,73 @@ test('poll refreshes do not rebuild unsent labels, chips, count, mode or folder 
 test('the SillyTavern import is explicit and reports target, counts and path', async (t) => {
     const { js } = await served(t);
     const panel = liftSource(js, 'renderExpressionsPanel');
-    assert.match(panel, /view\.importTarget\?\.error/);
+    assert.match(panel, /expressionConfiguredBaseError\(view\.importTarget\)/);
+    assert.match(panel, /expressionImportFolderError/);
     assert.match(liftSource(js, 'updateExpressionImportTarget'), /view\.importTarget\.path/);
     const handler = /el\.expressionsImport\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
     assert.ok(handler, 'no explicit Import button handler');
     assert.match(handler[0], /copied \$\{result\.copied\}, replaced \$\{result\.replaced\}/);
     assert.match(handler[0], /result\.path/);
+});
+
+test('an edited safe folder overrides only the default-name error, not a configured-base error', async (t) => {
+    const { js } = await served(t);
+    const folderError = liftFunction(js, 'expressionImportFolderError');
+    const configuredError = liftFunction(js, 'expressionConfiguredBaseError');
+    assert.equal(folderError('Safe Folder'), null);
+    assert.match(folderError('Vex..Alt'), /\.\./);
+    assert.equal(configuredError({ error: 'bad default', baseError: null }), null);
+    assert.equal(configuredError({ error: 'old server error' }), 'old server error');
+
+    const formControl = { disabled: false };
+    const el = {
+        expressionsPanel: { hidden: false, querySelectorAll: () => [formControl] },
+        expressionsGenerate: { disabled: false, textContent: '' },
+        expressionsCancel: { disabled: true },
+        expressionsImport: { disabled: true },
+        expressionsStage: { textContent: '' },
+        expressionsLog: { textContent: '' },
+        expressionsSprites: { innerHTML: '', textContent: '', querySelectorAll: () => [] },
+        expressionsImportFolder: { value: 'Safe Folder' },
+        expressionsImportTarget: { textContent: '' },
+    };
+    const state = {
+        expressionFormOwnerId: 'n1', expressionStartPendingId: null,
+        expressionCustom: [], expressionLastStatus: null, expressionDeleteFile: null,
+        expressionActionError: null,
+    };
+    const updateExpressionImportTarget = liftFunction(js, 'updateExpressionImportTarget', {
+        el, expressionImportFolderError: folderError, expressionConfiguredBaseError: configuredError,
+    });
+    const expressionJobRunning = liftFunction(js, 'expressionJobRunning');
+    const render = liftFunction(js, 'renderExpressionsPanel', {
+        el, state,
+        selectedExpressionLabels: () => ['joy'],
+        renderExpressionForm: () => {},
+        expressionSpriteRowsMarkup: () => '',
+        updateExpressionImportTarget,
+        expressionImportFolderError: folderError,
+        expressionConfiguredBaseError: configuredError,
+        expressionJobRunning,
+        expressionSpriteActionDisabled: () => false,
+    });
+    const item = {
+        id: 'n1', kind: 'npc', supports: { expressions: true },
+        expressionStatus: null, regenStatus: null, model3dStatus: null, animationStatus: null,
+    };
+    const view = {
+        labels: ['joy'], groups: [{ label: 'joy', files: [{ file: 'joy.webp' }] }], job: null,
+        importTarget: {
+            directory: 'characters', folderName: 'Vex..Alt', path: '',
+            error: 'folderName must not contain ".."', baseError: null,
+        },
+    };
+    render(item, view);
+    assert.equal(el.expressionsImportTarget.textContent, 'characters/Safe Folder');
+    assert.equal(el.expressionsImport.disabled, false);
+
+    view.importTarget.baseError = 'sillyTavernCharactersDir is not a folder: missing';
+    render(item, view);
+    assert.equal(el.expressionsImportTarget.textContent, view.importTarget.baseError);
+    assert.equal(el.expressionsImport.disabled, true);
 });

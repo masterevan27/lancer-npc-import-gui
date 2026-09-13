@@ -46,6 +46,8 @@ test('import copies classified sprites, distinguishes new and replaced, and leav
     const { server, expressions, base } = await fixture(t);
     fs.writeFileSync(path.join(expressions, 'joy.webp'), 'NEW-JOY');
     fs.writeFileSync(path.join(expressions, 'anger.webp'), 'ANGER');
+    fs.writeFileSync(path.join(expressions, 'constructor.webp'), 'CONSTRUCTOR');
+    fs.writeFileSync(path.join(expressions, '__proto__.webp'), 'PROTO');
     fs.writeFileSync(path.join(expressions, 'expressions.json'), '{}');
     fs.writeFileSync(path.join(expressions, 'notes.txt'), 'NO');
     const destination = path.join(base, NPC_NAME);
@@ -55,9 +57,11 @@ test('import copies classified sprites, distinguishes new and replaced, and leav
 
     const result = await postImport(server, { id: NPC_ID, folderName: NPC_NAME });
     assert.equal(result.status, 200, JSON.stringify(result.body));
-    assert.deepEqual(result.body, { copied: 1, replaced: 1, path: destination });
+    assert.deepEqual(result.body, { copied: 3, replaced: 1, path: destination });
     assert.equal(fs.readFileSync(path.join(destination, 'joy.webp'), 'utf8'), 'NEW-JOY');
     assert.equal(fs.readFileSync(path.join(destination, 'anger.webp'), 'utf8'), 'ANGER');
+    assert.equal(fs.readFileSync(path.join(destination, 'constructor.webp'), 'utf8'), 'CONSTRUCTOR');
+    assert.equal(fs.readFileSync(path.join(destination, '__proto__.webp'), 'utf8'), 'PROTO');
     assert.equal(fs.readFileSync(path.join(destination, 'love.webp'), 'utf8'), 'LOVE');
     assert.equal(fs.existsSync(path.join(destination, 'notes.txt')), false);
 });
@@ -69,6 +73,23 @@ test('import rejects empty, traversal, and separator folder names without copyin
         assert.equal(result.status, 400, `${JSON.stringify(folderName)}: ${JSON.stringify(result.body)}`);
     }
     assert.deepEqual(fs.readdirSync(base), []);
+});
+
+test('editing an invalid default NPC name to a safe folder enables import', async (t) => {
+    const { server, expressions, base, folder } = await fixture(t);
+    fs.writeFileSync(path.join(expressions, 'joy.webp'), 'JOY');
+    const manifest = JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'));
+    manifest[folder].name = 'Vex..Alt';
+    fs.writeFileSync(server.manifestPath, JSON.stringify(manifest));
+
+    const view = await (await fetch(`${server.baseUrl}/api/expressions?id=${NPC_ID}`)).json();
+    assert.equal(view.importTarget.folderName, 'Vex..Alt');
+    assert.match(view.importTarget.error, /\.\./);
+    assert.equal(view.importTarget.baseError, null);
+
+    const result = await postImport(server, { id: NPC_ID, folderName: 'Safe Folder' });
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(fs.readFileSync(path.join(base, 'Safe Folder', 'joy.webp'), 'utf8'), 'JOY');
 });
 
 test('unset and non-directory SillyTavern bases return actionable errors', async (t) => {

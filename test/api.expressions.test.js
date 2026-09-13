@@ -120,6 +120,8 @@ test('GET groups default and custom sprites, merges lenient sidecar data, and ma
     assert.deepEqual(view.importTarget, {
         directory: '', folderName: NPC_NAME, path: '',
         error: 'set sillyTavernCharactersDir in config.json to SillyTavern\'s data/<user>/characters folder',
+        baseError: 'set sillyTavernCharactersDir in config.json to SillyTavern\'s data/<user>/characters folder',
+        folderError: null,
     });
 
     const items = (await jsonRequest(server, '/api/items?category=npc')).body.items;
@@ -127,6 +129,31 @@ test('GET groups default and custom sprites, merges lenient sidecar data, and ma
     assert.equal(item.hasExpressions, true);
     assert.equal(item.expressionCount, 3);
     assert.equal(item.expressionStatus, null);
+});
+
+test('prototype-named sprites remain usable through items, list, image, and delete APIs', async (t) => {
+    const { server } = await startWithStub(t, 'process.exit(0);');
+    const folder = seedItem(server);
+    const expressions = path.join(folder, 'expressions');
+    fs.mkdirSync(expressions);
+    fs.writeFileSync(path.join(expressions, 'constructor.webp'), 'CONSTRUCTOR');
+    fs.writeFileSync(path.join(expressions, '__proto__.webp'), 'PROTO');
+
+    const items = (await jsonRequest(server, '/api/items?category=npc')).body.items;
+    assert.equal(items.find((item) => item.id === NPC_ID).expressionCount, 2);
+    const view = await expressionView(server);
+    assert.deepEqual(view.groups.find((group) => group.label === 'constructor').files
+        .map((file) => file.file), ['constructor.webp']);
+    assert.deepEqual(view.groups.find((group) => group.label === '__proto__').files
+        .map((file) => file.file), ['__proto__.webp']);
+
+    const image = await fetch(`${server.baseUrl}/api/expression-image?id=${NPC_ID}&file=constructor.webp`);
+    assert.equal(image.status, 200);
+    assert.equal(await image.text(), 'CONSTRUCTOR');
+    const removed = await jsonRequest(server,
+        `/api/expressions/file?id=${NPC_ID}&file=constructor.webp`, { method: 'DELETE' });
+    assert.equal(removed.status, 200, JSON.stringify(removed.body));
+    assert.equal(fs.existsSync(path.join(expressions, 'constructor.webp')), false);
 });
 
 test('POST validates before spawning and only supports NPCs', async (t) => {
@@ -306,6 +333,33 @@ test('cancel permits a new job and stale callbacks cannot complete the replaceme
     assert.equal((await settle(server)).job.status, 'done');
 });
 
+test('output buffered after cancellation cannot mutate the canceled job', async (t) => {
+    const source = [
+        'const fs = require("node:fs"); const path = require("node:path");',
+        'const { spawn } = require("node:child_process");',
+        'process.stdout.write("before cancel\\n");',
+        'spawn(process.execPath, ["-e", "setTimeout(() => { process.stdout.write(\\"after cancel\\\\n\\"); process.stderr.write(\\"stderr after cancel\\\\n\\"); }, 150)"],',
+        '  { stdio: ["ignore", "inherit", "inherit"] });',
+        'fs.writeFileSync(path.join(__dirname, "ready"), "yes");',
+        'setTimeout(() => process.exit(0), 2000);',
+    ].join('\n');
+    const { server, stubDir } = await startWithStub(t, source);
+    seedItem(server);
+    assert.equal((await post(server, '/api/expressions', { id: NPC_ID, labels: ['joy'] })).status, 202);
+    for (let i = 0; i < 40 && !fs.existsSync(path.join(stubDir, 'ready')); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const canceled = await post(server, '/api/expressions/cancel', { id: NPC_ID });
+    assert.equal(canceled.status, 200);
+    const logAtCancel = canceled.body.log;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const view = await expressionView(server);
+    assert.equal(view.job.status, 'canceled');
+    assert.equal(view.job.stage, null);
+    assert.equal(view.job.log, logAtCancel);
+    assert.doesNotMatch(view.job.log, /after cancel/);
+});
+
 test('image and delete accept only real classified files inside expressions and delete sidecar metadata atomically', async (t) => {
     const { server } = await startWithStub(t, 'process.exit(0);');
     const folder = seedItem(server);
@@ -335,8 +389,9 @@ test('image and delete accept only real classified files inside expressions and 
     assert.deepEqual(fs.readdirSync(expressions).filter((name) => name.includes('.tmp')), []);
 });
 
-test('an expressions directory symlink outside the NPC is never listed, served, or deleted', async (t) => {
-    const { server } = await startWithStub(t, 'process.exit(0);');
+test('an expressions directory symlink outside the NPC is never listed, served, deleted, or rendered into', async (t) => {
+    const marker = 'require("node:fs").writeFileSync(require("node:path").join(__dirname, "spawned"), "yes");';
+    const { server, stubDir } = await startWithStub(t, marker);
     const folder = seedItem(server);
     const outside = path.join(server.dir, 'outside-expressions');
     fs.mkdirSync(outside);
@@ -353,5 +408,13 @@ test('an expressions directory symlink outside the NPC is never listed, served, 
     assert.equal((await fetch(`${server.baseUrl}/api/expression-image?id=${NPC_ID}&file=joy.webp`)).status, 404);
     const removed = await jsonRequest(server, `/api/expressions/file?id=${NPC_ID}&file=joy.webp`, { method: 'DELETE' });
     assert.equal(removed.status, 404);
+    for (const mode of ['add', 'replace']) {
+        const started = await post(server, '/api/expressions', {
+            id: NPC_ID, labels: ['joy'], mode,
+        });
+        assert.equal(started.status, 400, `${mode}: ${JSON.stringify(started.body)}`);
+        assert.match(started.body.error, /expressions directory|output/i);
+    }
+    assert.equal(fs.existsSync(path.join(stubDir, 'spawned')), false);
     assert.equal(fs.readFileSync(path.join(outside, 'joy.webp'), 'utf8'), 'OUTSIDE');
 });
