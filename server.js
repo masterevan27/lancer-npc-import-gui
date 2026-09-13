@@ -381,12 +381,40 @@ function foundryDestFolder(item) {
     return path.join(config.foundryDataRoot, kind.foundrySubdir, category, name);
 }
 
-function copyExpressionsIntoFoundry(item, dest, sourcePortraitMtime, destinationPortraitMtime) {
+function copySafeFileIntoFoundry(source, dest, relative, label = 'file') {
+    const destinationRoot = fs.realpathSync(dest);
+    const target = path.resolve(dest, relative);
+    if (!expressionFiles.isInside(path.resolve(dest), target)) {
+        throw new Error(`unsafe ${label} destination inside Foundry copy`);
+    }
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const parent = fs.realpathSync(path.dirname(target));
+    if (!expressionFiles.isInside(destinationRoot, parent)) {
+        throw new Error(`unsafe ${label} destination inside Foundry copy`);
+    }
+    let existing = null;
+    try {
+        existing = fs.lstatSync(target);
+    } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+    }
+    if (existing && (existing.isSymbolicLink() || !existing.isFile())) {
+        throw new Error(`unsafe ${label} destination inside Foundry copy`);
+    }
+    if (existing && !expressionFiles.isInside(destinationRoot, fs.realpathSync(target))) {
+        throw new Error(`unsafe ${label} destination inside Foundry copy`);
+    }
+    fs.copyFileSync(source, target);
+    const safeTarget = expressionFiles.resolveFileInside(dest, target);
+    if (!safeTarget) throw new Error(`unsafe ${label} destination inside Foundry copy`);
+    return safeTarget;
+}
+
+function copyExpressionsIntoFoundry(item, dest, sourceRelocations) {
     const names = expressionFiles.listSprites(item.folderPath);
     if (!names.length) return;
 
     const sourceSidecar = expressionFiles.readSidecar(item.folderPath);
-    const destinationPortrait = item.portrait ? path.join(dest, item.portrait) : null;
     const destinationPath = expressionFiles.expressionDirectory(dest);
     let destinationEntry = null;
     try {
@@ -427,9 +455,7 @@ function copyExpressionsIntoFoundry(item, dest, sourcePortraitMtime, destination
         }
         const migrated = expressionFiles.migrateSidecarEntry(
             sourceEntry,
-            sourcePortraitMtime,
-            destinationPortraitMtime,
-            destinationPortrait,
+            sourceRelocations,
         );
         Object.defineProperty(sidecar, name, {
             value: migrated, enumerable: true, configurable: true, writable: true,
@@ -449,28 +475,41 @@ function copyExpressionsIntoFoundry(item, dest, sourcePortraitMtime, destination
  */
 function copyIntoFoundry(item) {
     const dest = foundryDestFolder(item);
-    const sourcePortrait = itemFile(item, 'portrait');
-    let sourcePortraitMtime = null;
-    try { sourcePortraitMtime = sourcePortrait ? fs.statSync(sourcePortrait).mtimeMs : null; } catch { /* optional */ }
+    const sources = expressionSourceFiles(item);
     fs.mkdirSync(dest, { recursive: true });
     // The animation pair too, when there is one. It is not in the manifest's
     // file list - generate-npc.py never wrote it - and a portrait that moved
     // without its loop would open an empty panel on the imported copy.
     const animation = Object.values(animate.animationFiles(animate.animationBase(item)));
     for (const file of [...(item.files || []), ...animation]) {
-        const src = path.join(item.folderPath, file);
-        if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dest, file));
+        if (typeof file !== 'string' || file.split(/[\\/]+/).includes('..')) continue;
+        const src = expressionFiles.resolveFileInside(item.folderPath, path.resolve(item.folderPath, file));
+        if (src) copySafeFileIntoFoundry(src, dest, file);
     }
-    const destinationPortrait = item.portrait && path.join(dest, item.portrait);
-    const destinationPortraitMtime = destinationPortrait && fs.existsSync(destinationPortrait)
-        ? fs.statSync(destinationPortrait).mtimeMs : null;
-    copyExpressionsIntoFoundry(item, dest, sourcePortraitMtime, destinationPortraitMtime);
+    const sourceRelocations = {};
+    for (const kind of ['token', 'portrait']) {
+        const source = sources[kind];
+        if (!source.available) continue;
+        const safeTarget = copySafeFileIntoFoundry(source.file, dest, source.relative, kind);
+        sourceRelocations[kind] = {
+            sourceMtime: fs.statSync(source.file).mtimeMs,
+            destinationMtime: fs.statSync(safeTarget).mtimeMs,
+            destinationPath: safeTarget,
+            manifestFilename: source.relative,
+        };
+    }
+    copyExpressionsIntoFoundry(item, dest, sourceRelocations);
 
     const raw = fs.readFileSync(config.npcManifestPath, 'utf8');
     const parsed = JSON.parse(raw);
     const entry = parsed[item.folderPath];
     if (!entry) throw new Error(`manifest entry for ${item.folderPath} vanished mid-import`);
     delete parsed[item.folderPath];
+    for (const kind of ['token', 'portrait']) {
+        if (Object.hasOwn(entry, kind) && entry[kind] !== null && sourceRelocations[kind]) {
+            entry[kind] = sourceRelocations[kind].manifestFilename;
+        }
+    }
     parsed[dest] = entry;
     fs.writeFileSync(config.npcManifestPath, JSON.stringify(sortKeysDeep(parsed), null, 2));
 
@@ -1524,6 +1563,73 @@ function expressionSupported(item) {
     return !!kind?.supports.expressions;
 }
 
+function safeGeneratedImageName(name) {
+    return String(name).replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, ' ')
+        .replace(/^[ .]+|[ .]+$/g, '');
+}
+
+/** Match generate-expressions.py's manifest filename rules without trusting sidecar paths. */
+function expressionSourceFile(item, kind) {
+    let filename;
+    if (Object.hasOwn(item, kind)) {
+        filename = item[kind];
+        if (filename === null) return { kind, available: false, file: null, relative: null, error: null };
+        if (typeof filename !== 'string' || !filename.trim()) {
+            return {
+                kind, available: false, file: null, relative: null,
+                error: `unsafe ${kind} filename in manifest`,
+            };
+        }
+    } else {
+        filename = `${safeGeneratedImageName(item.name)} ${kind[0].toUpperCase()}${kind.slice(1)}.png`;
+    }
+    if (filename.split(/[\\/]+/).includes('..')) {
+        return {
+            kind, available: false, file: null, relative: null,
+            error: `unsafe ${kind} filename outside NPC folder: ${filename}`,
+        };
+    }
+    const folder = path.resolve(item.folderPath);
+    const candidate = path.resolve(folder, filename);
+    if (!expressionFiles.isInside(folder, candidate)) {
+        return {
+            kind, available: false, file: null, relative: null,
+            error: `unsafe ${kind} filename outside NPC folder: ${filename}`,
+        };
+    }
+    const file = expressionFiles.resolveFileInside(folder, candidate);
+    return {
+        kind, available: !!file, file,
+        relative: file ? path.relative(folder, file) : path.relative(folder, candidate),
+        error: null,
+    };
+}
+
+function expressionSourceFiles(item) {
+    return {
+        token: expressionSourceFile(item, 'token'),
+        portrait: expressionSourceFile(item, 'portrait'),
+    };
+}
+
+function selectedExpressionSource(item, requested) {
+    if (requested !== undefined && requested !== 'token' && requested !== 'portrait') {
+        return { error: 'source must be "token" or "portrait"' };
+    }
+    const sources = expressionSourceFiles(item);
+    const kinds = requested === undefined ? ['token', 'portrait'] : [requested];
+    for (const kind of kinds) {
+        const source = sources[kind];
+        if (source.error) return { error: source.error };
+        if (source.available) return { source, sources };
+    }
+    return {
+        error: requested === undefined
+            ? 'this NPC has no usable token or portrait source on disk'
+            : `this NPC has no safe ${requested} source on disk`,
+    };
+}
+
 function expressionJobView(job) {
     return job ? {
         jobId: job.jobId,
@@ -1561,9 +1667,11 @@ function expressionImportTarget(item, folderName = item.name) {
 function expressionView(item) {
     const sidecar = expressionFiles.readSidecar(item.folderPath);
     const grouped = classifyExpressionFiles(expressionFiles.listSprites(item.folderPath));
-    const portrait = itemFile(item, 'portrait');
-    const safePortrait = portrait && expressionFiles.resolveFileInside(item.folderPath, portrait);
-    const portraitMtime = safePortrait ? fs.statSync(safePortrait).mtimeMs : null;
+    const sources = expressionSourceFiles(item);
+    const sourceMtimes = {};
+    for (const kind of ['token', 'portrait']) {
+        sourceMtimes[kind] = sources[kind].available ? fs.statSync(sources[kind].file).mtimeMs : null;
+    }
     const orderedLabels = [
         ...DEFAULT_EXPRESSION_LABELS,
         ...Object.keys(grouped).filter((label) => !DEFAULT_EXPRESSION_LABELS.includes(label)).sort(),
@@ -1573,12 +1681,18 @@ function expressionView(item) {
         files: (grouped[label] || []).map((file) => {
             const entry = sidecar[file] && typeof sidecar[file] === 'object' && !Array.isArray(sidecar[file])
                 ? sidecar[file] : {};
-            const sourceMtime = entry.source && Number(entry.source.mtime);
+            const source = entry.source && typeof entry.source === 'object' && !Array.isArray(entry.source)
+                ? entry.source : null;
+            const sourceKind = source && Object.hasOwn(source, 'kind') ? source.kind : 'portrait';
+            const sourceMtime = Number(source?.mtime);
+            const supportedSource = source && (sourceKind === 'token' || sourceKind === 'portrait');
             return {
                 file,
                 ...entry,
-                stale: portraitMtime !== null && Number.isFinite(sourceMtime)
-                    ? Math.abs(sourceMtime - portraitMtime) > 0.01 : false,
+                stale: supportedSource && Number.isFinite(sourceMtime)
+                    ? sourceMtimes[sourceKind] === null
+                        || Math.abs(sourceMtime - sourceMtimes[sourceKind]) > 0.01
+                    : false,
             };
         }),
     }));
@@ -1586,6 +1700,12 @@ function expressionView(item) {
         groups,
         labels: DEFAULT_EXPRESSION_LABELS,
         sidecar,
+        sources: {
+            token: { available: sources.token.available },
+            portrait: { available: sources.portrait.available },
+        },
+        defaultSource: sources.token.available ? 'token'
+            : sources.portrait.available ? 'portrait' : null,
         job: expressionJobView(expressionJobsByItemId.get(item.id)),
         importTarget: expressionImportTarget(item),
     };
@@ -1615,10 +1735,8 @@ function startExpressionJob(item, options) {
     if (animateJobsByItemId.get(item.id)?.status === 'running') {
         return { ok: false, status: 409, error: 'this portrait is being animated; wait for it to finish' };
     }
-    const portrait = itemFile(item, 'portrait');
-    if (!portrait || !expressionFiles.resolveFileInside(item.folderPath, portrait)) {
-        return { ok: false, status: 400, error: 'this NPC has no safe portrait on disk to render expressions from' };
-    }
+    const selectedSource = selectedExpressionSource(item, options.source);
+    if (selectedSource.error) return { ok: false, status: 400, error: selectedSource.error };
     const outputDirectory = expressionFiles.expressionDirectory(item.folderPath);
     let outputExists = false;
     try {
@@ -1653,6 +1771,7 @@ function startExpressionJob(item, options) {
             mode: options.mode,
             keepBackground: options.keepBackground === true,
             file: options.file,
+            source: options.source,
         });
     } catch (err) {
         return { ok: false, status: 400, error: err.message };

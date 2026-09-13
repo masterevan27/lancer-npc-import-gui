@@ -255,14 +255,21 @@ and open <http://127.0.0.1:5089>.
   custom label in SillyTavern's Character Expressions custom-expression list
   before expecting SillyTavern to use the sprite.
 
-  Choose one to eight variants, **Add** or **Replace**, and whether to **Keep
-  background**. Transparency is the default. Add preserves existing variants;
+  Choose the **Full-body token** or **Portrait** source image, one to eight
+  variants, **Add** or **Replace**, and whether to **Keep background**. The
+  token is selected by default when both files are available; portrait is the
+  fallback when there is no token. Unavailable sources are disabled.
+  Transparency is the default. Add preserves existing variants;
   Replace does not discard the old label's sprites until its first replacement
   has rendered successfully. Each card offers **Redo** for that exact filename
+  using the source currently selected in the panel
   and a two-click **Delete**. The panel shows the running stage and a collapsible
-  log. An **old portrait** badge means the sprite's recorded source modification
-  time differs from the current portrait, so regenerate or redo it after a
-  portrait change. Inspect every result: expression editing can still lose an
+  log. An **old source image** badge means the sprite's recorded source
+  modification time differs from its token or portrait source (legacy sprites
+  without a recorded source kind use the portrait), so regenerate or redo it
+  after changing that source. Foundry relocation preserves this freshness state
+  while repointing sprite metadata at the copied token or portrait. Inspect
+  every result: expression editing can still lose an
   accessory or other identity detail, and the UI does not claim visual approval.
 
   The SillyTavern import box starts with the NPC's name. It must match the

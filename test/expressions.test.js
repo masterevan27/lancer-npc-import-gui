@@ -45,11 +45,12 @@ test('expression argv carries configured source and tables paths with every supp
         script: 'g.py', id: 'npc-7', manifest: 'manifest.json', tables: 'expressions.md',
         labels: ['joy', 'Battle Focus'],
         custom: [{ label: 'Battle Focus', text: 'grim resolve' }, { label: 'quiet awe' }],
-        count: 2, mode: 'replace', keepBackground: true, server: '127.0.0.1:8000',
+        count: 2, mode: 'replace', keepBackground: true, source: 'token', server: '127.0.0.1:8000',
     }), [
         'g.py', '--id', 'npc-7', '--manifest', 'manifest.json', '--tables', 'expressions.md',
         '-e', 'joy,battle_focus', '--custom', 'battle_focus=grim resolve', '--custom', 'quiet_awe',
-        '--count', '2', '--replace', '--keep-background', '--server', '127.0.0.1:8000',
+        '--count', '2', '--replace', '--keep-background', '--source', 'token',
+        '--server', '127.0.0.1:8000',
     ]);
 });
 
@@ -60,6 +61,7 @@ test('expression argv rejects unsafe file redo and invalid run options', () => {
     assert.throws(() => expressionArgs({ ...base, file: '../joy.webp' }), /safe .*webp/i);
     assert.throws(() => expressionArgs({ ...base, count: 0 }), /count/i);
     assert.throws(() => expressionArgs({ ...base, mode: 'overwrite' }), /mode/i);
+    assert.throws(() => expressionArgs({ ...base, source: 'image' }), /source/i);
     assert.throws(() => expressionArgs({ ...base, custom: [{ label: ' / ! ' }] }), /empty/i);
     for (const custom of [{}, { label: null }, { label: 42 }]) {
         assert.throws(() => expressionArgs({ ...base, custom: [custom] }), /label.*string/i);
@@ -81,17 +83,31 @@ test('a canceled expression job rejects buffered output without a replacement jo
         { jobId: 'old', status: 'running' }, { jobId: 'new', status: 'running' }), false);
 });
 
-test('Foundry metadata rebases only sprites fresh against the copied portrait', () => {
+test('Foundry metadata rebases each supported source while preserving its freshness delta', () => {
     const fresh = {
         label: 'joy', prompt: 'smile',
-        source: { path: 'review/Vex Portrait.png', mtime: 100 },
+        source: { kind: 'token', path: 'review/Vex Token.png', mtime: 100 },
     };
-    assert.deepEqual(migrateSidecarEntry(fresh, 100, 200, 'Foundry/Vex Portrait.png'), {
+    const sources = {
+        token: { sourceMtime: 100, destinationMtime: 200, destinationPath: 'Foundry/Vex Token.png' },
+        portrait: { sourceMtime: 400, destinationMtime: 700, destinationPath: 'Foundry/Vex Portrait.png' },
+    };
+    assert.deepEqual(migrateSidecarEntry(fresh, sources), {
         label: 'joy', prompt: 'smile',
-        source: { path: 'Foundry/Vex Portrait.png', mtime: 200 },
+        source: { kind: 'token', path: 'Foundry/Vex Token.png', mtime: 200 },
     });
-    assert.deepEqual(migrateSidecarEntry(fresh, 90, 200, 'Foundry/Vex Portrait.png'), fresh,
-        'already-stale metadata must stay stale after relocation');
-    assert.deepEqual(fresh.source, { path: 'review/Vex Portrait.png', mtime: 100 },
+    assert.deepEqual(migrateSidecarEntry({
+        label: 'anger', source: { kind: 'portrait', path: 'old.png', mtime: 390 },
+    }, sources), {
+        label: 'anger', source: { kind: 'portrait', path: 'Foundry/Vex Portrait.png', mtime: 690 },
+    }, 'an already-stale sprite retains its ten millisecond delta');
+    assert.deepEqual(migrateSidecarEntry({
+        label: 'legacy', source: { path: 'old portrait.png', mtime: 400 },
+    }, sources), {
+        label: 'legacy', source: { path: 'Foundry/Vex Portrait.png', mtime: 700 },
+    }, 'legacy source records remain portrait-based');
+    const unknown = { label: 'manual', source: { kind: 'image', path: '../outside.png', mtime: 12 } };
+    assert.deepEqual(migrateSidecarEntry(unknown, sources), unknown);
+    assert.deepEqual(fresh.source, { kind: 'token', path: 'review/Vex Token.png', mtime: 100 },
         'migration must not mutate the source sidecar object');
 });

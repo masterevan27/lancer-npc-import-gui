@@ -63,6 +63,7 @@ test('the NPC sheet contains the complete expression controls without a describe
         'expressions-labels', 'expressions-all', 'expressions-none', 'expressions-missing',
         'expression-custom-label', 'expression-custom-prompt', 'expression-custom-add',
         'expression-custom-chips', 'expressions-count', 'expressions-keep-background',
+        'expressions-source',
         'expressions-generate', 'expressions-cancel', 'expressions-stage',
         'expressions-log', 'expressions-sprites', 'expressions-import-folder',
         'expressions-import-target', 'expressions-import', 'expressions-import-status',
@@ -70,6 +71,7 @@ test('the NPC sheet contains the complete expression controls without a describe
     assert.match(panel[0], /id="expressions-count"[^>]*min="1"[^>]*max="8"[^>]*value="1"/);
     assert.match(panel[0], /name="expressions-mode" value="add" checked/);
     assert.match(panel[0], /name="expressions-mode" value="replace"/);
+    assert.match(panel[0], /id="expressions-source"[\s\S]*value="token">Full-body token<[\s\S]*value="portrait">Portrait</);
     assert.doesNotMatch(panel[0], /describe/i, 'the CLI-only --describe option leaked into the GUI');
 });
 
@@ -145,7 +147,7 @@ test('sprite rows retain server order, show empty slots, metadata and inline del
     assert.ok(rows.indexOf('joy') < rows.indexOf('battle_focus'));
     assert.match(rows, /expression-empty/);
     assert.match(rows, /cold &lt;resolve&gt; · seed 17/);
-    assert.match(rows, /old portrait/);
+    assert.match(rows, /old source image/);
     assert.match(rows, /data-expression-redo="battle_focus\.webp"/);
     assert.doesNotMatch(rows, /src="[^"]*npc<&/);
     const confirming = renderRows('n1', groups, 'battle_focus.webp');
@@ -154,27 +156,81 @@ test('sprite rows retain server order, show empty slots, metadata and inline del
     assert.doesNotMatch(confirming, /data-expression-redo=/);
 });
 
-test('run payload covers add, replace, transparency and the 1-8 count bound', async (t) => {
+test('run payload covers source, add, replace, transparency and the 1-8 count bound', async (t) => {
     const { js } = await served(t);
     const payload = liftFunction(js, 'expressionJobPayload');
     assert.deepEqual(payload({
         id: 'n1', labels: ['joy'], custom: [{ label: 'battle_focus', text: '' }],
-        count: '8', mode: 'replace', keepBackground: true,
+        count: '8', mode: 'replace', keepBackground: true, source: 'token',
     }), {
         id: 'n1', labels: ['joy'], custom: [{ label: 'battle_focus', text: '' }],
-        count: 8, mode: 'replace', keepBackground: true,
+        count: 8, mode: 'replace', keepBackground: true, source: 'token',
     });
     assert.deepEqual(payload({
         id: 'n1', labels: [], custom: [], count: '1', mode: 'add', keepBackground: false,
-        file: 'joy-1.webp',
+        file: 'joy-1.webp', source: 'portrait',
     }), {
         id: 'n1', labels: [], custom: [], count: 1, mode: 'add', keepBackground: false,
-        file: 'joy-1.webp',
+        file: 'joy-1.webp', source: 'portrait',
     });
     for (const count of ['0', '9', '1.5']) {
         assert.throws(() => payload({ id: 'n1', labels: ['joy'], custom: [], count,
             mode: 'add', keepBackground: false }), /between 1 and 8/);
     }
+    assert.throws(() => payload({ id: 'n1', labels: ['joy'], custom: [], count: '1',
+        mode: 'add', keepBackground: false, source: 'image' }), /source/i);
+});
+
+test('source selector initializes per NPC, preserves polling choices, and disables unavailable options', async (t) => {
+    const { js } = await served(t);
+    const token = { disabled: false };
+    const portrait = { disabled: false };
+    const select = {
+        value: '', disabled: false,
+        querySelector: (selector) => selector.includes('token') ? token : portrait,
+    };
+    const el = {
+        expressionsLabels: { innerHTML: '' }, expressionsSource: select,
+        expressionCustomLabel: { value: '' }, expressionCustomPrompt: { value: '' },
+        expressionCustomStatus: { textContent: '' }, expressionsCount: { value: '' },
+        expressionsKeepBackground: { checked: true }, expressionsImportFolder: { value: '' },
+        expressionsImportStatus: { textContent: '' },
+    };
+    const state = { expressionCustom: ['old'] };
+    const availability = liftFunction(js, 'renderExpressionSourceAvailability', { el });
+    const render = liftFunction(js, 'renderExpressionForm', {
+        el, state,
+        expressionLabelGridMarkup: () => '<labels>', renderExpressionCustomChips: () => {},
+        renderExpressionSourceAvailability: availability,
+        document: { querySelector: () => ({ checked: false }) },
+    });
+    render({
+        labels: ['joy'], defaultSource: 'portrait',
+        sources: { token: { available: false }, portrait: { available: true } },
+        importTarget: { folderName: 'One' },
+    });
+    assert.equal(select.value, 'portrait');
+    assert.equal(token.disabled, true);
+    assert.equal(portrait.disabled, false);
+
+    select.value = 'portrait';
+    availability({
+        sources: { token: { available: true }, portrait: { available: true } },
+    }, false);
+    assert.equal(select.value, 'portrait');
+    availability({
+        sources: { token: { available: true }, portrait: { available: false } },
+    }, false);
+    assert.equal(select.value, 'portrait', 'polling must not replace an intentional unavailable choice');
+    assert.equal(portrait.disabled, true);
+    render({
+        labels: ['joy'], defaultSource: 'token',
+        sources: { token: { available: true }, portrait: { available: false } },
+        importTarget: { folderName: 'Two' },
+    });
+    assert.equal(select.value, 'token', 'switching form owner resets through the new view default');
+    assert.equal(token.disabled, false);
+    assert.equal(portrait.disabled, true);
 });
 
 test('Redo observes every portrait conflict without overblocking Delete', async (t) => {
@@ -191,6 +247,10 @@ test('Redo observes every portrait conflict without overblocking Delete', async 
 
     assert.equal(disabled('redo', idle, null, null), false);
     assert.equal(disabled('delete', idle, null, null), false);
+    assert.equal(disabled('redo', idle, null, null, false), true,
+        'Redo cannot render after its selected source disappears');
+    assert.equal(disabled('delete', idle, null, null, false), false,
+        'source availability must not overblock Delete');
     for (const key of ['regenStatus', 'model3dStatus', 'animationStatus']) {
         const busy = { ...idle, [key]: 'running' };
         assert.equal(disabled('redo', busy, null, null), true, `${key} must block Redo`);
@@ -245,6 +305,7 @@ test('the panel treats a running item as newer than a stale done detail job', as
         updateExpressionImportTarget: () => {},
         expressionImportFolderError: () => null,
         expressionConfiguredBaseError: () => null,
+        renderExpressionSourceAvailability: () => {},
         expressionJobRunning: liftFunction(js, 'expressionJobRunning'),
         expressionSpriteActionDisabled: liftFunction(js, 'expressionSpriteActionDisabled', {
             expressionJobRunning: liftFunction(js, 'expressionJobRunning'),
@@ -363,6 +424,7 @@ test('failed expression actions survive repaint only for their owning NPC and su
         expressionSpriteRowsMarkup: () => '', expressionSpritesCountText: () => '',
         updateExpressionImportTarget: () => {},
         expressionImportFolderError: () => null, expressionConfiguredBaseError: () => null,
+        renderExpressionSourceAvailability: () => {},
         expressionJobRunning, expressionSpriteActionDisabled: () => false,
     });
     const view = {
@@ -395,9 +457,14 @@ test('generate, redo, cancel and delete use the expression endpoints and refresh
     assert.match(start, /startPolling\(\)/);
     assert.match(start, /await refreshExpressions\(id\)/);
 
+    const generate = /el\.expressionsGenerate\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
+    assert.ok(generate, 'Generate handler is missing');
+    assert.match(generate[0], /source: el\.expressionsSource\.value/);
+
     const click = /el\.expressionsSprites\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
     assert.ok(click, 'sprite actions are not delegated');
     assert.match(click[0], /dataset\.expressionRedo/);
+    assert.match(click[0], /source: el\.expressionsSource\.value/);
     assert.match(click[0], /file/);
     assert.match(click[0], /dataset\.expressionDeleteConfirm/);
     assert.match(click[0], /DELETE/);
@@ -511,6 +578,7 @@ test('an edited safe folder overrides only the default-name error, not a configu
         updateExpressionImportTarget,
         expressionImportFolderError: folderError,
         expressionConfiguredBaseError: configuredError,
+        renderExpressionSourceAvailability: () => {},
         expressionJobRunning,
         expressionSpriteActionDisabled: () => false,
     });

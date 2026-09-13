@@ -178,6 +178,7 @@ const el = {
   expressionCustomAdd: document.getElementById('expression-custom-add'),
   expressionCustomStatus: document.getElementById('expression-custom-status'),
   expressionCustomChips: document.getElementById('expression-custom-chips'),
+  expressionsSource: document.getElementById('expressions-source'),
   expressionsCount: document.getElementById('expressions-count'),
   expressionsKeepBackground: document.getElementById('expressions-keep-background'),
   expressionsGenerate: document.getElementById('expressions-generate'),
@@ -1898,7 +1899,7 @@ function expressionSpriteRowsMarkup(id, groups, pendingDeleteFile) {
         <div class="expression-image-wrap">
           <img src="${escapeHtml(url)}" alt="${escapeHtml(group.label)} expression"
             title="${escapeHtml(meta || file)}">
-          ${sprite.stale ? '<span class="expression-stale">old portrait</span>' : ''}
+          ${sprite.stale ? '<span class="expression-stale">old source image</span>' : ''}
         </div>
         <figcaption><span>${escapeHtml(file)}</span><span class="expression-sprite-actions">${actions}</span></figcaption>
       </figure>`;
@@ -1924,6 +1925,9 @@ function expressionJobPayload(opts) {
   if (!Number.isInteger(count) || count < 1 || count > 8) {
     throw new Error('Variants per label must be a whole number between 1 and 8.');
   }
+  if (opts.source !== 'token' && opts.source !== 'portrait') {
+    throw new Error('Source image must be Full-body token or Portrait.');
+  }
   const body = {
     id: opts.id,
     labels: opts.labels || [],
@@ -1931,9 +1935,19 @@ function expressionJobPayload(opts) {
     count,
     mode: opts.mode === 'replace' ? 'replace' : 'add',
     keepBackground: !!opts.keepBackground,
+    source: opts.source,
   };
   if (opts.file) body.file = opts.file;
   return body;
+}
+
+function renderExpressionSourceAvailability(view, reset) {
+  const selected = el.expressionsSource.value;
+  for (const kind of ['token', 'portrait']) {
+    const option = el.expressionsSource.querySelector(`option[value="${kind}"]`);
+    if (option) option.disabled = !view.sources?.[kind]?.available;
+  }
+  el.expressionsSource.value = reset ? (view.defaultSource || '') : selected;
 }
 
 /**
@@ -1953,11 +1967,11 @@ function expressionStartBlocked(item, job, startPendingId) {
     || item.animationStatus === 'running';
 }
 
-function expressionSpriteActionDisabled(action, item, job, startPendingId) {
+function expressionSpriteActionDisabled(action, item, job, startPendingId, sourceAvailable = true) {
   const expressionBusy = expressionJobRunning(item, job) || startPendingId === item.id;
   if (action === 'delete') return expressionBusy;
   if (action !== 'redo') return false;
-  return expressionStartBlocked(item, job, startPendingId);
+  return !sourceAvailable || expressionStartBlocked(item, job, startPendingId);
 }
 
 function setExpressionActionError(id, message) {
@@ -1985,6 +1999,7 @@ function renderExpressionForm(view) {
   el.expressionsCount.value = '1';
   document.querySelector('input[name="expressions-mode"][value="add"]').checked = true;
   el.expressionsKeepBackground.checked = false;
+  renderExpressionSourceAvailability(view, true);
   el.expressionsImportFolder.value = view.importTarget?.folderName || '';
   el.expressionsImportStatus.textContent = '';
 }
@@ -2035,6 +2050,7 @@ function renderExpressionsPanel(item, view) {
     renderExpressionForm(view);
     state.expressionFormOwnerId = item.id;
   }
+  if (view) renderExpressionSourceAvailability(view, false);
 
   const job = view?.job || null;
   const running = expressionJobRunning(item, job);
@@ -2044,18 +2060,21 @@ function renderExpressionsPanel(item, view) {
   const anotherPortraitJob = item.regenStatus === 'running'
     || item.model3dStatus === 'running' || item.animationStatus === 'running';
   const chosen = selectedExpressionLabels().length + state.expressionCustom.length;
+  const sourceAvailable = !!view?.sources?.[el.expressionsSource.value]?.available;
 
-  el.expressionsGenerate.disabled = expressionBusy || anotherPortraitJob || chosen === 0 || !view;
+  el.expressionsGenerate.disabled = expressionBusy || anotherPortraitJob || chosen === 0
+    || !view || !sourceAvailable;
   el.expressionsGenerate.textContent = starting ? 'Starting…' : running ? 'Generating…' : 'Generate';
   el.expressionsCancel.disabled = !running;
-  for (const input of el.expressionsPanel.querySelectorAll('input, button')) {
+  for (const input of el.expressionsPanel.querySelectorAll('input, button, select')) {
     if (input === el.expressionsCancel) continue;
     if (input === el.expressionsImport) continue;
     input.disabled = expressionBusy;
   }
   // Generate can also be unavailable for selection/conflict reasons after the
   // broad running-state pass above.
-  el.expressionsGenerate.disabled = expressionBusy || anotherPortraitJob || chosen === 0 || !view;
+  el.expressionsGenerate.disabled = expressionBusy || anotherPortraitJob || chosen === 0
+    || !view || !sourceAvailable;
 
   const actionError = state.expressionActionError?.id === item.id
     ? state.expressionActionError.message : null;
@@ -2088,7 +2107,7 @@ function renderExpressionsPanel(item, view) {
     for (const button of el.expressionsSprites.querySelectorAll('button')) {
       const action = button.dataset.expressionRedo ? 'redo' : 'delete';
       button.disabled = expressionSpriteActionDisabled(
-        action, item, job, state.expressionStartPendingId);
+        action, item, job, state.expressionStartPendingId, sourceAvailable);
     }
   } else {
     el.expressionsSprites.textContent = '';
@@ -2232,6 +2251,8 @@ el.expressionCustomChips.addEventListener('click', (event) => {
   rerenderCurrentExpressions();
 });
 
+el.expressionsSource.addEventListener('change', rerenderCurrentExpressions);
+
 el.expressionsGenerate.addEventListener('click', async () => {
   const id = state.detailItemId;
   if (!id) return;
@@ -2243,6 +2264,7 @@ el.expressionsGenerate.addEventListener('click', async () => {
       count: el.expressionsCount.value,
       mode: document.querySelector('input[name="expressions-mode"]:checked')?.value || 'add',
       keepBackground: el.expressionsKeepBackground.checked,
+      source: el.expressionsSource.value,
     });
     if (!body.labels.length && !body.custom.length) {
       setExpressionActionError(id, 'Select at least one expression or add a custom one.');
@@ -2307,6 +2329,7 @@ el.expressionsSprites.addEventListener('click', async (event) => {
       await startExpressionJob(expressionJobPayload({
         id, labels: [], custom: [], count: 1, mode: 'add',
         keepBackground: el.expressionsKeepBackground.checked, file: redo,
+        source: el.expressionsSource.value,
       }));
     } catch (err) {
       if (state.detailItemId === id) {

@@ -14,15 +14,17 @@ const NPC_NAME = 'Vex';
 const TABLES = '## Role\n- an operator\n\n## Animation\n- the camera stays still\n';
 const EXPRESSION_TABLES = '## joy\n- a bright genuine smile\n\n## anger\n- a furious glare\n';
 
-function seedItem(server, { id = NPC_ID, kind = 'npc', portrait = true } = {}) {
+function seedItem(server, { id = NPC_ID, kind = 'npc', portrait = true, token = true,
+    portraitValue, tokenValue } = {}) {
     const folder = path.join(server.dir, 'output', kind === 'npc' ? 'Pilots' : 'Ships', NPC_NAME);
     fs.mkdirSync(folder, { recursive: true });
     if (portrait) fs.writeFileSync(path.join(folder, `${NPC_NAME} Portrait.png`), 'portrait');
-    fs.writeFileSync(path.join(folder, `${NPC_NAME} Token.png`), 'token');
+    if (token) fs.writeFileSync(path.join(folder, `${NPC_NAME} Token.png`), 'token');
     const manifest = JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'));
     manifest[folder] = {
         id, kind, name: NPC_NAME, seed: 17, traits: { Role: 'an operator' },
-        portrait: `${NPC_NAME} Portrait.png`, token: `${NPC_NAME} Token.png`,
+        portrait: portraitValue === undefined ? `${NPC_NAME} Portrait.png` : portraitValue,
+        token: tokenValue === undefined ? `${NPC_NAME} Token.png` : tokenValue,
         files: [`${NPC_NAME} Portrait.png`, `${NPC_NAME} Token.png`],
     };
     fs.writeFileSync(server.manifestPath, JSON.stringify(manifest));
@@ -117,6 +119,10 @@ test('GET groups default and custom sprites, merges lenient sidecar data, and ma
     assert.equal(view.groups.at(-1).label, 'battle_focus');
     assert.equal(view.sidecar['joy.webp'].seed, 4);
     assert.equal(view.job, null);
+    assert.deepEqual(view.sources, {
+        token: { available: true }, portrait: { available: true },
+    });
+    assert.equal(view.defaultSource, 'token');
     assert.deepEqual(view.importTarget, {
         directory: '', folderName: NPC_NAME, path: '',
         error: 'set sillyTavernCharactersDir in config.json to SillyTavern\'s data/<user>/characters folder',
@@ -129,6 +135,138 @@ test('GET groups default and custom sprites, merges lenient sidecar data, and ma
     assert.equal(item.hasExpressions, true);
     assert.equal(item.expressionCount, 3);
     assert.equal(item.expressionStatus, null);
+});
+
+test('source-aware stale state follows sidecar kind, missing assets, and legacy portrait records', async (t) => {
+    const { server } = await startWithStub(t, 'process.exit(0);');
+    const folder = seedItem(server);
+    const expressions = path.join(folder, 'expressions');
+    fs.mkdirSync(expressions);
+    for (const name of ['token.webp', 'portrait.webp', 'legacy.webp', 'image.webp', 'malformed.webp']) {
+        fs.writeFileSync(path.join(expressions, name), name);
+    }
+    const token = path.join(folder, `${NPC_NAME} Token.png`);
+    const portrait = path.join(folder, `${NPC_NAME} Portrait.png`);
+    const tokenMtime = fs.statSync(token).mtimeMs;
+    const portraitMtime = fs.statSync(portrait).mtimeMs;
+    fs.writeFileSync(path.join(expressions, 'expressions.json'), JSON.stringify({
+        'token.webp': { source: { kind: 'token', path: '../ignored.png', mtime: tokenMtime } },
+        'portrait.webp': { source: { kind: 'portrait', path: '../ignored.png', mtime: portraitMtime } },
+        'legacy.webp': { source: { path: '../ignored.png', mtime: portraitMtime } },
+        'image.webp': { source: { kind: 'image', path: '../ignored.png', mtime: 1 } },
+        'malformed.webp': { source: 'not-an-object' },
+    }));
+
+    let view = await expressionView(server);
+    const sprite = (label) => view.groups.find((group) => group.label === label).files[0];
+    assert.equal(sprite('token').stale, false);
+    assert.equal(sprite('portrait').stale, false);
+    assert.equal(sprite('legacy').stale, false);
+    assert.equal(sprite('image').stale, false);
+    assert.equal(sprite('malformed').stale, false);
+
+    fs.utimesSync(portrait, new Date(), new Date(Date.now() + 5000));
+    view = await expressionView(server);
+    assert.equal(sprite('token').stale, false, 'changing the unselected portrait cannot stale token sprites');
+    assert.equal(sprite('portrait').stale, true);
+    assert.equal(sprite('legacy').stale, true);
+
+    fs.rmSync(token);
+    view = await expressionView(server);
+    assert.equal(sprite('token').stale, true, 'deleting a known selected source must mark its sprites stale');
+    assert.equal(sprite('image').stale, false, 'unsupported kinds must not read their recorded path');
+});
+
+test('source availability honors null assets, canonical absent fields, and token-first defaults', async (t) => {
+    const { server } = await startWithStub(t, 'process.exit(0);');
+    const folder = seedItem(server, { portrait: false, portraitValue: null });
+    let view = await expressionView(server);
+    assert.deepEqual(view.sources, {
+        token: { available: true }, portrait: { available: false },
+    });
+    assert.equal(view.defaultSource, 'token');
+
+    const manifest = JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'));
+    delete manifest[folder].portrait;
+    manifest[folder].token = null;
+    manifest[folder].name = ' . V:e  x?. ';
+    fs.writeFileSync(path.join(folder, 'Ve x Portrait.png'), 'canonical portrait');
+    fs.writeFileSync(server.manifestPath, JSON.stringify(manifest));
+    view = await expressionView(server);
+    assert.deepEqual(view.sources, {
+        token: { available: false }, portrait: { available: true },
+    });
+    assert.equal(view.defaultSource, 'portrait');
+});
+
+test('POST preflights explicit sources and forwards only intentional selections', async (t) => {
+    const recorder = [
+        'const fs = require("node:fs"); const path = require("node:path");',
+        'fs.appendFileSync(path.join(__dirname, "argv.log"), JSON.stringify(process.argv.slice(2)) + "\\n");',
+    ].join('\n');
+    const { server, stubDir } = await startWithStub(t, recorder);
+    const folder = seedItem(server);
+
+    for (const body of [
+        { id: NPC_ID, labels: ['joy'], source: 'portrait' },
+        { id: NPC_ID, labels: ['joy'], source: 'token' },
+        { id: NPC_ID, labels: ['joy'] },
+    ]) {
+        assert.equal((await post(server, '/api/expressions', body)).status, 202);
+        assert.equal((await settle(server)).job.status, 'done');
+    }
+    const calls = fs.readFileSync(path.join(stubDir, 'argv.log'), 'utf8').trim().split('\n').map(JSON.parse);
+    assert.deepEqual(calls[0].slice(-2), ['--source', 'portrait']);
+    assert.deepEqual(calls[1].slice(-2), ['--source', 'token']);
+    assert.equal(calls[2].includes('--source'), false, 'omitted source must retain the CLI token-first default');
+
+    let manifest = JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'));
+    manifest[folder].token = null;
+    fs.writeFileSync(server.manifestPath, JSON.stringify(manifest));
+    assert.equal((await post(server, '/api/expressions', {
+        id: NPC_ID, labels: ['joy'], source: 'portrait',
+    })).status, 202, 'portrait remains usable when token is explicitly unavailable');
+    await settle(server);
+    const unavailable = await post(server, '/api/expressions', {
+        id: NPC_ID, labels: ['joy'], source: 'token',
+    });
+    assert.equal(unavailable.status, 400);
+    assert.match(unavailable.body.error, /no safe token|unavailable token/i);
+
+    manifest = JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'));
+    manifest[folder].token = `${NPC_NAME} Token.png`;
+    manifest[folder].portrait = null;
+    fs.writeFileSync(server.manifestPath, JSON.stringify(manifest));
+    const tokenOnly = await post(server, '/api/expressions', {
+        id: NPC_ID, labels: ['joy'], source: 'token',
+    });
+    assert.equal(tokenOnly.status, 202, JSON.stringify(tokenOnly.body));
+    await settle(server);
+
+    manifest = JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'));
+    manifest[folder].token = '../outside.png';
+    fs.writeFileSync(server.manifestPath, JSON.stringify(manifest));
+    const unsafe = await post(server, '/api/expressions', {
+        id: NPC_ID, labels: ['joy'], source: 'token',
+    });
+    assert.equal(unsafe.status, 400);
+    assert.match(unsafe.body.error, /unsafe token/i);
+    assert.equal(fs.readFileSync(path.join(stubDir, 'argv.log'), 'utf8').trim().split('\n').length, 5,
+        'unavailable and unsafe selections must fail before spawn');
+
+    const invalid = await post(server, '/api/expressions', {
+        id: NPC_ID, labels: ['joy'], source: 'image',
+    });
+    assert.equal(invalid.status, 400);
+    assert.match(invalid.body.error, /source/i);
+
+    manifest = JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'));
+    manifest[folder].token = null;
+    manifest[folder].portrait = null;
+    fs.writeFileSync(server.manifestPath, JSON.stringify(manifest));
+    const none = await post(server, '/api/expressions', { id: NPC_ID, labels: ['joy'] });
+    assert.equal(none.status, 400);
+    assert.match(none.body.error, /no usable token or portrait/i);
 });
 
 test('prototype-named sprites remain usable through items, list, image, and delete APIs', async (t) => {
