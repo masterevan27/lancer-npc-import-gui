@@ -5287,14 +5287,29 @@ async function handleApi(req, res, url) {
         // listing: the two staging directories are siblings and a run in one
         // is not a run in the other, so a ship run named on ?kind=npc is as
         // unknown as a file that never existed.
-        const candidate = file && id
-            && allTraitCandidates(kind).find((c) => c.file === file && c.id === id);
-        if (!candidate) return sendJson(res, 404, { error: 'unknown candidate' });
-        const full = refImagePath(kind, candidate.file, candidate.sourceImage);
+        //
+        // Only the named run is parsed, not every run's candidates: the
+        // Pictures view asks for dozens of these at once, and flattening every
+        // staged file - with a refs/ existence check per entry - for each one
+        // made a screenful of tiles cost thousands of filesystem calls.
+        let entry = null;
+        if (file && id && listStagedFiles(kind).includes(file)) {
+            try {
+                entry = (loadStagedFile(kind, file).entries || []).find((e) => e.id === id) || null;
+            } catch {
+                entry = null; // not valid JSON: allTraitCandidates skips it too
+            }
+        }
+        if (!entry) return sendJson(res, 404, { error: 'unknown candidate' });
+        const full = refImagePath(kind, file, entry.source_image);
         if (!full) return sendJson(res, 404, { error: 'no reference image staged for this candidate' });
         res.writeHead(200, {
             'Content-Type': REF_IMAGE_TYPES[path.extname(full).toLowerCase()],
-            'Cache-Control': 'no-store',
+            // Cacheable, unlike the generated art: a run's refs/ copy is never
+            // rewritten in place, and the Pictures view rebuilds its tiles on
+            // every filter change - with no-store each rebuild re-downloaded
+            // megabytes of screenshots it had just shown.
+            'Cache-Control': 'private, max-age=3600',
         });
         fs.createReadStream(full).pipe(res);
         return;

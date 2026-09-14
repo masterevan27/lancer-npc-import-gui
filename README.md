@@ -549,6 +549,25 @@ and open <http://127.0.0.1:5089>.
   `prompts/staged-imports/refs/<run>/` as it stages a run, and the sheet asks
   for it from there; a run staged before it did that, or one whose copies have
   since been deleted, still names its source and simply shows no preview.
+
+  Two views, switched with **List / Pictures** (remembered per browser).
+  **List** is one row per candidate. **Pictures** tiles the reference images
+  instead, one tile per image with a count of the traits read from it, and
+  clicking a tile opens that image beside every candidate taken from it, each
+  with its own checkbox. A large run can be worked through from the keyboard,
+  with the shortcuts printed under the toolbar:
+
+  | Where | Keys |
+  | --- | --- |
+  | List | `J`/`K` or `↑`/`↓` move · `Space`/`X` select · `Enter` open |
+  | Pictures | arrows move · `Space` select the image's traits · `Enter` open |
+  | Either view | `A` select all shown (again to deselect) · `U` clear selection · `/` search · `V` switch view |
+  | Detail sheet | `←`/`→` previous/next · `Space` select · `Enter` select and move on |
+  | Image sheet | `←`/`→` previous/next image · `1`–`9` toggle a trait · `A` select all · `Enter` select all and move on |
+
+  Both sheets also have the same actions as buttons. **Filter by → Selected**
+  lists exactly what **Import Selected** is about to append, and **Clear
+  selection** starts over. Import itself stays a button.
 - **Tables** — shows every bullet in every roll table of
   `npc-generator-tables.md`, with a selector at the top to switch the whole tab
   to `spaceship-generator-tables.md` or the expression tables instead. The

@@ -308,13 +308,21 @@
 
 <section class="tab-panel" id="tab-traits" hidden>
   <div class="toolbar">
+    <!-- List is the text view; Pictures tiles the reference images and opens
+         one image's candidates on click. The choice is remembered per browser. -->
+    <div class="trait-view-toggle" role="group" aria-label="View">
+      <button type="button" data-trait-view="list" aria-pressed="true">List</button>
+      <button type="button" data-trait-view="pictures" aria-pressed="false">Pictures</button>
+    </div>
     <label class="select-all">
       <input type="checkbox" id="trait-select-all" />
       Select all not-yet-imported
     </label>
+    <button type="button" class="trait-btn" id="trait-clear-btn" disabled>Clear selection</button>
     <span class="status" id="trait-status"></span>
     <button id="trait-import-btn" disabled>Import Selected (0)</button>
   </div>
+  <p class="trait-shortcuts" id="trait-shortcuts"></p>
 
   <div class="filters" id="trait-filters">
     <input type="text" id="trait-search" placeholder="Search bullet text, source image…" />
@@ -332,6 +340,7 @@
         <option value="imported">Imported</option>
         <option value="with-image">Has reference image</option>
         <option value="without-image">No reference image</option>
+        <option value="selected">Selected</option>
       </select>
     </label>
     <label class="sort-by">
@@ -345,6 +354,10 @@
   </div>
 
   <div class="trait-list" id="trait-list"></div>
+  <!-- Pictures view: one tile per reference image, built in batches so a run of
+       hundreds of full-size screenshots is not decoded all at once. -->
+  <div class="trait-tiles" id="trait-tiles" hidden></div>
+  <button type="button" class="trait-btn trait-tiles-more" id="trait-tiles-more" hidden>Show more</button>
   <p class="empty" id="trait-empty" hidden>No staged trait candidates yet — run the npc-trait-import skill, then reload.</p>
 </section>
 
@@ -632,6 +645,15 @@
     <button class="detail-close" id="trait-detail-close">&times;</button>
     <div class="detail-info trait-detail-info">
       <h2 id="trait-detail-table"></h2>
+      <p class="detail-shortcuts">&larr; &rarr; navigate &middot; Space select &middot; Enter select &amp; next &middot; Esc close</p>
+      <div class="trait-nav">
+        <button type="button" class="trait-btn" id="trait-detail-prev">&lsaquo; Previous</button>
+        <span class="trait-nav-position" id="trait-detail-position"></span>
+        <button type="button" class="trait-btn" id="trait-detail-next">Next &rsaquo;</button>
+        <span class="trait-nav-spacer"></span>
+        <button type="button" class="trait-btn" id="trait-detail-select">Select</button>
+        <button type="button" class="trait-btn trait-btn-primary" id="trait-detail-select-next">Select &amp; next</button>
+      </div>
       <p id="trait-detail-source"></p>
       <img id="trait-detail-image" class="trait-detail-image" alt="" hidden />
       <h3>Bullet</h3>
@@ -642,6 +664,30 @@
       <p id="trait-detail-bookkeeping"></p>
       <h3>Notes</h3>
       <p id="trait-detail-notes"></p>
+    </div>
+  </div>
+</div>
+
+<!-- One reference image and every candidate the skill read off it. -->
+<div class="detail-overlay" id="trait-image-overlay" hidden>
+  <div class="detail trait-image-sheet">
+    <button class="detail-close" id="trait-image-close">&times;</button>
+    <div class="detail-info trait-detail-info">
+      <h2 id="trait-image-title"></h2>
+      <p class="detail-shortcuts">&larr; &rarr; images &middot; 1&ndash;9 toggle a trait &middot; A select all &middot; Enter select all &amp; next &middot; Esc close</p>
+      <div class="trait-nav">
+        <button type="button" class="trait-btn" id="trait-image-prev">&lsaquo; Previous</button>
+        <span class="trait-nav-position" id="trait-image-position"></span>
+        <button type="button" class="trait-btn" id="trait-image-next">Next &rsaquo;</button>
+        <span class="trait-nav-spacer"></span>
+        <button type="button" class="trait-btn" id="trait-image-select-all">Select all</button>
+        <button type="button" class="trait-btn trait-btn-primary" id="trait-image-select-next">Select all &amp; next</button>
+      </div>
+      <div class="trait-image-body">
+        <img id="trait-image-img" class="trait-image-img" alt="" />
+        <p class="trait-image-missing" id="trait-image-missing" hidden>No copy of this reference image was staged.</p>
+        <ol class="trait-image-candidates" id="trait-image-candidates"></ol>
+      </div>
     </div>
   </div>
 </div>
