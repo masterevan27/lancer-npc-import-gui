@@ -1771,6 +1771,48 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   color: var(--text-4);
 }
 .table-bullet-text { flex: 1; }
+/* The add-a-value row under the list: laid out like a bullet row (weight box
+   first, text filling the rest) so a new value reads as the next line of the
+   table it is about to join. */
+.table-add-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: var(--sp-2);
+  padding: 0.5rem 0.6rem;
+  border-top: 1px solid var(--line-strong);
+}
+.table-add-form .weight-input {
+  width: 3rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  padding: 0 0.3rem;
+  height: var(--control-h-sm);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+.table-add-form .table-add-text {
+  flex: 1;
+  min-width: 12rem;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  height: var(--control-h-sm);
+  padding: 0 0.6rem;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-md);
+}
+.table-add-form .table-add-text::placeholder { color: var(--text-4); }
+.table-add-form .table-add-text:disabled { opacity: 0.5; }
+.table-add-error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--danger);
+}
 .table-bullet-row.reference .table-bullet-text { font-style: italic; }
 .group-jump {
   padding: 0.1rem 0.5rem;

@@ -365,6 +365,16 @@
     <div class="table-bullet-panel">
       <h2 id="table-bullet-heading">Select a table</h2>
       <div class="table-bullet-list" id="table-bullet-list"></div>
+      <!-- Adds a custom value to the selected table, whichever kind's file it
+           lives in. Appended enabled; flags are then set with the checkboxes. -->
+      <form class="table-add-form" id="table-add-form" hidden>
+        <input type="number" class="weight-input" id="table-add-weight" min="1" step="1" value="1"
+               title="Weight (relative roll chance)" aria-label="Weight" />
+        <input type="text" class="table-add-text" id="table-add-text" placeholder="Add a custom value…"
+               aria-label="Custom value" autocomplete="off" />
+        <button type="submit" id="table-add-btn" disabled>Add value</button>
+        <p class="table-add-error" id="table-add-error" role="alert" hidden></p>
+      </form>
       <p class="chance-note" id="chance-note" hidden></p>
     </div>
   </div>

@@ -5656,6 +5656,11 @@ const elTables = {
   applyBtn: document.getElementById('preset-apply-btn'),
   cancelBtn: document.getElementById('preset-cancel-btn'),
   chanceNote: document.getElementById('chance-note'),
+  addForm: document.getElementById('table-add-form'),
+  addWeight: document.getElementById('table-add-weight'),
+  addText: document.getElementById('table-add-text'),
+  addBtn: document.getElementById('table-add-btn'),
+  addError: document.getElementById('table-add-error'),
 };
 
 /**
@@ -5688,6 +5693,8 @@ function beginTablesKindLoad(kind) {
   elTables.headingList.innerHTML = '';
   elTables.bulletHeading.textContent = '';
   elTables.bulletList.innerHTML = '';
+  resetAddForm();
+  elTables.addForm.hidden = true;
   elTables.presetList.innerHTML = '';
   elTables.presetList.textContent = 'Loading…';
   elTables.empty.hidden = false;
@@ -5771,6 +5778,7 @@ function renderTableHeadingList() {
       row.dataset.table = table.name;
       row.textContent = headingLabel(table);
       row.addEventListener('click', () => {
+        if (tablesState.selectedTable !== table.name) resetAddForm();
         tablesState.selectedTable = table.name;
         renderTableHeadingList();
         renderTableBullets();
@@ -5792,6 +5800,7 @@ function renderTableBullets() {
   const table = tablesState.tables.find((t) => t.name === tablesState.selectedTable);
   elTables.bulletHeading.textContent = table ? table.name : 'Select a table';
   elTables.bulletList.innerHTML = '';
+  elTables.addForm.hidden = !table;
   if (!table) return;
   for (const bullet of table.bullets) {
     const row = document.createElement('label');
@@ -6345,6 +6354,80 @@ async function setBulletWeight(tableName, bullet, inputEl) {
     bullet.pendingWeight = undefined;   // the file and the box agree again, either way
     inputEl.disabled = false;
     renderChances();
+  }
+}
+
+/* ==================================================================== */
+/* Custom values                                                         */
+/* ==================================================================== */
+
+function resetAddForm() {
+  elTables.addText.value = '';
+  elTables.addWeight.value = '1';
+  elTables.addBtn.disabled = true;
+  elTables.addError.hidden = true;
+  elTables.addError.textContent = '';
+}
+
+elTables.addText.addEventListener('input', () => {
+  elTables.addBtn.disabled = !elTables.addText.value.trim();
+  elTables.addError.hidden = true;
+});
+
+elTables.addForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  addCustomBullet();
+});
+
+/**
+ * Append the typed value to the selected table of the current kind.
+ *
+ * The server's stored bullet replaces what was typed rather than the typed
+ * string being pushed: it trims, and the text is the id every later toggle,
+ * reweight and flag write addresses. A refusal (a duplicate, a stray '-->')
+ * is shown under the box instead of in an alert, so the GM can fix the text
+ * they already typed rather than retype it.
+ */
+async function addCustomBullet() {
+  const kind = tablesState.kind;
+  const tableName = tablesState.selectedTable;
+  const text = elTables.addText.value.trim();
+  const weight = Math.trunc(Number(elTables.addWeight.value));
+  if (!tableName || !text) return;
+  if (!Number.isInteger(weight) || weight < 1) {
+    elTables.addError.textContent = 'Weight must be a whole number of 1 or more.';
+    elTables.addError.hidden = false;
+    return;
+  }
+  elTables.addBtn.disabled = true;
+  elTables.addText.disabled = true;
+  try {
+    const { bullet } = await api('/api/table-bullets/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, table: tableName, text, weight }),
+    });
+    // The kind was switched mid-request; its reload already has the new row.
+    if (kind !== tablesState.kind) return;
+    const table = tablesState.tables.find((t) => t.name === tableName);
+    if (!table) return;
+    table.bullets.push(bullet);
+    const row = elTables.headingList.querySelector(`[data-table="${CSS.escape(tableName)}"]`);
+    if (row) row.textContent = headingLabel(table);
+    resetAddForm();
+    if (tablesState.selectedTable === tableName) {
+      renderTableBullets();
+      elTables.addForm.scrollIntoView({ block: 'nearest' });
+    }
+    // A new enabled weight changes every row's share of the table.
+    queueOdds();
+  } catch (err) {
+    elTables.addError.textContent = `Couldn't add that value: ${err.message}`;
+    elTables.addError.hidden = false;
+    elTables.addBtn.disabled = !elTables.addText.value.trim();
+  } finally {
+    elTables.addText.disabled = false;
+    elTables.addText.focus();
   }
 }
 

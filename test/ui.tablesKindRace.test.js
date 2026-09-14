@@ -49,6 +49,7 @@ function fakeElements() {
         saveBtn: { disabled: false },
         importInput: { disabled: false },
         preview: { hidden: true },
+        addForm: { hidden: false },
     };
 }
 
@@ -68,8 +69,9 @@ test('reversed table and preset responses cannot overwrite a newer kind', async 
         return wait.promise;
     };
     const renderedPresets = [];
+    let addFormResets = 0;
     const begin = lift(js, 'beginTablesKindLoad', {
-        tablesState, elTables, clearTimeout: () => {},
+        tablesState, elTables, clearTimeout: () => {}, resetAddForm: () => { addFormResets += 1; },
     });
     const loadTables = lift(js, 'loadTables', {
         tablesState, elTables, api,
@@ -87,6 +89,9 @@ test('reversed table and preset responses cannot overwrite a newer kind', async 
     assert.equal(elTables.bulletList.innerHTML, '');
     assert.equal(elTables.saveBtn.disabled, true);
     assert.equal(elTables.importInput.disabled, true);
+    // A value half-typed for the NPC table must not be added to an expression.
+    assert.equal(addFormResets, 1);
+    assert.equal(elTables.addForm.hidden, true);
     const newTables = loadTables();
     const newPresets = loadPresets();
 
@@ -142,7 +147,7 @@ test('kind switches cancel debounced and in-flight odds and stale preset rows ar
     });
     const oldOdds = refreshOdds();
     const begin = lift(js, 'beginTablesKindLoad', {
-        tablesState, elTables, clearTimeout: (value) => cleared.push(value),
+        tablesState, elTables, clearTimeout: (value) => cleared.push(value), resetAddForm: () => {},
     });
     begin('expression');
     assert.deepEqual(cleared, [timer]);

@@ -576,6 +576,20 @@ reads this file` and `Prompt templates` — read like tables (they use `- `
   preset, hand it to another GM, and they can import it, preview exactly what
   it would change, and apply it.
 
+  Below the selected table's bullets, **Add value** appends a custom bullet of
+  your own — for NPCs, Spaceships and Expressions alike, written into that
+  kind's own tables file just after the table's last bullet, enabled, with the
+  weight in the box beside it. Type prose only and set flags afterwards with the
+  checkboxes (a `|| flag` segment typed in is kept verbatim, as a hand edit
+  would be). A value is refused if the table already has the same prose,
+  disabled or not — presets and every edit address a bullet by that prose, so a
+  second copy could never be toggled — and if the file would misread it: more
+  than one line, a leading `x3 ` that would parse as a weight, an HTML comment
+  marker, or a `=> Name` group reference. To take a custom value back out,
+  uncheck it, or delete its line from the tables file. Presets are a whitelist,
+  so applying one saved before a value existed switches that value off;
+  re-save the preset to keep it.
+
   Under each bullet is a row of **flag checkboxes** — the `|| updo`, `||
 helmet`, `|| notac` segment, editable without opening the tables file. Only
   the flags a given table actually reads are offered, so `updo` appears under

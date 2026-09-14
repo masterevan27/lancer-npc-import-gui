@@ -4863,6 +4863,33 @@ async function handleApi(req, res, url) {
         return sendJson(res, 200, { ok: true });
     }
 
+    if (url.pathname === '/api/table-bullets/add' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const kind = resolveKind(url, body);
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
+        const { table, text } = body;
+        const weight = body.weight === undefined ? 1 : body.weight;
+        if (typeof table !== 'string' || !table || typeof text !== 'string'
+            || !Number.isInteger(weight) || weight < 1) {
+            return sendJson(res, 400, { error: 'table (string), text (string), and an optional weight (integer >= 1) are required' });
+        }
+        // kind.tables for the same reason every writer above uses it: a GM's
+        // custom Backdrop for a ship must land in the ship file, never the
+        // NPC one that shares the heading.
+        const result = tableBullets.addBulletOnDisk(kind.tables, table, text, weight);
+        if (!result.ok) return sendJson(res, 400, { error: result.error });
+        // The stored bullet goes back because the server trims the text, and
+        // the text is the id every later toggle and reweight addresses.
+        return sendJson(res, 200, { ok: true, bullet: result.bullet });
+    }
+
     if (url.pathname === '/api/table-bullets/set-flag' && req.method === 'POST') {
         const raw = await readBody(req);
         let body;
