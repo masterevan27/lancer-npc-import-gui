@@ -2596,6 +2596,7 @@ const createJobs = new Map();
 const CREATE_LOG_LIMIT = 20000;
 
 const overrideTables = require('./lib/overrideTables');
+const gatesLib = require('./lib/gates');
 
 // Derived from generate-npc.py's REQUIRED_TABLES rather than restated, because
 // a restated copy drifted: Weapon, Theme, Height and Hair colour were all
@@ -2658,10 +2659,69 @@ const OVERRIDE_DATA_BY_KIND = (() => {
             rerollable: source ? overrideTables.rerollableTraitsFrom(source) : [],
             rawRerollable: source ? overrideTables.rawRerollableTraitsFrom(source) : [],
             dependents: source ? overrideTables.traitDependentsFrom(source) : {},
+            // The script's own gate maps (ROLE_LOCKS and its siblings) are the
+            // DEFAULTS the gate editor shows; the user's edits live in a
+            // sidecar beside the tables file and are read per request, since
+            // that file does change under a running server - this GUI is
+            // what changes it. Kept as source rather than parsed once so
+            // lib/gates.js owns the parse and its tests cover the shape.
+            gateSource: source,
         };
     }
     return out;
 })();
+
+/** The Role bullets of a tables file, flag-stripped: the names a gate may admit. */
+function gateRolesOf(tables) {
+    const roles = [];
+    for (const table of tables) {
+        if (table.name !== 'Role' && !table.name.startsWith('Role (')) continue;
+        for (const bullet of table.bullets) {
+            roles.push(tableFlags.splitBulletFlags('Role', bullet.text).body);
+        }
+    }
+    return roles;
+}
+
+/**
+ * The effective gate maps for a kind - its script's defaults under its
+ * sidecar - or null for a kind whose script declares none (a spaceship's
+ * has its own gate machinery in ship_policy.py, and the expression kind has
+ * no script at all). Null is what tells the client to draw no panel.
+ */
+function gateMapsFor(kind) {
+    const source = OVERRIDE_DATA_BY_KIND[kind.id]?.gateSource;
+    if (!source) return null;
+    const read = gatesLib.readGates(kind.tables, source);
+    if (gatesLib.GATE_KEYS.every((key) => read.gates[key] == null)) return null;
+    return read;
+}
+
+/**
+ * The gate editor's whole payload: the maps, which of them the sidecar
+ * overrides, the Roles and buckets a gate may name, and which table each
+ * map gates. Rides along with /api/table-bullets for the reason the flag
+ * vocabulary does - the panel and the bullet checkboxes must agree.
+ */
+function gatesFor(kind, tables) {
+    const read = gateMapsFor(kind);
+    if (!read) return null;
+    const { gates: maps, overridden, error } = read;
+    return {
+        maps,
+        overridden,
+        ...(error ? { error } : {}),
+        roles: gateRolesOf(tables),
+        buckets: [...new Set(Object.values(maps.roleCategories || {}))],
+        tables: gatesLib.GATE_TABLES,
+    };
+}
+
+/** The sidecar's gate flags as an `extra` vocabulary for lib/tableFlags.js. */
+function gateFlagsFor(kind) {
+    const read = gateMapsFor(kind);
+    return read ? gatesLib.gateFlagVocabulary(read.gates) : {};
+}
 
 /**
  * Traits `--reroll-trait` accepts, derived from the generator's own two lists.
@@ -4813,14 +4873,19 @@ async function handleApi(req, res, url) {
         // where the wide woven hat that prompted the 'crown' flag lives, so
         // a client that could not resolve a variant would have left exactly
         // that bullet without checkboxes.
+        // The gate flags the sidecar defines are merged in, so a gate added on
+        // the panel is a checkbox on its table's bullets in the same payload.
+        const gates = gatesFor(kind, tables);
+        const extraFlags = gates ? gatesLib.gateFlagVocabulary(gates.maps) : {};
         const flags = {};
         for (const table of tables) {
-            const vocabulary = tableFlags.flagsFor(table.name, parents);
+            const vocabulary = tableFlags.flagsFor(table.name, parents, extraFlags);
             if (vocabulary) flags[table.name] = vocabulary;
         }
         return sendJson(res, 200, {
             groups: tableGroups.groupTables(tables, kind.id),
             flags,
+            gates,
             capabilities: {
                 odds: !!kind.supports.odds,
                 chances: !!(kind.supports.odds || kind.supports.chances),
@@ -4935,12 +5000,69 @@ async function handleApi(req, res, url) {
         // '## Backdrop' draws the NPC Backdrop checkboxes, and a hardcoded
         // NPC_TABLES_PATH here would land a Spaceships-tab edit in
         // npc-generator-tables.md.
-        const result = tableBullets.setBulletFlagOnDisk(kind.tables, table, text, flag, on);
+        const result = tableBullets.setBulletFlagOnDisk(kind.tables, table, text, flag, on, gateFlagsFor(kind));
         if (!result.ok) return sendJson(res, 400, { error: result.error });
         // The new text goes back because a flag edit CHANGES the bullet's id.
         // A client still holding the old string would fail its next toggle or
         // reweight against a bullet that no longer answers to that name.
         return sendJson(res, 200, { ok: true, text: result.text });
+    }
+
+    if (url.pathname === '/api/gates' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const kind = resolveKind(url, body);
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
+        const current = gateMapsFor(kind);
+        if (!current) return sendJson(res, 400, { error: `${kind.label} have no gates to edit` });
+        const maps = body.gates;
+        if (!maps || typeof maps !== 'object' || Array.isArray(maps)) {
+            return sendJson(res, 400, { error: 'gates (an object of gate maps) is required' });
+        }
+        // Validated against the LIVE Role table, not the client's copy of it:
+        // a name that admits nobody is the one mistake the generator cannot
+        // report (an unrecognized name is simply never matched), so it has to
+        // be refused here, before the write. A bucket is whatever the
+        // submitted roleCategories - or, absent that, the current one - maps
+        // some Role to, so a category the user has just invented is legal.
+        const tables = tableBullets.readTables(kind.tables);
+        const categories = maps.roleCategories && typeof maps.roleCategories === 'object'
+            ? maps.roleCategories : current.gates.roleCategories;
+        const buckets = [...new Set(Object.values(categories || {}))];
+        const errors = gatesLib.validateGates(maps, { roles: gateRolesOf(tables), buckets });
+        if (errors.length) return sendJson(res, 400, { error: errors.join('; '), errors });
+        // kind.tables, as every tables writer above: the sidecar sits beside
+        // the file whose gates it redefines, and the generator finds it there.
+        gatesLib.writeGates(kind.tables, maps);
+        return sendJson(res, 200, { ok: true, gates: gatesFor(kind, tables) });
+    }
+
+    if (url.pathname === '/api/gates/reset' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const kind = resolveKind(url, body);
+        if (!kind) return sendJson(res, 400, { error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"` });
+        if (!kind.supports.tables) return sendJson(res, 400, { error: `${kind.label} have no tables` });
+        // Removing the sidecar IS the reset: with no file the generator and
+        // this server both fall back to the script's literals.
+        const sidecar = gatesLib.gatesPathFor(kind.tables);
+        try {
+            fs.rmSync(sidecar, { force: true });
+        } catch (err) {
+            return sendJson(res, 500, { error: `could not remove ${path.basename(sidecar)}: ${err.message}` });
+        }
+        return sendJson(res, 200, { ok: true, gates: gatesFor(kind, tableBullets.readTables(kind.tables)) });
     }
 
     if (url.pathname === '/api/presets' && req.method === 'GET') {

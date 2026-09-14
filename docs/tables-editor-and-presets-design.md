@@ -36,6 +36,21 @@
 >   purposes - toggling never changes them" rule stated further down. Presets
 >   consequently match on the flag-stripped prose rather than the full text,
 >   or flagging a bullet would orphan it in every preset saved beforehand.
+> - **Gates** are editable too. A gate flag (`admin` on Gear, `cockpit` on
+>   Backdrop) is set on a bullet with the same checkboxes, but WHO it admits
+>   used to live only in `generate-npc.py`'s `ROLE_LOCKS`, `BACKDROP_ROLES`,
+>   `WEAPON_ROLES`, `UNAFFILIATED_ROLES` and `ROLE_CATEGORIES`. The Tables
+>   tab now shows a gate panel above the bullets of Gear, Headgear, Backdrop
+>   and Weapon (one row per gate: the categories and Roles it admits, a
+>   remove button, an add form) and a category select plus "works for
+>   nobody" box on every Role row. `lib/gates.js` reads the script's
+>   literals as defaults and writes the user's edits to
+>   `npc-generator-tables.gates.json` beside the tables file, which the
+>   generator's `load_gates()` applies over the literals; `POST /api/gates`
+>   validates every name against the live Role table first, and
+>   `POST /api/gates/reset` deletes the sidecar. A gate defined there is
+>   merged into the flag vocabulary `GET /api/table-bullets` serves, so it is
+>   a checkbox on its table's bullets in the same payload.
 >
 > Read `lib/presets.js` and its tests for the format that is
 > actually implemented. Remaining parked issues live in

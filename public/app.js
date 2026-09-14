@@ -6363,6 +6363,7 @@ const tablesState = {
   presets: [],
   pendingPreset: null, // the parsed preset object currently shown in the preview, or null
   flags: {},           // { [table]: { [flag]: gloss } } - the vocabulary the server sends
+  gates: null,         // { maps, overridden, roles, buckets, tables, error? } - who each gate admits, or null for a kind without gates
   parents: {},         // { [table]: parentBaseName } - which table's bullet enters a group
   odds: null,          // the last settled /api/table-odds report, or null
   oddsStale: false,    // an edit has landed that the settled odds predate
@@ -6395,6 +6396,14 @@ const elTables = {
   addText: document.getElementById('table-add-text'),
   addBtn: document.getElementById('table-add-btn'),
   addError: document.getElementById('table-add-error'),
+  gatePanel: document.getElementById('gate-panel'),
+  gateNote: document.getElementById('gate-note'),
+  gateList: document.getElementById('gate-list'),
+  gateAddForm: document.getElementById('gate-add-form'),
+  gateAddName: document.getElementById('gate-add-name'),
+  gateAddBtn: document.getElementById('gate-add-btn'),
+  gateResetBtn: document.getElementById('gate-reset-btn'),
+  gateError: document.getElementById('gate-error'),
 };
 
 /**
@@ -6452,9 +6461,12 @@ elTables.kindSelect.addEventListener('change', () => {
 async function loadTables() {
   const kind = tablesState.kind;
   const request = ++tablesState.tableRequest;
-  const { groups, flags, capabilities } = await api(`/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`);
+  const { groups, flags, gates, capabilities } = await api(`/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`);
   if (kind !== tablesState.kind || request !== tablesState.tableRequest) return false;
   tablesState.groups = groups;
+  // Null for a kind whose generator declares no gate maps, and for an older
+  // server that never sent the field: either way, no panel.
+  tablesState.gates = gates || null;
   // An older server did not send this field; retain its historic odds UI in
   // that case, but never ask a new server to sample a tables-only kind.
   const odds = capabilities?.odds !== false;
@@ -6608,6 +6620,7 @@ function renderTableBullets() {
     : (found ? 'No tables match that search' : 'Select a table');
   elTables.bulletList.innerHTML = '';
   elTables.addForm.hidden = !table;
+  renderGatePanel(table);
   if (!table) return;
   for (const bullet of table.bullets) {
     // Hidden, not skipped: renderChances pairs .chance-cell elements with
@@ -6803,7 +6816,7 @@ function bulletFlagsOf(tableName, text) {
  * they are preserved through every edit by lib/tableFlags.js.
  */
 function renderBulletFlags(table, bullet) {
-  const vocabulary = tablesState.flags[table.name];
+  const vocabulary = tablesState.flags[table.name] || (isRoleTable(table.name) && tablesState.gates ? {} : null);
   if (!vocabulary) return null;
   // A reference carries no flags by the file's rules (check_tables refuses
   // them); its theme tags still show, as text, the way they do on any row.
@@ -6846,7 +6859,353 @@ function renderBulletFlags(table, bullet) {
     tag.title = 'A theme tag. Preserved through flag edits; edit it in the tables file.';
     strip.appendChild(tag);
   }
+  // A Role's own gate controls: the category its bucket-keyed gates read,
+  // and whether its Faction is cut to the non-affiliations.
+  if (isRoleTable(table.name) && tablesState.gates) {
+    strip.appendChild(renderRoleGateControls(bulletBody(table.name, bullet.text)));
+  }
   return strip;
+}
+
+/* ==================================================================== */
+/* Gates: who a gate flag admits                                         */
+/* ==================================================================== */
+
+/*
+ * A gate is a flag the generator matches against the rolled Role rather than
+ * against another table: 'admin' on a Gear bullet, 'cockpit' on a Backdrop
+ * scene. The flag itself is set with the checkboxes above, like any other;
+ * WHO it admits is the generator's ROLE_LOCKS / BACKDROP_ROLES / WEAPON_ROLES,
+ * which used to be editable only in generate-npc.py. The server now serves
+ * them (defaults from the script, the user's edits from a sidecar beside the
+ * tables file) and this panel writes them back whole through /api/gates.
+ *
+ * Every write reloads the tab rather than patching state: a gate edit changes
+ * the flag vocabulary (a new gate is a new checkbox on every bullet of its
+ * table), the gate glosses, and the sampled odds, and all three come from the
+ * same payload the reload fetches.
+ */
+
+function baseTableName(name) {
+  const paren = String(name).indexOf(' (');
+  return paren === -1 ? String(name) : String(name).slice(0, paren);
+}
+
+function isRoleTable(tableName) {
+  return baseTableName(tableName) === 'Role';
+}
+
+/**
+ * The gate map a table's flags are read from - 'roleLocks' for Gear - or null
+ * for a table the generator does not gate. Follows a pronoun variant to its
+ * base and a group to its parent, the same two steps the flag vocabulary
+ * takes, since a '## Skies' group referenced from Backdrop carries Backdrop's
+ * gates.
+ */
+function gateMapKeyOf(tableName) {
+  const gates = tablesState.gates;
+  if (!gates) return null;
+  const base = baseTableName(tableName);
+  if (gates.tables[base]) return gates.tables[base];
+  const parent = tablesState.parents[tableName] || tablesState.parents[base];
+  return parent ? gates.tables[baseTableName(parent)] || null : null;
+}
+
+/** A deep copy of the maps, to edit and send whole. */
+function cloneGateMaps() {
+  return JSON.parse(JSON.stringify(tablesState.gates.maps));
+}
+
+/** The Roles in each category, in the panel's order; uncategorised ones under 'Other'. */
+function rolesByBucket() {
+  const { roles, buckets, maps } = tablesState.gates;
+  const categories = maps.roleCategories || {};
+  const groups = new Map(buckets.map((b) => [b, []]));
+  for (const role of roles) {
+    const bucket = categories[role];
+    if (!groups.has(bucket)) groups.set(bucket || 'Other', groups.get(bucket || 'Other') || []);
+    groups.get(bucket || 'Other').push(role);
+  }
+  return groups;
+}
+
+function renderGatePanel(table) {
+  const panel = elTables.gatePanel;
+  const key = table ? gateMapKeyOf(table.name) : null;
+  if (!key) {
+    panel.hidden = true;
+    return;
+  }
+  const gates = tablesState.gates;
+  const map = gates.maps[key] || {};
+  panel.hidden = false;
+  panel.dataset.map = key;
+  elTables.gateNote.textContent = key === 'weaponRoles'
+    ? 'The reverse of a lock: a Role ticked under a gate can roll ONLY bullets carrying that flag. Everyone else still rolls the whole table.'
+    : 'A bullet carrying a gate flag can be rolled only by the categories and Roles ticked under it. A gate with nothing ticked admits nobody.';
+  elTables.gateResetBtn.hidden = !gates.overridden.length;
+  elTables.gateError.hidden = !gates.error;
+  elTables.gateError.textContent = gates.error || '';
+  elTables.gateAddName.value = '';
+  elTables.gateAddBtn.disabled = true;
+  elTables.gateList.innerHTML = '';
+
+  const flags = Object.keys(map);
+  if (!flags.length) {
+    const empty = document.createElement('p');
+    empty.className = 'gate-empty';
+    empty.textContent = 'No gates on this table yet. Add one below, then tick it on the bullets it should lock.';
+    elTables.gateList.appendChild(empty);
+  }
+  for (const flag of flags) {
+    const carrying = table.bullets.filter((b) => bulletFlagsOf(table.name, b.text).includes(flag)).length;
+    elTables.gateList.appendChild(renderGateRow(key, flag, map[flag] || [], carrying));
+  }
+}
+
+function renderGateRow(key, flag, admitted, carrying) {
+  const { maps } = tablesState.gates;
+  const admittedSet = new Set(admitted);
+  const row = document.createElement('details');
+  row.className = 'gate-row';
+  row.dataset.flag = flag;
+
+  const summary = document.createElement('summary');
+  const name = document.createElement('code');
+  name.textContent = flag;
+  summary.appendChild(name);
+  const admits = document.createElement('span');
+  admits.className = 'gate-admits' + (admitted.length ? '' : ' nobody');
+  admits.textContent = admitted.length
+    ? `${key === 'weaponRoles' ? 'only for' : 'admits'} ${admitted.join(', ')}`
+    : (key === 'weaponRoles' ? 'restricts nobody' : 'admits nobody');
+  summary.appendChild(admits);
+  const count = document.createElement('span');
+  count.className = 'gate-count';
+  count.textContent = carrying === 1 ? '1 bullet carries it' : `${carrying} bullets carry it`;
+  summary.appendChild(count);
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'gate-remove';
+  remove.textContent = 'remove';
+  remove.title = carrying
+    ? `Stop reading "${flag}" as a gate. The ${carrying} bullet(s) keep the word but it no longer restricts anyone.`
+    : `Stop reading "${flag}" as a gate.`;
+  remove.addEventListener('click', (e) => {
+    e.preventDefault();
+    removeGate(key, flag);
+  });
+  summary.appendChild(remove);
+  row.appendChild(summary);
+
+  const members = document.createElement('div');
+  members.className = 'gate-members';
+  const categories = maps.roleCategories || {};
+  for (const [bucket, roles] of rolesByBucket()) {
+    const group = document.createElement('div');
+    group.className = 'gate-bucket-group';
+    const bucketOn = admittedSet.has(bucket);
+    group.appendChild(gateToggle(bucket, bucketOn, false,
+      `Every Role in ${bucket}`, (on) => setGateMember(key, flag, bucket, on)));
+    const list = document.createElement('div');
+    list.className = 'gate-bucket-roles';
+    for (const role of roles) {
+      // Ticked-and-dimmed when its category is ticked: the Role is admitted
+      // through the bucket, and its own box would be a second, weaker say.
+      const implied = bucketOn && categories[role] === bucket;
+      list.appendChild(gateToggle(role, implied || admittedSet.has(role), implied,
+        implied ? `Admitted through ${bucket}` : 'This one Role', (on) => setGateMember(key, flag, role, on)));
+    }
+    group.appendChild(list);
+    members.appendChild(group);
+  }
+  row.appendChild(members);
+  return row;
+}
+
+function gateToggle(name, checked, implied, title, onChange) {
+  const label = document.createElement('label');
+  label.className = 'gate-toggle' + (implied ? ' implied' : '');
+  label.title = title;
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.checked = checked;
+  box.disabled = implied;
+  box.addEventListener('change', () => onChange(box.checked));
+  label.appendChild(box);
+  label.appendChild(document.createTextNode(name));
+  return label;
+}
+
+/**
+ * Write the maps whole and reload the tab. On a refusal the panel re-renders
+ * from the state it still holds, which is the last thing the server accepted,
+ * so a ticked box that was refused simply unticks itself under the message.
+ */
+async function writeGates(nextMaps) {
+  elTables.gateError.hidden = true;
+  const table = tablesState.tables.find((t) => t.name === tablesState.selectedTable);
+  try {
+    await api('/api/gates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: tablesState.kind, gates: nextMaps }),
+    });
+    await loadTables();
+    return true;
+  } catch (err) {
+    renderTableBullets();
+    elTables.gateError.textContent = `Couldn't save that gate: ${err.message}`;
+    elTables.gateError.hidden = false;
+    return false;
+  } finally {
+    if (table && tablesState.selectedTable !== table.name) renderTableBullets();
+  }
+}
+
+function setGateMember(key, flag, name, on) {
+  const maps = cloneGateMaps();
+  const current = new Set((maps[key] || {})[flag] || []);
+  if (on) current.add(name); else current.delete(name);
+  // Buckets first, in the panel's order, then Roles in the table's order, so
+  // the file reads the way the panel does whatever was clicked first.
+  const { buckets, roles } = tablesState.gates;
+  const ordered = [...buckets.filter((b) => current.has(b)), ...roles.filter((r) => current.has(r))];
+  for (const extra of current) if (!ordered.includes(extra)) ordered.push(extra);
+  maps[key] = { ...(maps[key] || {}), [flag]: ordered };
+  writeGates(maps);
+}
+
+function removeGate(key, flag) {
+  const maps = cloneGateMaps();
+  if (!maps[key]) return;
+  delete maps[key][flag];
+  writeGates(maps);
+}
+
+const GATE_FLAG_RE = /^[a-z][a-z0-9_-]*$/;
+
+async function addGate() {
+  const key = elTables.gatePanel.dataset.map;
+  const flag = elTables.gateAddName.value.trim();
+  if (!key || !flag) return;
+  if (!GATE_FLAG_RE.test(flag)) {
+    elTables.gateError.textContent = 'A gate flag is one lowercase word: letters, digits, - or _.';
+    elTables.gateError.hidden = false;
+    return;
+  }
+  const maps = cloneGateMaps();
+  if (maps[key] && maps[key][flag]) {
+    elTables.gateError.textContent = `"${flag}" is already a gate on this table.`;
+    elTables.gateError.hidden = false;
+    return;
+  }
+  const otherVocabulary = tablesState.flags[tablesState.selectedTable] || {};
+  if (otherVocabulary[flag]) {
+    elTables.gateError.textContent = `"${flag}" is already a flag this table reads for something else.`;
+    elTables.gateError.hidden = false;
+    return;
+  }
+  maps[key] = { ...(maps[key] || {}), [flag]: [] };
+  elTables.gateAddBtn.disabled = true;
+  if (await writeGates(maps)) {
+    // Open the new gate's row so the next click is on who it admits.
+    const row = elTables.gateList.querySelector(`.gate-row[data-flag="${CSS.escape(flag)}"]`);
+    if (row) row.open = true;
+  }
+}
+
+elTables.gateAddName.addEventListener('input', () => {
+  elTables.gateAddBtn.disabled = !elTables.gateAddName.value.trim();
+  elTables.gateError.hidden = true;
+});
+
+elTables.gateAddForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  addGate();
+});
+
+elTables.gateResetBtn.addEventListener('click', async () => {
+  if (!confirm('Delete the gates file beside the tables? Every gate goes back to what generate-npc.py declares.')) return;
+  elTables.gateResetBtn.disabled = true;
+  try {
+    await api('/api/gates/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: tablesState.kind }),
+    });
+    await loadTables();
+  } catch (err) {
+    elTables.gateError.textContent = `Couldn't reset the gates: ${err.message}`;
+    elTables.gateError.hidden = false;
+  } finally {
+    elTables.gateResetBtn.disabled = false;
+  }
+});
+
+/** The Role row's category <select> and "works for nobody" box. */
+function renderRoleGateControls(role) {
+  const { maps, buckets } = tablesState.gates;
+  const wrap = document.createElement('span');
+  wrap.className = 'gate-role-controls';
+
+  const categoryLabel = document.createElement('label');
+  categoryLabel.className = 'gate-toggle';
+  categoryLabel.title = 'The category this Role rolls as: bucket-keyed gates (a Backdrop scene for Pilots) and the dress and weapon policies all read it.';
+  categoryLabel.appendChild(document.createTextNode('category'));
+  const select = document.createElement('select');
+  const current = (maps.roleCategories || {})[role] || '';
+  for (const bucket of buckets) {
+    const option = document.createElement('option');
+    option.value = bucket;
+    option.textContent = bucket;
+    select.appendChild(option);
+  }
+  if (!current || !buckets.includes(current)) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = current || 'Other (none)';
+    select.appendChild(option);
+  }
+  const fresh = document.createElement('option');
+  fresh.value = '__new__';
+  fresh.textContent = 'New category…';
+  select.appendChild(fresh);
+  select.value = current && buckets.includes(current) ? current : '';
+  select.addEventListener('change', () => {
+    let bucket = select.value;
+    if (bucket === '__new__') {
+      bucket = (prompt('Name the new category (capitalised, e.g. Clergy):') || '').trim();
+      if (!bucket) {
+        select.value = current && buckets.includes(current) ? current : '';
+        return;
+      }
+    }
+    setRoleCategory(role, bucket);
+  });
+  categoryLabel.appendChild(select);
+  wrap.appendChild(categoryLabel);
+
+  const unaffiliated = (maps.unaffiliatedRoles || []).includes(role);
+  wrap.appendChild(gateToggle('works for nobody', unaffiliated, false,
+    'Cut this Role\'s Faction roll to the bullets flagged unaffiliated.',
+    (on) => setRoleUnaffiliated(role, on)));
+  return wrap;
+}
+
+function setRoleCategory(role, bucket) {
+  const maps = cloneGateMaps();
+  maps.roleCategories = { ...(maps.roleCategories || {}) };
+  if (bucket) maps.roleCategories[role] = bucket; else delete maps.roleCategories[role];
+  writeGates(maps);
+}
+
+function setRoleUnaffiliated(role, on) {
+  const maps = cloneGateMaps();
+  const current = new Set(maps.unaffiliatedRoles || []);
+  if (on) current.add(role); else current.delete(role);
+  maps.unaffiliatedRoles = tablesState.gates.roles.filter((r) => current.has(r));
+  writeGates(maps);
 }
 
 /**

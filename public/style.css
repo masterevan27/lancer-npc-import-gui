@@ -2122,6 +2122,123 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .table-bullet-flags { margin-left: 0.6rem; }
 }
 
+/* The gate editor: who a gate flag admits. One <details> per gate, closed by
+   default, because Backdrop carries fifteen gates and every one of them
+   offers a checkbox per category and per Role. */
+.gate-panel {
+  margin: 0 0 var(--sp-3);
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.gate-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+.gate-panel-head h3 { margin: 0; font-size: var(--fs-md); }
+.gate-panel-head button {
+  padding: 0.1rem 0.5rem;
+  font-size: var(--fs-xs);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text-3);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.gate-note { margin: 0.2rem 0 0.4rem; font-size: var(--fs-xs); color: var(--text-4); }
+.gate-empty { margin: 0.2rem 0; font-size: var(--fs-sm); color: var(--text-4); }
+.gate-row { border-top: 1px solid var(--line); padding: 0.25rem 0; }
+.gate-row summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.6rem;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+}
+.gate-row summary code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text);
+}
+.gate-admits { color: var(--text-3); }
+.gate-admits.nobody { color: var(--danger); }
+.gate-count { color: var(--text-4); font-size: var(--fs-xs); }
+.gate-remove {
+  margin-left: auto;
+  padding: 0 0.4rem;
+  font-size: var(--fs-xs);
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--text-4);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.gate-remove:hover { color: var(--danger); border-color: var(--danger); }
+.gate-members { padding: 0.2rem 0 0.3rem 1rem; }
+.gate-bucket-group { margin: 0.15rem 0; font-size: var(--fs-xs); }
+.gate-bucket-group > .gate-toggle { font-weight: 600; color: var(--text-2); }
+.gate-bucket-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.1rem 0.8rem;
+  margin: 0.1rem 0 0.2rem 1.2rem;
+  color: var(--text-4);
+}
+.gate-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+}
+.gate-toggle input { margin: 0; }
+.gate-toggle:has(input:checked) { color: var(--text); }
+/* A Role covered by a ticked category is admitted already; its own box is
+   shown ticked and disabled so the hierarchy reads at a glance. */
+.gate-toggle.implied { opacity: 0.55; }
+.gate-add-form {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--line);
+}
+.gate-add-form input {
+  flex: 1;
+  min-width: 8rem;
+  max-width: 18rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  height: var(--control-h-sm);
+  padding: 0 0.6rem;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.gate-error { margin: 0.3rem 0 0; font-size: var(--fs-sm); color: var(--danger); }
+/* The Role table's own rows: which category a Role belongs to, and whether
+   it works for nobody. Sits in the flag strip beside the 'mil' box. */
+.gate-role-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-left: 0.4rem;
+  padding-left: 0.7rem;
+  border-left: 1px solid var(--line);
+}
+.gate-role-controls select {
+  height: 1.4rem;
+  font-size: var(--fs-xs);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  border-radius: var(--r-sm);
+}
+
 .presets-panel { margin-top: var(--sp-8); border-top: 1px solid var(--line); padding-top: var(--sp-5); }
 .preset-row {
   display: flex;

@@ -165,7 +165,9 @@ test('a flag write stores the new text the server returns', async (t) => {
 
 test('a table with no flag vocabulary gets no strip', async (t) => {
     const { js } = await lifted(t);
-    assert.match(js, /const vocabulary = tablesState\.flags\[table\.name\];\s*\n\s*if \(!vocabulary\) return null;/);
+    // The Role table is the one exception: with gates loaded its rows carry
+    // the category controls even though 'Role' reads only 'mil'.
+    assert.match(js, /const vocabulary = tablesState\.flags\[table\.name\] \|\| \(isRoleTable\(table\.name\) && tablesState\.gates \? \{\} : null\);\s*\n\s*if \(!vocabulary\) return null;/);
     // Eyes, Skin and the rest carry no '||' at all - their text goes into the
     // prompt verbatim, so a flag written there would ship literally.
     for (const table of ['Eyes', 'Skin', 'Demeanor', 'Glow colour', 'Height']) {

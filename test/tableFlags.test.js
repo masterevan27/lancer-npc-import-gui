@@ -356,16 +356,62 @@ test('every flag the live tables use has a checkbox', { skip: !SIBLING_TABLES &&
     const { parseTableFile, groupParents } = require('../lib/tableBullets');
     const tables = parseTableFile(text);
     const parents = groupParents(tables);
+    // Gate flags (admin, outlaw, cockpit...) are not in TABLE_FLAGS: they are
+    // read off the generator's own ROLE_LOCKS and BACKDROP_ROLES, and the
+    // sidecar beside the tables, by lib/gates.js - the same way the server
+    // merges them before it serves the vocabulary.
+    const { readGates, gateFlagVocabulary } = require('../lib/gates');
+    const generator = path.join(path.dirname(path.dirname(SIBLING_TABLES)), 'generate-npc.py');
+    const source = fs.existsSync(generator) ? fs.readFileSync(generator, 'utf8') : '';
+    const extra = gateFlagVocabulary(readGates(SIBLING_TABLES, source).gates);
     const missing = [];
     for (const table of tables) {
         if (NON_TABLE_SECTIONS.includes(table.name)) continue;
         for (const bullet of table.bullets) {
-            const { flags } = splitBulletFlags(table.name, bullet.text);
+            // With parents, or a Backdrop GROUP's scene sentence is read as
+            // a list of flags - see isThreeSegment().
+            const { flags } = splitBulletFlags(table.name, bullet.text, parents);
             for (const flag of flags) {
-                if (!knownFlags(table.name, parents).includes(flag)) missing.push(`${table.name}: ${flag}`);
+                if (!knownFlags(table.name, parents, extra).includes(flag)) missing.push(`${table.name}: ${flag}`);
             }
         }
     }
     assert.deepEqual([...new Set(missing)], [],
         'lib/tableFlags.js is missing flags the live tables use');
+});
+
+/* ---------------------------------------------------------------- */
+/* Gate flags from the sidecar                                       */
+/* ---------------------------------------------------------------- */
+
+// A gate flag defined through the Tables tab's gate editor is not in
+// TABLE_FLAGS - it lives in the gates sidecar - so every vocabulary lookup
+// takes an `extra` map, keyed by base table, merged over the literal one.
+const { flagsFor } = require('../lib/tableFlags');
+const EXTRA = { Gear: { badge: 'Gate: a pirate' }, Backdrop: { bridge: 'Gate: Pilots' } };
+
+test('flagsFor merges an extra vocabulary over the built-in one', () => {
+    const gear = flagsFor('Gear', {}, EXTRA);
+    assert.equal(gear.badge, 'Gate: a pirate');
+    assert.ok(gear.hands, 'the built-in flags are still there');
+    assert.equal(flagsFor('Gear').badge, undefined, 'without extra, nothing changes');
+    assert.equal(TABLE_FLAGS.Gear.badge, undefined, 'the literal vocabulary is never mutated');
+});
+
+test('an extra gate flag reaches a pronoun variant and a group through its parent', () => {
+    assert.equal(flagsFor('Gear (she) +', {}, EXTRA).badge, 'Gate: a pirate');
+    assert.equal(flagsFor('Skies', { Skies: 'Backdrop' }, EXTRA).bridge, 'Gate: Pilots');
+    assert.ok(knownFlags('Skies', { Skies: 'Backdrop' }, EXTRA).includes('bridge'));
+});
+
+test('setBulletFlag accepts an extra gate flag and refuses it without the map', () => {
+    const on = setBulletFlag('Gear', 'a brass badge', 'badge', true, {}, EXTRA);
+    assert.deepEqual(on, { ok: true, text: 'a brass badge || badge' });
+    const refused = setBulletFlag('Gear', 'a brass badge', 'badge', true);
+    assert.equal(refused.ok, false);
+});
+
+test('an extra flag sorts after the built-in vocabulary', () => {
+    const { text } = setBulletFlag('Gear', 'a brass badge || badge', 'hands', true, {}, EXTRA);
+    assert.equal(text, 'a brass badge || hands badge');
 });

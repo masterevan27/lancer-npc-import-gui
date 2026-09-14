@@ -384,6 +384,27 @@
     <div class="table-heading-list" id="table-heading-list"></div>
     <div class="table-bullet-panel">
       <h2 id="table-bullet-heading">Select a table</h2>
+      <!-- Who each gate flag admits, for a table the generator gates on Role
+           (Gear, Headgear, Backdrop, Weapon). Written to the gates sidecar
+           beside the tables file; the Role table's own rows carry the
+           category and "works for nobody" controls instead. -->
+      <section class="gate-panel" id="gate-panel" hidden>
+        <div class="gate-panel-head">
+          <h3>Gates</h3>
+          <button type="button" id="gate-reset-btn" hidden
+                  title="Delete the gates file beside the tables so the generator's own defaults apply again">
+            Reset to generator defaults
+          </button>
+        </div>
+        <p class="gate-note" id="gate-note"></p>
+        <div class="gate-list" id="gate-list"></div>
+        <form class="gate-add-form" id="gate-add-form">
+          <input type="text" id="gate-add-name" placeholder="New gate flag, e.g. medic"
+                 autocomplete="off" aria-label="New gate flag" />
+          <button type="submit" id="gate-add-btn" disabled>Add gate</button>
+        </form>
+        <p class="gate-error" id="gate-error" role="alert" hidden></p>
+      </section>
       <div class="table-bullet-list" id="table-bullet-list"></div>
       <!-- Adds a custom value to the selected table, whichever kind's file it
            lives in. Appended enabled; flags are then set with the checkboxes. -->

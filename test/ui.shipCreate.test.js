@@ -248,7 +248,7 @@ test('the Tables UI gates odds requests and chance cells on the server capabilit
     t.after(() => server.stop());
 
     const js = await fetchText(server, '/app.js');
-    assert.match(js, /const \{ groups, flags, capabilities \} = await api\(`\/api\/table-bullets\?kind=/,
+    assert.match(js, /const \{ groups, flags, gates, capabilities \} = await api\(`\/api\/table-bullets\?kind=/,
         'loadTables must receive per-kind capabilities with the table data');
     assert.match(js, /capabilities\.odds/, 'odds capability must gate the chance UI');
     assert.match(js, /if \(!tablesState\.capabilities\.odds\) return;/,
