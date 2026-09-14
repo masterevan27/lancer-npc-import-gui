@@ -393,6 +393,18 @@ and open <http://127.0.0.1:5089>.
   coerced and clamped to its own type, unknown keys dropped — because an
   imported preset would otherwise be the way to get an unchecked value onto
   the generator's command line.
+
+  A preset can also be made from an NPC you already have. **Save as Create
+  preset…** on the detail sheet, beside Delete, writes that NPC's seed,
+  pronouns and every rolled trait as a preset the Create NPC tab lists at
+  once, so "roll me more like her" is one click here and one Load there. The
+  same two things are left out as above — the name halves and the callsign —
+  because a preset is a recipe and loading it back should roll someone
+  _like_ Vela, not a second Vela. Trait values are taken from the manifest's
+  raw bullets, flags included, since those flags gate the rolls that follow;
+  a value the current tables file no longer offers arrives as a custom
+  free-text row rather than a dropdown that cannot show it. A ship's sheet
+  saves to the Create Spaceship tab's presets the same way.
   An NPC's detail sheet lists its rolled traits, and each trait the generator
   can re-roll on its own gets a **Re-roll** button. The buttons lead their rows,
   stacked in one gutter down the left of the trait table rather than trailing a

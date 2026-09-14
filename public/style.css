@@ -700,6 +700,11 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .detail-title-row { display: flex; align-items: baseline; gap: 0.9rem; }
 .detail-title-row h2 { flex: 1; }
 .detail-title-row .danger { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+.detail-title-row #detail-save-preset { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+/* One line under the title row for the outcome of Save as Create preset;
+   hidden until there is something to say, so the sheet does not change shape. */
+.detail-preset-status { margin: 0.15rem 0 0; font-size: 0.8rem; }
+.detail-preset-status.is-error { color: var(--danger-text); }
 
 /* Present for someone looking for it, not competing with the NPC's name. */
 .detail-shortcuts {

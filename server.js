@@ -55,6 +55,7 @@ const tableFlags = require('./lib/tableFlags');
 const traitCandidateEdit = require('./lib/traitCandidateEdit');
 const presets = require('./lib/presets');
 const createPresets = require('./lib/createPresets');
+const presetFromItem = require('./lib/presetFromItem');
 const { derivePaths } = require('./lib/paths');
 const { buildKinds, kindFor, kindOf, requestKind, available, DEFAULT_KIND } = require('./lib/kinds');
 const {
@@ -5372,6 +5373,63 @@ async function handleApi(req, res, url) {
         // Nothing is written: import fills the form, and the user decides
         // whether it is worth saving under a name of their own.
         return sendJson(res, 200, { ok: true, name: result.preset.name, settings: result.preset.settings });
+    }
+
+    // The NPC sheet's "Save as Create preset": one generated entry becomes a
+    // preset the Create tab of its own kind lists. Server-side rather than
+    // the client posting /api/create-presets itself, because the override
+    // values a preset needs are the manifest's raw bullets - flags and all -
+    // and itemView deliberately never sends those to the browser. See
+    // lib/presetFromItem.js for what is kept and what is left out.
+    if (url.pathname === '/api/create-presets/from-item' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const id = typeof body.id === 'string' ? body.id : '';
+        const item = id ? findItem(id) : null;
+        // 404 for a blank id too, not 400: a background's id is never in the
+        // manifest and answers the same way, and the honest client hides the
+        // button for one rather than sending it.
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        // The item's own kind, never the request's: a ship saved from its
+        // sheet belongs to the ship tab whatever tab happened to be open.
+        const kind = kindOf(KINDS, item);
+        if (!kind.supports.create) return sendJson(res, 400, { error: `${kind.label} have no create presets` });
+        const name = typeof body.name === 'string' ? body.name.trim() : '';
+        if (!name) return sendJson(res, 400, { error: 'name is required' });
+        const slug = createPresets.slugify(name);
+        if (!slug) return sendJson(res, 400, { error: 'name must contain at least one letter or digit' });
+        if (createPresets.createPresetExists(kind.createPresetsDir, slug)) {
+            return sendJson(res, 409, { error: `a preset named "${name}" already exists` });
+        }
+        const ship = kind.id !== DEFAULT_KIND;
+        // The current tables file decides which values the form can show in
+        // a dropdown; without one every value is custom, which the form
+        // shows as free text and the generator accepts just the same.
+        let options = {};
+        try {
+            options = traitOptions.traitOptionsFrom(tableBullets.readTables(kind.tables));
+        } catch { /* no tables file */ }
+        const settings = presetFromItem.settingsFromItem(item, {
+            tables: (OVERRIDE_DATA_BY_KIND[kind.id] || {}).tables || [],
+            options,
+            ship,
+        });
+        // Through the same normaliser the Create tab's own Save goes through,
+        // so the file on disk cannot differ in shape by which button wrote it.
+        const result = createPresets.normaliseSettings(settings, { ship });
+        if (!result.ok) return sendJson(res, 400, { error: result.error });
+        createPresets.writeCreatePreset(kind.createPresetsDir, slug, {
+            name,
+            created: new Date().toISOString(),
+            kind: kind.createPresetDiscriminator,
+            settings: result.settings,
+        });
+        return sendJson(res, 200, { ok: true, slug, name, overrideCount: result.settings.overrides.length });
     }
 
     // The alias: hard-codes kind: 'npc' regardless of whatever the body
