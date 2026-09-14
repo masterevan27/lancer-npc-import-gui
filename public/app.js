@@ -1,24 +1,32 @@
 /* Import GUI - vanilla JS, no build step. See server.js for the API this talks to. */
 
-const CATEGORY_LABELS = { npc: 'NPCs', mech: 'Mechs', spaceship: 'Spaceships', background: 'Backgrounds' };
+const CATEGORY_LABELS = {
+  npc: "NPCs",
+  mech: "Mechs",
+  spaceship: "Spaceships",
+  background: "Backgrounds",
+};
 
 // The Import tab's category for background stills. Not a kind: no generator
 // vocabulary, no traits, no Foundry import - a card here is a file the
 // Create Background tab rendered, shown so it can be looked over and deleted
 // alongside the NPCs and ships. server.js's BACKGROUND_KIND is the same
 // string, and its backgroundGridItem is what makes one fit the grid.
-const BACKGROUND_KIND = 'background';
+const BACKGROUND_KIND = "background";
 
 // Which generator script the empty-grid message names, per category - so
 // "run generate-npc.py, then reload" does not point a GM browsing an empty
 // Spaceships tab at the wrong script.
-const KIND_SCRIPTS = { npc: 'generate-npc.py', spaceship: 'generate-spaceship.py' };
+const KIND_SCRIPTS = {
+  npc: "generate-npc.py",
+  spaceship: "generate-spaceship.py",
+};
 
 // Synthetic filter/trait key for the category folder generate-npc.py sorts each
 // NPC into (server.js derives it from the folder path; it isn't a real trait).
-const ROLE_CATEGORY_KEY = 'Role Category';
+const ROLE_CATEGORY_KEY = "Role Category";
 // Fields that are noise in a trait list - the character's own name split three ways.
-const TRAIT_KEY_EXCLUDE = ['name', 'Given names', 'Family names'];
+const TRAIT_KEY_EXCLUDE = ["name", "Given names", "Family names"];
 
 /**
  * The pseudo-trait the sheet shows an NPC's animation description under. Not
@@ -27,7 +35,7 @@ const TRAIT_KEY_EXCLUDE = ['name', 'Given names', 'Family names'];
  * Re-roll and Set... are, and a description chosen anywhere else would be the
  * one trait on the sheet edited differently from the rest.
  */
-const ANIMATION_TRAIT = 'Animation';
+const ANIMATION_TRAIT = "Animation";
 
 /**
  * Which of the generator's prompts each NPC trait reaches, where it is not
@@ -38,25 +46,29 @@ const ANIMATION_TRAIT = 'Animation';
  * whose templates this table does not describe - reaches both.
  */
 const TRAIT_SCOPES = {
-  Backdrop: 'portrait',
-  Weather: 'portrait',
-  'Glow placement': 'portrait',
-  Height: 'token',
-  Stance: 'token',
-  [ANIMATION_TRAIT]: 'animation',
+  Backdrop: "portrait",
+  Weather: "portrait",
+  "Glow placement": "portrait",
+  Height: "token",
+  Stance: "token",
+  [ANIMATION_TRAIT]: "animation",
 };
 
-const SCOPE_LABELS = { portrait: 'Portrait only', token: 'Token only', animation: 'Animated only' };
+const SCOPE_LABELS = {
+  portrait: "Portrait only",
+  token: "Token only",
+  animation: "Animated only",
+};
 
 /** 'portrait' | 'token' | 'animation' | 'both', for one trait of one kind. */
 function traitScopeOf(kind, trait) {
-  if (kind && kind !== 'npc') return 'both';
-  return TRAIT_SCOPES[trait] || 'both';
+  if (kind && kind !== "npc") return "both";
+  return TRAIT_SCOPES[trait] || "both";
 }
 
 /** The pill after a trait's name, or nothing for a trait both prompts read. */
 function scopePill(scope) {
-  if (!SCOPE_LABELS[scope]) return '';
+  if (!SCOPE_LABELS[scope]) return "";
   return ` <span class="scope-pill scope-${scope}">${SCOPE_LABELS[scope]}</span>`;
 }
 
@@ -89,11 +101,11 @@ const state = {
   visibleItems: [],
   selected: new Set(),
   pollTimer: null,
-  search: '',
-  sort: 'when-desc',
+  search: "",
+  sort: "when-desc",
   filters: [], // { key, value }
-  detailItemId: null,     // item currently shown in the detail overlay, if any
-  regenLastStatus: null,  // that item's regenStatus as of the last render, to catch done/error transitions
+  detailItemId: null, // item currently shown in the detail overlay, if any
+  regenLastStatus: null, // that item's regenStatus as of the last render, to catch done/error transitions
   // The trait-specific "Re-rolling Hair…" line, so renderRegenPanel's running
   // branch stops overwriting it with the generic one two seconds later.
   // Cleared by openDetail and whenever the job leaves 'running'.
@@ -115,146 +127,158 @@ const state = {
 };
 
 const el = {
-  categories: document.getElementById('categories'),
-  grid: document.getElementById('grid'),
-  empty: document.getElementById('empty'),
-  status: document.getElementById('status'),
-  importBtn: document.getElementById('import-btn'),
-  deleteBtn: document.getElementById('delete-btn'),
-  selectAll: document.getElementById('select-all'),
-  filterSearch: document.getElementById('filter-search'),
-  sortSelect: document.getElementById('sort-select'),
-  filterRows: document.getElementById('filter-rows'),
-  addFilterBtn: document.getElementById('add-filter'),
-  overlay: document.getElementById('detail-overlay'),
-  detailSheet: document.querySelector('#detail-overlay .detail'),
-  detailClose: document.getElementById('detail-close'),
-  detailOpenBackground: document.getElementById('detail-open-background'),
-  detailImportSillyTavern: document.getElementById('detail-import-sillytavern'),
-  detailSavePreset: document.getElementById('detail-save-preset'),
-  detailPresetStatus: document.getElementById('detail-preset-status'),
-  detailPortrait: document.getElementById('detail-portrait'),
-  detailToken: document.getElementById('detail-token'),
-  detailAnimated: document.getElementById('detail-animated'),
-  detailAnimatedFigure: document.getElementById('detail-animated-figure'),
-  detailName: document.getElementById('detail-name'),
-  detailSub: document.getElementById('detail-sub'),
-  detailGenerated: document.getElementById('detail-generated'),
-  detailFiles: document.getElementById('detail-files'),
-  detailFolderPath: document.getElementById('detail-folder-path'),
-  detailFileNames: document.getElementById('detail-file-names'),
-  detailTraits: document.getElementById('detail-traits'),
-  detailPrompts: document.getElementById('detail-prompts'),
-  detailPortraitPrompt: document.getElementById('detail-portrait-prompt'),
-  detailTokenPrompt: document.getElementById('detail-token-prompt'),
-  imageZoom: document.getElementById('image-zoom'),
-  imageZoomImg: document.getElementById('image-zoom-img'),
-  regenPanel: document.getElementById('regen-panel'),
-  regenSeedInput: document.getElementById('regen-seed-input'),
-  regenCurrentSeed: document.getElementById('regen-current-seed'),
-  regenBtn: document.getElementById('regen-btn'),
-  regenStatus: document.getElementById('regen-status'),
-  regenStale: document.getElementById('regen-stale'),
-  model3dPanel: document.getElementById('model3d-panel'),
-  model3dRig: document.getElementById('model3d-rig'),
-  model3dOverwrite: document.getElementById('model3d-overwrite'),
-  model3dBuilt: document.getElementById('model3d-built'),
-  model3dBtn: document.getElementById('model3d-btn'),
-  model3dStatus: document.getElementById('model3d-status'),
-  model3dTurnarounds: document.getElementById('model3d-turnarounds'),
-  model3dFiles: document.getElementById('model3d-files'),
-  animatePanel: document.getElementById('animate-panel'),
-  animateStale: document.getElementById('animate-stale'),
-  animateDescription: document.getElementById('animate-description'),
-  animateSeedInput: document.getElementById('animate-seed-input'),
-  animatePingpong: document.getElementById('animate-pingpong'),
-  animateBuilt: document.getElementById('animate-built'),
-  animateBtn: document.getElementById('animate-btn'),
-  animateStatus: document.getElementById('animate-status'),
-  expressionsPanel: document.getElementById('expressions-panel'),
-  expressionsLabels: document.getElementById('expressions-labels'),
-  expressionsAll: document.getElementById('expressions-all'),
-  expressionsNone: document.getElementById('expressions-none'),
-  expressionsMissing: document.getElementById('expressions-missing'),
-  expressionCustomLabel: document.getElementById('expression-custom-label'),
-  expressionCustomPrompt: document.getElementById('expression-custom-prompt'),
-  expressionCustomAdd: document.getElementById('expression-custom-add'),
-  expressionCustomStatus: document.getElementById('expression-custom-status'),
-  expressionCustomChips: document.getElementById('expression-custom-chips'),
-  expressionsSource: document.getElementById('expressions-source'),
-  expressionsCount: document.getElementById('expressions-count'),
-  expressionsKeepBackground: document.getElementById('expressions-keep-background'),
-  expressionsGenerate: document.getElementById('expressions-generate'),
-  expressionsCancel: document.getElementById('expressions-cancel'),
-  expressionsStage: document.getElementById('expressions-stage'),
-  expressionsLog: document.getElementById('expressions-log'),
-  expressionsSprites: document.getElementById('expressions-sprites'),
-  expressionsSpritesCount: document.getElementById('expressions-sprites-count'),
-  expressionsSpritesDetails: document.getElementById('expressions-sprites-details'),
-  expressionsOnlyGenerated: document.getElementById('expressions-only-generated'),
-  expressionsSpritesCollapse: document.getElementById('expressions-sprites-collapse'),
-  expressionsImportFolder: document.getElementById('expressions-import-folder'),
-  expressionsImportTarget: document.getElementById('expressions-import-target'),
-  expressionsImport: document.getElementById('expressions-import'),
-  expressionsImportStatus: document.getElementById('expressions-import-status'),
-  scopeLegend: document.getElementById('scope-legend'),
-  detailDeleteBtn: document.getElementById('detail-delete-btn'),
+  categories: document.getElementById("categories"),
+  grid: document.getElementById("grid"),
+  empty: document.getElementById("empty"),
+  status: document.getElementById("status"),
+  importBtn: document.getElementById("import-btn"),
+  deleteBtn: document.getElementById("delete-btn"),
+  selectAll: document.getElementById("select-all"),
+  filterSearch: document.getElementById("filter-search"),
+  sortSelect: document.getElementById("sort-select"),
+  filterRows: document.getElementById("filter-rows"),
+  addFilterBtn: document.getElementById("add-filter"),
+  overlay: document.getElementById("detail-overlay"),
+  detailSheet: document.querySelector("#detail-overlay .detail"),
+  detailClose: document.getElementById("detail-close"),
+  detailOpenBackground: document.getElementById("detail-open-background"),
+  detailImportSillyTavern: document.getElementById("detail-import-sillytavern"),
+  detailSavePreset: document.getElementById("detail-save-preset"),
+  detailPresetStatus: document.getElementById("detail-preset-status"),
+  detailPortrait: document.getElementById("detail-portrait"),
+  detailToken: document.getElementById("detail-token"),
+  detailAnimated: document.getElementById("detail-animated"),
+  detailAnimatedFigure: document.getElementById("detail-animated-figure"),
+  detailName: document.getElementById("detail-name"),
+  detailSub: document.getElementById("detail-sub"),
+  detailGenerated: document.getElementById("detail-generated"),
+  detailFiles: document.getElementById("detail-files"),
+  detailFolderPath: document.getElementById("detail-folder-path"),
+  detailFileNames: document.getElementById("detail-file-names"),
+  detailTraits: document.getElementById("detail-traits"),
+  detailPrompts: document.getElementById("detail-prompts"),
+  detailPortraitPrompt: document.getElementById("detail-portrait-prompt"),
+  detailTokenPrompt: document.getElementById("detail-token-prompt"),
+  imageZoom: document.getElementById("image-zoom"),
+  imageZoomImg: document.getElementById("image-zoom-img"),
+  regenPanel: document.getElementById("regen-panel"),
+  regenSeedInput: document.getElementById("regen-seed-input"),
+  regenCurrentSeed: document.getElementById("regen-current-seed"),
+  regenBtn: document.getElementById("regen-btn"),
+  regenStatus: document.getElementById("regen-status"),
+  regenStale: document.getElementById("regen-stale"),
+  model3dPanel: document.getElementById("model3d-panel"),
+  model3dRig: document.getElementById("model3d-rig"),
+  model3dOverwrite: document.getElementById("model3d-overwrite"),
+  model3dBuilt: document.getElementById("model3d-built"),
+  model3dBtn: document.getElementById("model3d-btn"),
+  model3dStatus: document.getElementById("model3d-status"),
+  model3dTurnarounds: document.getElementById("model3d-turnarounds"),
+  model3dFiles: document.getElementById("model3d-files"),
+  animatePanel: document.getElementById("animate-panel"),
+  animateStale: document.getElementById("animate-stale"),
+  animateDescription: document.getElementById("animate-description"),
+  animateSeedInput: document.getElementById("animate-seed-input"),
+  animatePingpong: document.getElementById("animate-pingpong"),
+  animateBuilt: document.getElementById("animate-built"),
+  animateBtn: document.getElementById("animate-btn"),
+  animateStatus: document.getElementById("animate-status"),
+  expressionsPanel: document.getElementById("expressions-panel"),
+  expressionsLabels: document.getElementById("expressions-labels"),
+  expressionsAll: document.getElementById("expressions-all"),
+  expressionsNone: document.getElementById("expressions-none"),
+  expressionsMissing: document.getElementById("expressions-missing"),
+  expressionCustomLabel: document.getElementById("expression-custom-label"),
+  expressionCustomPrompt: document.getElementById("expression-custom-prompt"),
+  expressionCustomAdd: document.getElementById("expression-custom-add"),
+  expressionCustomStatus: document.getElementById("expression-custom-status"),
+  expressionCustomChips: document.getElementById("expression-custom-chips"),
+  expressionsSource: document.getElementById("expressions-source"),
+  expressionsCount: document.getElementById("expressions-count"),
+  expressionsKeepBackground: document.getElementById(
+    "expressions-keep-background",
+  ),
+  expressionsGenerate: document.getElementById("expressions-generate"),
+  expressionsCancel: document.getElementById("expressions-cancel"),
+  expressionsStage: document.getElementById("expressions-stage"),
+  expressionsLog: document.getElementById("expressions-log"),
+  expressionsSprites: document.getElementById("expressions-sprites"),
+  expressionsSpritesCount: document.getElementById("expressions-sprites-count"),
+  expressionsSpritesDetails: document.getElementById(
+    "expressions-sprites-details",
+  ),
+  expressionsOnlyGenerated: document.getElementById(
+    "expressions-only-generated",
+  ),
+  expressionsSpritesCollapse: document.getElementById(
+    "expressions-sprites-collapse",
+  ),
+  expressionsImportFolder: document.getElementById("expressions-import-folder"),
+  expressionsImportTarget: document.getElementById("expressions-import-target"),
+  expressionsImport: document.getElementById("expressions-import"),
+  expressionsImportStatus: document.getElementById("expressions-import-status"),
+  scopeLegend: document.getElementById("scope-legend"),
+  detailDeleteBtn: document.getElementById("detail-delete-btn"),
 };
 
 const elDeleteConfirm = {
-  overlay: document.getElementById('delete-confirm-overlay'),
-  message: document.getElementById('delete-confirm-message'),
-  list: document.getElementById('delete-confirm-list'),
-  cancel: document.getElementById('delete-confirm-cancel'),
-  ok: document.getElementById('delete-confirm-ok'),
+  overlay: document.getElementById("delete-confirm-overlay"),
+  message: document.getElementById("delete-confirm-message"),
+  list: document.getElementById("delete-confirm-list"),
+  cancel: document.getElementById("delete-confirm-cancel"),
+  ok: document.getElementById("delete-confirm-ok"),
 };
 
 /** Shows the delete-confirmation modal for the given item names; resolves true/false. */
 function confirmDelete(names) {
   return new Promise((resolve) => {
-    elDeleteConfirm.message.textContent = names.length === 1
-      ? `Permanently delete "${names[0]}"?`
-      : `Permanently delete these ${names.length} items?`;
-    elDeleteConfirm.list.innerHTML = names.length > 1
-      ? names.map((n) => `<li>${escapeHtml(n)}</li>`).join('')
-      : '';
+    elDeleteConfirm.message.textContent =
+      names.length === 1
+        ? `Permanently delete "${names[0]}"?`
+        : `Permanently delete these ${names.length} items?`;
+    elDeleteConfirm.list.innerHTML =
+      names.length > 1
+        ? names.map((n) => `<li>${escapeHtml(n)}</li>`).join("")
+        : "";
     elDeleteConfirm.overlay.hidden = false;
 
     const cleanup = (result) => {
       elDeleteConfirm.overlay.hidden = true;
-      elDeleteConfirm.ok.removeEventListener('click', onOk);
-      elDeleteConfirm.cancel.removeEventListener('click', onCancel);
-      elDeleteConfirm.overlay.removeEventListener('click', onBackdrop);
+      elDeleteConfirm.ok.removeEventListener("click", onOk);
+      elDeleteConfirm.cancel.removeEventListener("click", onCancel);
+      elDeleteConfirm.overlay.removeEventListener("click", onBackdrop);
       resolve(result);
     };
     const onOk = () => cleanup(true);
     const onCancel = () => cleanup(false);
-    const onBackdrop = (e) => { if (e.target === elDeleteConfirm.overlay) cleanup(false); };
+    const onBackdrop = (e) => {
+      if (e.target === elDeleteConfirm.overlay) cleanup(false);
+    };
 
-    elDeleteConfirm.ok.addEventListener('click', onOk);
-    elDeleteConfirm.cancel.addEventListener('click', onCancel);
-    elDeleteConfirm.overlay.addEventListener('click', onBackdrop);
+    elDeleteConfirm.ok.addEventListener("click", onOk);
+    elDeleteConfirm.cancel.addEventListener("click", onCancel);
+    elDeleteConfirm.overlay.addEventListener("click", onBackdrop);
   });
 }
 
 const elRerollConfirm = {
-  overlay: document.getElementById('reroll-confirm-overlay'),
-  message: document.getElementById('reroll-confirm-message'),
-  cancel: document.getElementById('reroll-confirm-cancel'),
-  ok: document.getElementById('reroll-confirm-ok'),
+  overlay: document.getElementById("reroll-confirm-overlay"),
+  message: document.getElementById("reroll-confirm-message"),
+  cancel: document.getElementById("reroll-confirm-cancel"),
+  ok: document.getElementById("reroll-confirm-ok"),
 };
 
 const elSetTrait = {
-  overlay: document.getElementById('set-trait-overlay'),
-  title: document.getElementById('set-trait-title'),
-  filter: document.getElementById('set-trait-filter'),
-  list: document.getElementById('set-trait-list'),
-  releaseRow: document.getElementById('set-trait-release-row'),
-  release: document.getElementById('set-trait-release'),
-  releaseLabel: document.getElementById('set-trait-release-label'),
-  warning: document.getElementById('set-trait-warning'),
-  cancel: document.getElementById('set-trait-cancel'),
-  ok: document.getElementById('set-trait-ok'),
+  overlay: document.getElementById("set-trait-overlay"),
+  title: document.getElementById("set-trait-title"),
+  filter: document.getElementById("set-trait-filter"),
+  list: document.getElementById("set-trait-list"),
+  releaseRow: document.getElementById("set-trait-release-row"),
+  release: document.getElementById("set-trait-release"),
+  releaseLabel: document.getElementById("set-trait-release-label"),
+  warning: document.getElementById("set-trait-warning"),
+  cancel: document.getElementById("set-trait-cancel"),
+  ok: document.getElementById("set-trait-ok"),
 };
 
 /**
@@ -316,7 +340,9 @@ function traitCascade(trait, vocab = createState) {
       if (!freed.includes(next)) freed.push(next);
     }
   }
-  const ordered = (vocab.overrideTables || []).filter((name) => freed.includes(name));
+  const ordered = (vocab.overrideTables || []).filter((name) =>
+    freed.includes(name),
+  );
   return ordered.includes(trait) ? ordered : freed;
 }
 
@@ -368,7 +394,9 @@ function traitCascade(trait, vocab = createState) {
 function rerollNeedsConfirm(trait, vocab = createState) {
   const dependents = vocab.traitDependents || createState.traitDependents || {};
   if (!Object.keys(dependents).length) {
-    return !(vocab.rerollableTraits || createState.rerollableTraits).includes(trait);
+    return !(vocab.rerollableTraits || createState.rerollableTraits).includes(
+      trait,
+    );
   }
   return traitCascade(trait, vocab).length > 1;
 }
@@ -399,13 +427,15 @@ function confirmReroll(trait, vocab = createState) {
     // back on. It has to say that it cannot name them rather than name none:
     // this dialog exists to let the user decline, and a warning that quietly
     // knows nothing is worse than one that says so.
-    const alsoFreed = traitCascade(trait, vocab).filter((name) => name !== trait);
+    const alsoFreed = traitCascade(trait, vocab).filter(
+      (name) => name !== trait,
+    );
     elRerollConfirm.message.textContent = alsoFreed.length
-      ? `Re-rolling ${trait} frees the traits it gates as well, so `
-        + `${alsoFreed.length} other ${alsoFreed.length === 1 ? 'trait' : 'traits'} `
-        + `can change with it: ${alsoFreed.join(', ')}.`
-      : `Re-rolling ${trait} can change more than ${trait}, but this page could not read `
-        + "the generator's dependency map and cannot say which traits go with it.";
+      ? `Re-rolling ${trait} frees the traits it gates as well, so ` +
+        `${alsoFreed.length} other ${alsoFreed.length === 1 ? "trait" : "traits"} ` +
+        `can change with it: ${alsoFreed.join(", ")}.`
+      : `Re-rolling ${trait} can change more than ${trait}, but this page could not read ` +
+        "the generator's dependency map and cannot say which traits go with it.";
     elRerollConfirm.ok.textContent = `Re-roll ${trait}`;
     elRerollConfirm.overlay.hidden = false;
     // Cancel is the default: focus starts there so a stray Enter or Space
@@ -414,18 +444,20 @@ function confirmReroll(trait, vocab = createState) {
 
     const cleanup = (result) => {
       elRerollConfirm.overlay.hidden = true;
-      elRerollConfirm.ok.removeEventListener('click', onOk);
-      elRerollConfirm.cancel.removeEventListener('click', onCancel);
-      elRerollConfirm.overlay.removeEventListener('click', onBackdrop);
+      elRerollConfirm.ok.removeEventListener("click", onOk);
+      elRerollConfirm.cancel.removeEventListener("click", onCancel);
+      elRerollConfirm.overlay.removeEventListener("click", onBackdrop);
       resolve(result);
     };
     const onOk = () => cleanup(true);
     const onCancel = () => cleanup(false);
-    const onBackdrop = (e) => { if (e.target === elRerollConfirm.overlay) cleanup(false); };
+    const onBackdrop = (e) => {
+      if (e.target === elRerollConfirm.overlay) cleanup(false);
+    };
 
-    elRerollConfirm.ok.addEventListener('click', onOk);
-    elRerollConfirm.cancel.addEventListener('click', onCancel);
-    elRerollConfirm.overlay.addEventListener('click', onBackdrop);
+    elRerollConfirm.ok.addEventListener("click", onOk);
+    elRerollConfirm.cancel.addEventListener("click", onCancel);
+    elRerollConfirm.overlay.addEventListener("click", onBackdrop);
   });
 }
 
@@ -451,9 +483,9 @@ function openSetTrait(item, trait) {
     let selected = null;
 
     elSetTrait.title.textContent = `Set ${trait}`;
-    elSetTrait.filter.value = '';
+    elSetTrait.filter.value = "";
     elSetTrait.filter.hidden = true;
-    elSetTrait.list.textContent = 'Working out which values this NPC can take…';
+    elSetTrait.list.textContent = "Working out which values this NPC can take…";
     elSetTrait.releaseRow.hidden = true;
     elSetTrait.release.checked = false;
     elSetTrait.ok.disabled = true;
@@ -462,22 +494,26 @@ function openSetTrait(item, trait) {
 
     const cleanup = (result) => {
       elSetTrait.overlay.hidden = true;
-      elSetTrait.ok.removeEventListener('click', onOk);
-      elSetTrait.cancel.removeEventListener('click', onCancel);
-      elSetTrait.overlay.removeEventListener('click', onBackdrop);
-      elSetTrait.filter.removeEventListener('input', render);
-      elSetTrait.list.removeEventListener('change', onPick);
+      elSetTrait.ok.removeEventListener("click", onOk);
+      elSetTrait.cancel.removeEventListener("click", onCancel);
+      elSetTrait.overlay.removeEventListener("click", onBackdrop);
+      elSetTrait.filter.removeEventListener("input", render);
+      elSetTrait.list.removeEventListener("change", onPick);
       resolve(result);
     };
     const onOk = () => {
       if (!selected) return;
       // Only what the user ticked. The server re-derives the rest, and the
       // generator expands each name to its cascade.
-      const release = elSetTrait.release.checked ? selected.conflicts.slice() : [];
+      const release = elSetTrait.release.checked
+        ? selected.conflicts.slice()
+        : [];
       cleanup({ value: selected.value, release });
     };
     const onCancel = () => cleanup(null);
-    const onBackdrop = (e) => { if (e.target === elSetTrait.overlay) cleanup(null); };
+    const onBackdrop = (e) => {
+      if (e.target === elSetTrait.overlay) cleanup(null);
+    };
 
     function onPick(e) {
       const picked = choices.find((c) => c.value === e.target.value);
@@ -487,7 +523,7 @@ function openSetTrait(item, trait) {
       // Absent rather than disabled for a value it cannot help: a ruled-out
       // value is ruled out by a gate above it, and no release fixes that.
       elSetTrait.releaseRow.hidden = !label;
-      elSetTrait.releaseLabel.textContent = label || '';
+      elSetTrait.releaseLabel.textContent = label || "";
       if (!label) elSetTrait.release.checked = false;
       elSetTrait.ok.disabled = false;
     }
@@ -498,52 +534,63 @@ function openSetTrait(item, trait) {
         ? choices.filter((c) => c.label.toLowerCase().includes(needle))
         : choices;
       if (!visible.length) {
-        elSetTrait.list.textContent = 'Nothing matches that.';
+        elSetTrait.list.textContent = "Nothing matches that.";
         return;
       }
       // Groups whose rows all filtered away drop out with them, so a heading
       // never sits over an empty space.
-      elSetTrait.list.innerHTML = groupChoices(visible).map((group) => {
-        const rows = group.rows.map((choice) => {
-          const checked = selected
-            ? choice.value === selected.value
-            : choice.current;
-          // Each note names the trait AND its current value: "conflicts with
-          // Headgear" is not actionable without knowing what the Headgear is.
-          const notes = choice.conflicts.map((name) => {
-            const now = (item.traits || {})[name];
-            return now
-              ? `${escapeHtml(name)} would clash — currently “${escapeHtml(now)}”`
-              : `${escapeHtml(name)} would clash`;
-          }).join('<br>');
-          // The ruled-out note claims no cause. The generator reports whether
-          // a bullet was in the pool, not which filter emptied it, and naming
-          // a culprit here would be inventing one.
-          const note = group.key === 'ruledOut'
-            ? "the roller would not have offered this one"
-            : notes;
-          return `<label class="set-trait-row${group.key === 'clean' ? '' : ' set-trait-row-greyed'}">`
-            + `<input type="radio" name="set-trait-value" value="${escapeHtml(choice.value)}"`
-            + `${checked ? ' checked' : ''}>`
-            + `<span class="set-trait-label">${escapeHtml(choice.label)}`
-            + `${choice.current ? ' <em>(current)</em>' : ''}</span>`
-            + (note ? `<span class="set-trait-note">${note}</span>` : '')
-            + '</label>';
-        }).join('');
-        const heading = group.heading
-          ? `<h3 class="set-trait-heading">${escapeHtml(group.heading)}</h3>`
-          : '';
-        return heading + rows;
-      }).join('');
+      elSetTrait.list.innerHTML = groupChoices(visible)
+        .map((group) => {
+          const rows = group.rows
+            .map((choice) => {
+              const checked = selected
+                ? choice.value === selected.value
+                : choice.current;
+              // Each note names the trait AND its current value: "conflicts with
+              // Headgear" is not actionable without knowing what the Headgear is.
+              const notes = choice.conflicts
+                .map((name) => {
+                  const now = (item.traits || {})[name];
+                  return now
+                    ? `${escapeHtml(name)} would clash — currently “${escapeHtml(now)}”`
+                    : `${escapeHtml(name)} would clash`;
+                })
+                .join("<br>");
+              // The ruled-out note claims no cause. The generator reports whether
+              // a bullet was in the pool, not which filter emptied it, and naming
+              // a culprit here would be inventing one.
+              const note =
+                group.key === "ruledOut"
+                  ? "the roller would not have offered this one"
+                  : notes;
+              return (
+                `<label class="set-trait-row${group.key === "clean" ? "" : " set-trait-row-greyed"}">` +
+                `<input type="radio" name="set-trait-value" value="${escapeHtml(choice.value)}"` +
+                `${checked ? " checked" : ""}>` +
+                `<span class="set-trait-label">${escapeHtml(choice.label)}` +
+                `${choice.current ? " <em>(current)</em>" : ""}</span>` +
+                (note ? `<span class="set-trait-note">${note}</span>` : "") +
+                "</label>"
+              );
+            })
+            .join("");
+          const heading = group.heading
+            ? `<h3 class="set-trait-heading">${escapeHtml(group.heading)}</h3>`
+            : "";
+          return heading + rows;
+        })
+        .join("");
     }
 
-    elSetTrait.ok.addEventListener('click', onOk);
-    elSetTrait.cancel.addEventListener('click', onCancel);
-    elSetTrait.overlay.addEventListener('click', onBackdrop);
-    elSetTrait.filter.addEventListener('input', render);
-    elSetTrait.list.addEventListener('change', onPick);
+    elSetTrait.ok.addEventListener("click", onOk);
+    elSetTrait.cancel.addEventListener("click", onCancel);
+    elSetTrait.overlay.addEventListener("click", onBackdrop);
+    elSetTrait.filter.addEventListener("input", render);
+    elSetTrait.list.addEventListener("change", onPick);
 
-    api(`/api/trait-choices?id=${encodeURIComponent(item.id)}&trait=${encodeURIComponent(trait)}`)
+    api(
+      `/api/trait-choices?id=${encodeURIComponent(item.id)}&trait=${encodeURIComponent(trait)}`,
+    )
       .then((data) => {
         choices = data.choices || [];
         selected = choices.find((c) => c.current) || null;
@@ -568,7 +615,9 @@ async function api(path, options) {
     // The server's own sentence where there is one - these refusals name a
     // cure ("Re-roll the NPC to record them") that "HTTP 400" does not.
     const said = await res.json().catch(() => null);
-    throw new Error(said && said.error ? said.error : `${path}: HTTP ${res.status}`);
+    throw new Error(
+      said && said.error ? said.error : `${path}: HTTP ${res.status}`,
+    );
   }
   return res.json();
 }
@@ -586,11 +635,13 @@ async function api(path, options) {
  */
 function markSeen(ids) {
   for (const id of ids) state.locallySeen.add(id);
-  api('/api/seen', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  api("/api/seen", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids }),
-  }).catch(() => { /* the tag just survives until the item is opened again */ });
+  }).catch(() => {
+    /* the tag just survives until the item is opened again */
+  });
 }
 
 /**
@@ -614,13 +665,15 @@ function markSeen(ids) {
 function markBatchSeen(ids) {
   if (!ids.length) return;
   for (const id of ids) state.locallySeen.add(id);
-  api('/api/seen', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  api("/api/seen", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids }),
   })
-    .then(() => (tabState.current === 'import' ? refreshItems() : null))
-    .catch(() => { /* same as markSeen: a lingering tag is not worth an error */ });
+    .then(() => (tabState.current === "import" ? refreshItems() : null))
+    .catch(() => {
+      /* same as markSeen: a lingering tag is not worth an error */
+    });
 }
 
 /**
@@ -645,14 +698,14 @@ function markBatchSeen(ids) {
 function applyKindAvailability(kinds) {
   if (!Array.isArray(kinds) || !kinds.length) return;
   const have = new Set(kinds);
-  for (const node of document.querySelectorAll('[data-kind]')) {
+  for (const node of document.querySelectorAll("[data-kind]")) {
     if (!have.has(node.dataset.kind)) node.remove();
   }
   // Removing a tab button that was the one showing would leave its panel open
   // and no button to leave it by. Only reachable if someone clicked Create
   // Spaceship inside the first round trip of the page load, but the recovery
   // is one line: no active tab button left means fall back to Import.
-  if (!document.querySelector('#tabs button.active')) {
+  if (!document.querySelector("#tabs button.active")) {
     document.querySelector('#tabs button[data-tab="import"]')?.click();
   }
 }
@@ -677,36 +730,36 @@ function applyKindAvailability(kinds) {
 function applyFeatureAvailability(features) {
   if (!Array.isArray(features)) return;
   const have = new Set(features);
-  for (const node of document.querySelectorAll('[data-feature]')) {
+  for (const node of document.querySelectorAll("[data-feature]")) {
     if (!have.has(node.dataset.feature)) node.remove();
   }
   // The same recovery applyKindAvailability has, and for the same reason: a
   // removed tab button that was the active one would leave its panel open
   // with no button to leave it by.
-  if (!document.querySelector('#tabs button.active')) {
+  if (!document.querySelector("#tabs button.active")) {
     document.querySelector('#tabs button[data-tab="import"]')?.click();
   }
 }
 
 async function loadCategories() {
-  const { categories, kinds, features } = await api('/api/categories');
+  const { categories, kinds, features } = await api("/api/categories");
   // Before the early return below: an install with no generated content yet is
   // precisely the one that must not be offered a Create Spaceship tab it has
   // no generator for.
   applyKindAvailability(kinds);
   applyFeatureAvailability(features);
-  el.categories.innerHTML = '';
+  el.categories.innerHTML = "";
   if (!categories.length) {
-    el.categories.textContent = 'No generated content found yet.';
+    el.categories.textContent = "No generated content found yet.";
     return;
   }
   for (const cat of categories) {
-    const btn = document.createElement('button');
+    const btn = document.createElement("button");
     // The server's own registry label, which is where the kind's name is
     // defined; CATEGORY_LABELS stays as the fallback for a kind the server
     // does not label (and for 'mech', which the registry has never held).
     btn.textContent = `${cat.label || CATEGORY_LABELS[cat.id] || cat.id} (${cat.count})`;
-    btn.addEventListener('click', () => selectCategory(cat.id));
+    btn.addEventListener("click", () => selectCategory(cat.id));
     btn.dataset.id = cat.id;
     el.categories.appendChild(btn);
   }
@@ -716,11 +769,11 @@ async function loadCategories() {
 async function selectCategory(id) {
   state.category = id;
   state.selected.clear();
-  state.search = '';
+  state.search = "";
   state.filters = [];
-  el.filterSearch.value = '';
-  for (const btn of el.categories.querySelectorAll('button')) {
-    btn.classList.toggle('active', btn.dataset.id === id);
+  el.filterSearch.value = "";
+  for (const btn of el.categories.querySelectorAll("button")) {
+    btn.classList.toggle("active", btn.dataset.id === id);
   }
   // Before the grid loads, not after: a ship opened straight from a cold
   // vocabulary would offer its detail sheet's reroll buttons off an empty
@@ -731,7 +784,9 @@ async function selectCategory(id) {
 
 async function refreshItems() {
   if (!state.category) return;
-  const { items } = await api(`/api/items?category=${encodeURIComponent(state.category)}`);
+  const { items } = await api(
+    `/api/items?category=${encodeURIComponent(state.category)}`,
+  );
   state.items = items;
   // Re-apply what this page already knows about newness. The server is still
   // reporting isNew for anything whose /api/seen POST hasn't committed yet,
@@ -764,8 +819,8 @@ async function refreshItems() {
 
 /** The value a trait-or-synthetic filter key resolves to for one item. */
 function fieldValue(item, key) {
-  if (key === ROLE_CATEGORY_KEY) return item.roleCategory || '';
-  return item.traits?.[key] || '';
+  if (key === ROLE_CATEGORY_KEY) return item.roleCategory || "";
+  return item.traits?.[key] || "";
 }
 
 /** Every filterable key present across the current category's items, sorted. */
@@ -793,9 +848,14 @@ function collectDistinctValues(items, key) {
 function itemMatchesFilters(item) {
   const search = state.search.trim().toLowerCase();
   if (search) {
-    const haystack = [item.name, item.callsign, item.roleCategory, ...Object.values(item.traits || {})]
+    const haystack = [
+      item.name,
+      item.callsign,
+      item.roleCategory,
+      ...Object.values(item.traits || {}),
+    ]
       .filter(Boolean)
-      .join('\n')
+      .join("\n")
       .toLowerCase();
     if (!haystack.includes(search)) return false;
   }
@@ -810,74 +870,75 @@ function itemMatchesFilters(item) {
 /** Comparators for the "Sort by" dropdown - `when` sorts lexicographically fine
  * since generate-npc.py writes it as "YYYY-MM-DD HH:MM:SS". */
 const SORTERS = {
-  'name-asc': (a, b) => a.name.localeCompare(b.name),
-  'name-desc': (a, b) => b.name.localeCompare(a.name),
-  'when-desc': (a, b) => (b.when || '').localeCompare(a.when || ''),
-  'when-asc': (a, b) => (a.when || '').localeCompare(b.when || ''),
-  'role-category': (a, b) =>
-    (a.roleCategory || '').localeCompare(b.roleCategory || '') || a.name.localeCompare(b.name),
+  "name-asc": (a, b) => a.name.localeCompare(b.name),
+  "name-desc": (a, b) => b.name.localeCompare(a.name),
+  "when-desc": (a, b) => (b.when || "").localeCompare(a.when || ""),
+  "when-asc": (a, b) => (a.when || "").localeCompare(b.when || ""),
+  "role-category": (a, b) =>
+    (a.roleCategory || "").localeCompare(b.roleCategory || "") ||
+    a.name.localeCompare(b.name),
 };
 
 function sortItems(items) {
-  const cmp = SORTERS[state.sort] || SORTERS['name-asc'];
+  const cmp = SORTERS[state.sort] || SORTERS["name-asc"];
   return [...items].sort(cmp);
 }
 
 function renderFilterRows() {
   const keys = collectTraitKeys(state.items);
-  el.filterRows.innerHTML = '';
+  el.filterRows.innerHTML = "";
 
   state.filters.forEach((filter, index) => {
-    if (!filter.key) filter.key = keys[0] || '';
+    if (!filter.key) filter.key = keys[0] || "";
 
-    const row = document.createElement('div');
-    row.className = 'filter-row';
+    const row = document.createElement("div");
+    row.className = "filter-row";
 
-    const keySelect = document.createElement('select');
-    keySelect.className = 'filter-key';
+    const keySelect = document.createElement("select");
+    keySelect.className = "filter-key";
     for (const key of keys) {
-      const opt = document.createElement('option');
+      const opt = document.createElement("option");
       opt.value = key;
       opt.textContent = key;
       opt.selected = key === filter.key;
       keySelect.appendChild(opt);
     }
-    keySelect.addEventListener('change', () => {
+    keySelect.addEventListener("change", () => {
       filter.key = keySelect.value;
-      filter.value = '';
+      filter.value = "";
       renderFilterRows();
       render();
     });
     row.appendChild(keySelect);
 
     const datalistId = `filter-values-${index}`;
-    const valueInput = document.createElement('input');
-    valueInput.type = 'text';
-    valueInput.className = 'filter-value';
-    valueInput.placeholder = 'value contains…';
+    const valueInput = document.createElement("input");
+    valueInput.type = "text";
+    valueInput.className = "filter-value";
+    valueInput.placeholder = "value contains…";
     valueInput.value = filter.value;
-    valueInput.setAttribute('list', datalistId);
-    valueInput.addEventListener('input', () => {
+    valueInput.setAttribute("list", datalistId);
+    valueInput.addEventListener("input", () => {
       filter.value = valueInput.value;
       render();
     });
     row.appendChild(valueInput);
 
-    const datalist = document.createElement('datalist');
+    const datalist = document.createElement("datalist");
     datalist.id = datalistId;
     for (const value of collectDistinctValues(state.items, filter.key)) {
-      const opt = document.createElement('option');
+      const opt = document.createElement("option");
       opt.value = value;
       datalist.appendChild(opt);
     }
     row.appendChild(datalist);
 
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'filter-remove';
-    remove.textContent = '×';
-    remove.title = 'Remove filter';
-    remove.addEventListener('click', () => {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "filter-remove";
+    remove.textContent = "×";
+    remove.title = "Remove filter";
+    remove.addEventListener("click", () => {
       state.filters.splice(index, 1);
       renderFilterRows();
       render();
@@ -891,39 +952,41 @@ function renderFilterRows() {
 }
 
 function render() {
-  el.grid.innerHTML = '';
+  el.grid.innerHTML = "";
   state.visibleItems = sortItems(state.items.filter(itemMatchesFilters));
-  el.empty.textContent = state.items.length && !state.visibleItems.length
-    ? 'No items match the current filters.'
-    : state.category === BACKGROUND_KIND
-      ? 'Nothing here yet — render one on the Create Background tab.'
-      : `Nothing here yet — run ${KIND_SCRIPTS[state.category] || 'the generator'}, then reload.`;
+  el.empty.textContent =
+    state.items.length && !state.visibleItems.length
+      ? "No items match the current filters."
+      : state.category === BACKGROUND_KIND
+        ? "Nothing here yet — render one on the Create Background tab."
+        : `Nothing here yet — run ${KIND_SCRIPTS[state.category] || "the generator"}, then reload.`;
   el.empty.hidden = state.visibleItems.length > 0;
 
   for (const item of state.visibleItems) {
-    const card = document.createElement('div');
-    card.className = 'card'
-      + (item.imported ? ' imported' : '')
-      + (item.isNew && !item.imported ? ' is-new' : '')
-      + (state.category === 'spaceship' ? ' card--spaceship' : '')
-      + (state.category === BACKGROUND_KIND ? ' card--background' : '');
+    const card = document.createElement("div");
+    card.className =
+      "card" +
+      (item.imported ? " imported" : "") +
+      (item.isNew && !item.imported ? " is-new" : "") +
+      (state.category === "spaceship" ? " card--spaceship" : "") +
+      (state.category === BACKGROUND_KIND ? " card--background" : "");
 
-    const img = document.createElement('img');
-    img.className = 'thumb';
-    img.src = item.portraitUrl || item.tokenUrl || '';
+    const img = document.createElement("img");
+    img.className = "thumb";
+    img.src = item.portraitUrl || item.tokenUrl || "";
     img.alt = item.name;
     card.appendChild(img);
 
-    const check = document.createElement('input');
-    check.type = 'checkbox';
-    check.className = 'check';
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.className = "check";
     check.checked = state.selected.has(item.id);
     // Selection also drives Delete Selected, which makes sense for imported
     // and non-importable (missing-files) entries too - only Import Selected
     // itself skips those (server-side, with a reason shown in the status line).
-    check.title = !item.importable ? 'Source images missing on disk' : '';
-    check.addEventListener('click', (e) => e.stopPropagation());
-    check.addEventListener('change', () => {
+    check.title = !item.importable ? "Source images missing on disk" : "";
+    check.addEventListener("click", (e) => e.stopPropagation());
+    check.addEventListener("change", () => {
       if (check.checked) state.selected.add(item.id);
       else state.selected.delete(item.id);
       updateToolbar();
@@ -931,63 +994,64 @@ function render() {
     card.appendChild(check);
 
     if (item.imported) {
-      const badge = document.createElement('span');
-      badge.className = 'badge';
-      badge.textContent = 'Imported';
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = "Imported";
       card.appendChild(badge);
-    } else if (item.jobStatus === 'sent' || item.jobStatus === 'queued') {
-      const badge = document.createElement('span');
-      badge.className = 'badge pending';
-      badge.textContent = 'Importing…';
+    } else if (item.jobStatus === "sent" || item.jobStatus === "queued") {
+      const badge = document.createElement("span");
+      badge.className = "badge pending";
+      badge.textContent = "Importing…";
       card.appendChild(badge);
-    } else if (item.jobStatus === 'error') {
-      const badge = document.createElement('span');
-      badge.className = 'badge error';
-      badge.textContent = 'Failed';
-      badge.title = item.jobError || '';
+    } else if (item.jobStatus === "error") {
+      const badge = document.createElement("span");
+      badge.className = "badge error";
+      badge.textContent = "Failed";
+      badge.title = item.jobError || "";
       card.appendChild(badge);
-    } else if (item.regenStatus === 'running') {
-      const badge = document.createElement('span');
-      badge.className = 'badge pending';
-      badge.textContent = 'Regenerating…';
+    } else if (item.regenStatus === "running") {
+      const badge = document.createElement("span");
+      badge.className = "badge pending";
+      badge.textContent = "Regenerating…";
       card.appendChild(badge);
-    } else if (item.regenStatus === 'error') {
-      const badge = document.createElement('span');
-      badge.className = 'badge error';
-      badge.textContent = 'Regen failed';
-      badge.title = item.regenError || '';
+    } else if (item.regenStatus === "error") {
+      const badge = document.createElement("span");
+      badge.className = "badge error";
+      badge.textContent = "Regen failed";
+      badge.title = item.regenError || "";
       card.appendChild(badge);
     } else if (item.artStale) {
       // Below the two regen arms and above the 3D ones, deliberately. A live or
       // failed render outranks this - it is about to settle the question - but a
       // 3D build does not, because a portrait that no longer matches the traits
       // is the more actionable of the two facts.
-      const badge = document.createElement('span');
-      badge.className = 'badge stale';
-      badge.textContent = 'Art out of date';
-      badge.title = 'Traits were edited after this art was made — open it and press Regenerate';
+      const badge = document.createElement("span");
+      badge.className = "badge stale";
+      badge.textContent = "Art out of date";
+      badge.title =
+        "Traits were edited after this art was made — open it and press Regenerate";
       card.appendChild(badge);
-    } else if (item.model3dStatus === 'running') {
-      const badge = document.createElement('span');
-      badge.className = 'badge pending';
-      badge.textContent = 'Building 3D…';
+    } else if (item.model3dStatus === "running") {
+      const badge = document.createElement("span");
+      badge.className = "badge pending";
+      badge.textContent = "Building 3D…";
       card.appendChild(badge);
-    } else if (item.model3dStatus === 'error') {
-      const badge = document.createElement('span');
-      badge.className = 'badge error';
-      badge.textContent = '3D failed';
-      badge.title = item.model3dError || '';
+    } else if (item.model3dStatus === "error") {
+      const badge = document.createElement("span");
+      badge.className = "badge error";
+      badge.textContent = "3D failed";
+      badge.title = item.model3dError || "";
       card.appendChild(badge);
-    } else if (item.animationStatus === 'running') {
-      const badge = document.createElement('span');
-      badge.className = 'badge pending';
-      badge.textContent = 'Animating…';
+    } else if (item.animationStatus === "running") {
+      const badge = document.createElement("span");
+      badge.className = "badge pending";
+      badge.textContent = "Animating…";
       card.appendChild(badge);
-    } else if (item.animationStatus === 'error') {
-      const badge = document.createElement('span');
-      badge.className = 'badge error';
-      badge.textContent = 'Animation failed';
-      badge.title = item.animationError || '';
+    } else if (item.animationStatus === "error") {
+      const badge = document.createElement("span");
+      badge.className = "badge error";
+      badge.textContent = "Animation failed";
+      badge.title = item.animationError || "";
       card.appendChild(badge);
     }
 
@@ -999,10 +1063,10 @@ function render() {
     // it reads as a glitch, and importing marks the NPC seen server-side
     // anyway, so the flag is on its way out regardless.
     if (item.isNew && !item.imported) {
-      const tag = document.createElement('span');
-      tag.className = 'badge new';
-      tag.textContent = 'New';
-      tag.title = 'Generated since you last looked — opening it clears this';
+      const tag = document.createElement("span");
+      tag.className = "badge new";
+      tag.textContent = "New";
+      tag.title = "Generated since you last looked — opening it clears this";
       card.appendChild(tag);
     }
 
@@ -1012,8 +1076,8 @@ function render() {
     // whatever else the card is announcing. tokenHexes is null for an NPC (no
     // grid footprint of its own), so this never appears outside Spaceships.
     if (item.tokenHexes) {
-      const hex = document.createElement('span');
-      hex.className = 'badge hex-badge';
+      const hex = document.createElement("span");
+      hex.className = "badge hex-badge";
       hex.textContent = `${Math.max(item.tokenHexes.w, item.tokenHexes.h)}◇`;
       hex.title = `${item.tokenHexes.w}×${item.tokenHexes.h} hex footprint on the Foundry grid`;
       card.appendChild(hex);
@@ -1023,16 +1087,20 @@ function render() {
     // beside the still is the one fact about a background worth a glance at
     // the grid, the way a ship's footprint is. An NPC's loop is not badged
     // because its card already has a role line and a category pill to carry.
-    if (item.kind === BACKGROUND_KIND && item.hasAnimation && item.animationStatus !== 'running') {
-      const loop = document.createElement('span');
-      loop.className = 'badge loop-badge';
-      loop.textContent = 'Loop';
-      loop.title = 'An animated loop has been made from this still';
+    if (
+      item.kind === BACKGROUND_KIND &&
+      item.hasAnimation &&
+      item.animationStatus !== "running"
+    ) {
+      const loop = document.createElement("span");
+      loop.className = "badge loop-badge";
+      loop.textContent = "Loop";
+      loop.title = "An animated loop has been made from this still";
       card.appendChild(loop);
     }
 
-    const body = document.createElement('div');
-    body.className = 'body';
+    const body = document.createElement("div");
+    body.className = "body";
     // A ship's Ship type and Size are whole sentences, not a two-word role
     // and a one-word category, so they take two clamped text lines rather
     // than the NPC's role line and uppercase pill - the pill turned a Size
@@ -1041,14 +1109,14 @@ function render() {
     // A background's second line is where it sits under backgroundsDir - the
     // catalogue's output folder, usually - since it has no callsign to show.
     body.innerHTML = `<div class="name">${escapeHtml(item.name)}</div>
-      <div class="sub">${escapeHtml(item.kind === BACKGROUND_KIND ? (item.background?.rel || '') : (item.callsign || ''))}</div>
-      ${item.traits?.Role ? `<div class="role">${escapeHtml(item.traits.Role)}</div>` : ''}
-      ${item.roleCategory ? `<div class="role-category">${escapeHtml(item.roleCategory)}</div>` : ''}
-      ${item.traits?.['Ship type'] ? `<div class="role ship-line" title="${escapeHtml(item.traits['Ship type'])}">${escapeHtml(item.traits['Ship type'])}</div>` : ''}
-      ${item.traits?.Size ? `<div class="sub ship-line" title="${escapeHtml(item.traits.Size)}">${escapeHtml(item.traits.Size)}</div>` : ''}`;
+      <div class="sub">${escapeHtml(item.kind === BACKGROUND_KIND ? item.background?.rel || "" : item.callsign || "")}</div>
+      ${item.traits?.Role ? `<div class="role">${escapeHtml(item.traits.Role)}</div>` : ""}
+      ${item.roleCategory ? `<div class="role-category">${escapeHtml(item.roleCategory)}</div>` : ""}
+      ${item.traits?.["Ship type"] ? `<div class="role ship-line" title="${escapeHtml(item.traits["Ship type"])}">${escapeHtml(item.traits["Ship type"])}</div>` : ""}
+      ${item.traits?.Size ? `<div class="sub ship-line" title="${escapeHtml(item.traits.Size)}">${escapeHtml(item.traits.Size)}</div>` : ""}`;
     card.appendChild(body);
 
-    card.addEventListener('click', () => openDetail(item));
+    card.addEventListener("click", () => openDetail(item));
     el.grid.appendChild(card);
   }
 
@@ -1062,34 +1130,40 @@ function updateToolbar() {
   const noImport = state.category === BACKGROUND_KIND;
   el.importBtn.textContent = `Import Selected (${state.selected.size})`;
   el.importBtn.disabled = state.selected.size === 0 || noImport;
-  el.importBtn.title = noImport ? 'Backgrounds have no Foundry import - select them to delete' : '';
+  el.importBtn.title = noImport
+    ? "Backgrounds have no Foundry import - select them to delete"
+    : "";
   el.deleteBtn.textContent = `Delete Selected (${state.selected.size})`;
   el.deleteBtn.disabled = state.selected.size === 0;
-  const notImported = state.visibleItems.filter((i) => !i.imported && i.importable);
-  el.selectAll.checked = notImported.length > 0 && notImported.every((i) => state.selected.has(i.id));
+  const notImported = state.visibleItems.filter(
+    (i) => !i.imported && i.importable,
+  );
+  el.selectAll.checked =
+    notImported.length > 0 &&
+    notImported.every((i) => state.selected.has(i.id));
 }
 
 function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text ?? '';
+  const div = document.createElement("div");
+  div.textContent = text ?? "";
   // The text-node serializer escapes & < > but not the double quote, which is
   // the one that matters when the result lands in a title="..." attribute.
-  return div.innerHTML.replace(/"/g, '&quot;');
+  return div.innerHTML.replace(/"/g, "&quot;");
 }
 
 /** item.when is generate-npc.py's "%Y-%m-%d %H:%M:%S" local-time string - parse
  * it explicitly rather than via `new Date(str)`, whose handling of a
  * space-separated (non-ISO) timestamp isn't reliable across engines. */
 function formatGeneratedWhen(when) {
-  if (!when) return '';
+  if (!when) return "";
   const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(when);
   if (!m) return `Generated ${when}`;
   const [y, mo, d, h, mi, s] = m.slice(1).map(Number);
   const date = new Date(y, mo - 1, d, h, mi, s);
   if (Number.isNaN(date.getTime())) return `Generated ${when}`;
   return `Generated ${date.toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
+    dateStyle: "medium",
+    timeStyle: "short",
   })}`;
 }
 
@@ -1098,7 +1172,7 @@ function formatGeneratedWhen(when) {
 // Older manifest entries have no `||` at all, so pass those through unchanged.
 function factionDisplayName(faction) {
   if (!faction) return faction;
-  return faction.split('||')[0].trim();
+  return faction.split("||")[0].trim();
 }
 
 /**
@@ -1169,16 +1243,25 @@ function groupChoices(choices) {
   const ruledOut = [];
   for (const choice of choices || []) {
     if (!choice.allowed) ruledOut.push(choice);
-    else if (choice.conflicts && choice.conflicts.length) conflicting.push(choice);
+    else if (choice.conflicts && choice.conflicts.length)
+      conflicting.push(choice);
     else clean.push(choice);
   }
   return [
     // No heading on the first group: it is the default answer, and labelling
     // it would imply the other two are errors rather than choices the user is
     // allowed to make.
-    { key: 'clean', heading: null, rows: clean },
-    { key: 'conflicting', heading: 'Would leave other traits contradicting', rows: conflicting },
-    { key: 'ruledOut', heading: "Ruled out by this NPC's other traits", rows: ruledOut },
+    { key: "clean", heading: null, rows: clean },
+    {
+      key: "conflicting",
+      heading: "Would leave other traits contradicting",
+      rows: conflicting,
+    },
+    {
+      key: "ruledOut",
+      heading: "Ruled out by this NPC's other traits",
+      rows: ruledOut,
+    },
   ].filter((group) => group.rows.length);
 }
 
@@ -1200,13 +1283,14 @@ function groupChoices(choices) {
 function releaseLabel(choice) {
   const conflicts = (choice && choice.conflicts) || [];
   if (!choice || !choice.allowed || !conflicts.length) return null;
-  const named = conflicts.length <= 3
-    ? conflicts.join(', ')
-    : `${conflicts.length} conflicting traits`;
-  const extra = ((choice.releases || []).length) - conflicts.length;
+  const named =
+    conflicts.length <= 3
+      ? conflicts.join(", ")
+      : `${conflicts.length} conflicting traits`;
+  const extra = (choice.releases || []).length - conflicts.length;
   if (extra <= 0) return `also re-roll ${named}`;
-  const them = conflicts.length === 1 ? 'it' : 'them';
-  return `also re-roll ${named} (and ${extra} trait${extra === 1 ? '' : 's'} that depend on ${them})`;
+  const them = conflicts.length === 1 ? "it" : "them";
+  return `also re-roll ${named} (and ${extra} trait${extra === 1 ? "" : "s"} that depend on ${them})`;
 }
 
 /**
@@ -1229,7 +1313,12 @@ function releaseLabel(choice) {
  * of the served source and inject a variable named createState - keeps
  * resolving the NPC vocabulary it always meant.
  */
-function traitControlCells(trait, rerollable, vocab = createState, controls = null) {
+function traitControlCells(
+  trait,
+  rerollable,
+  vocab = createState,
+  controls = null,
+) {
   const name = escapeHtml(trait);
   // Both cells go out of every branch, so the row always has four columns.
   const cells = (reroll, set) =>
@@ -1247,18 +1336,21 @@ function traitControlCells(trait, rerollable, vocab = createState, controls = nu
       // variant below, that explanation already covers both controls and names
       // the same cure, so a second disabled button would say it twice.
       `<button type="button" class="set-trait-btn" data-trait="${name}"
-             title="Choose a value for ${name} and re-render this NPC">Set&hellip;</button>`);
+             title="Choose a value for ${name} and re-render this NPC">Set&hellip;</button>`,
+    );
   }
   if ((vocab.rawRerollableTraits || []).includes(trait)) {
-    const why = `This NPC was generated before its raw trait bullets were recorded, so ${name} `
-      + 'cannot be re-rolled on its own. Re-roll the whole NPC once to record them and this '
-      + 'button turns on.';
+    const why =
+      `This NPC was generated before its raw trait bullets were recorded, so ${name} ` +
+      "cannot be re-rolled on its own. Re-roll the whole NPC once to record them and this " +
+      "button turns on.";
     return cells(
-      `<span class="reroll-unavailable" title="${why}">`
-        + '<button type="button" class="reroll-btn" disabled>Re-roll</button></span>',
-      '');
+      `<span class="reroll-unavailable" title="${why}">` +
+        '<button type="button" class="reroll-btn" disabled>Re-roll</button></span>',
+      "",
+    );
   }
-  return cells('', '');
+  return cells("", "");
 }
 
 /**
@@ -1282,7 +1374,7 @@ function renderDetailFiles(item) {
   // not. A token is optional - a portrait-only NPC names just the portrait.
   el.detailFileNames.textContent = [item.portraitFile, item.tokenFile]
     .filter(Boolean)
-    .join(' · ');
+    .join(" · ");
 }
 
 /**
@@ -1296,9 +1388,15 @@ function renderDetailFiles(item) {
  */
 function renderDetailHeader(item) {
   el.detailName.textContent = item.name;
-  el.detailSub.textContent = [item.roleCategory, item.traits?.Role,
-    item.traits?.['Ship type'], item.traits?.Size,
-    factionDisplayName(item.traits?.Faction)].filter(Boolean).join(' — ');
+  el.detailSub.textContent = [
+    item.roleCategory,
+    item.traits?.Role,
+    item.traits?.["Ship type"],
+    item.traits?.Size,
+    factionDisplayName(item.traits?.Faction),
+  ]
+    .filter(Boolean)
+    .join(" — ");
   el.detailGenerated.textContent = formatGeneratedWhen(item.when);
   renderDetailFiles(item);
 }
@@ -1363,14 +1461,17 @@ function renderDetailTraits(item) {
     .map(([k, v]) => {
       const scope = traitScopeOf(item.kind, k);
       const cells = traitControlCells(k, rerollable, vocab);
-      return `<tr class="scope-${scope}">${cells}<td>${escapeHtml(k)}${scopePill(scope)}</td>`
-        + `<td>${escapeHtml(v)}</td></tr>`;
+      return (
+        `<tr class="scope-${scope}">${cells}<td>${escapeHtml(k)}${scopePill(scope)}</td>` +
+        `<td>${escapeHtml(v)}</td></tr>`
+      );
     });
   // Last, after the rolled traits: it is not one of them, and the generator's
   // roll order above is worth keeping readable.
-  if (item.supports ? item.supports.animate : item.kind === 'npc') rows.push(animationTraitRow(item));
-  el.detailTraits.innerHTML = rows.join('');
-  el.scopeLegend.hidden = !rows.some((row) => row.includes('scope-pill'));
+  if (item.supports ? item.supports.animate : item.kind === "npc")
+    rows.push(animationTraitRow(item));
+  el.detailTraits.innerHTML = rows.join("");
+  el.scopeLegend.hidden = !rows.some((row) => row.includes("scope-pill"));
 }
 
 /**
@@ -1385,29 +1486,42 @@ function renderDetailTraits(item) {
  */
 function animationTraitRow(item) {
   const view = state.animationOwnerId === item.id ? state.animationView : null;
-  const running = view ? view.status === 'running' : item.animationStatus === 'running';
+  const running = view
+    ? view.status === "running"
+    : item.animationStatus === "running";
   const none = !!view && !view.descriptions.length;
-  const chosen = view ? (view.pending || view.description || '') : '';
+  const chosen = view ? view.pending || view.description || "" : "";
   let shown;
   if (chosen) shown = escapeHtml(chosen);
-  else if (none) shown = '<em>the tables file has no ## Animation table to choose from</em>';
-  else if (view) shown = '<em>drawn from the Animation table when you animate</em>';
-  else shown = '';
+  else if (none)
+    shown = "<em>the tables file has no ## Animation table to choose from</em>";
+  else if (view)
+    shown = "<em>drawn from the Animation table when you animate</em>";
+  else shown = "";
   // Staged but not yet rendered, the same fact the Regenerate panel's amber
   // button carries for a staged trait edit.
-  if (view && view.pending && view.description && view.pending !== view.description) {
+  if (
+    view &&
+    view.pending &&
+    view.description &&
+    view.pending !== view.description
+  ) {
     shown += ' <span class="scope-note">(chosen — press Re-animate)</span>';
   }
-  const disabled = running || none || !view ? ' disabled' : '';
+  const disabled = running || none || !view ? " disabled" : "";
   const cells = traitControlCells(ANIMATION_TRAIT, [], undefined, {
-    reroll: `<button type="button" class="anim-reroll-btn"${disabled}`
-      + ' title="Draw another description from the Animation table">Re-roll</button>',
-    set: `<button type="button" class="anim-set-btn"${disabled}`
-      + ' title="Choose a description from the Animation table">Set&hellip;</button>',
+    reroll:
+      `<button type="button" class="anim-reroll-btn"${disabled}` +
+      ' title="Draw another description from the Animation table">Re-roll</button>',
+    set:
+      `<button type="button" class="anim-set-btn"${disabled}` +
+      ' title="Choose a description from the Animation table">Set&hellip;</button>',
   });
-  return `<tr class="scope-animation">${cells}`
-    + `<td>${escapeHtml(ANIMATION_TRAIT)}${scopePill('animation')}</td>`
-    + `<td>${shown}</td></tr>`;
+  return (
+    `<tr class="scope-animation">${cells}` +
+    `<td>${escapeHtml(ANIMATION_TRAIT)}${scopePill("animation")}</td>` +
+    `<td>${shown}</td></tr>`
+  );
 }
 
 /** The sheet's prompt panes, for a manifest entry new enough to carry them. */
@@ -1415,8 +1529,8 @@ function renderDetailPrompts(item) {
   // Only recorded by generate-npc.py versions new enough to save it - older
   // manifest entries just hide this section rather than show it empty.
   el.detailPrompts.hidden = !item.portraitPrompt && !item.tokenPrompt;
-  el.detailPortraitPrompt.textContent = item.portraitPrompt || '';
-  el.detailTokenPrompt.textContent = item.tokenPrompt || '';
+  el.detailPortraitPrompt.textContent = item.portraitPrompt || "";
+  el.detailTokenPrompt.textContent = item.tokenPrompt || "";
 }
 
 /**
@@ -1437,9 +1551,14 @@ function renderDetailFor(item) {
   renderDetailTraits(item);
   renderDetailPrompts(item);
   renderRegenPanel(item);
-  renderAnimationPanel(item, state.animationOwnerId === item.id ? state.animationView : null);
-  renderExpressionsPanel(item,
-    state.expressionOwnerId === item.id ? state.expressionView : null);
+  renderAnimationPanel(
+    item,
+    state.animationOwnerId === item.id ? state.animationView : null,
+  );
+  renderExpressionsPanel(
+    item,
+    state.expressionOwnerId === item.id ? state.expressionView : null,
+  );
 }
 
 /**
@@ -1456,22 +1575,25 @@ function renderBackgroundDetail(item) {
   renderDetailHeader(item);
   const loop = item.animationUrl;
   el.detailAnimatedFigure.hidden = !loop;
-  if (loop && el.detailAnimated.getAttribute('src') !== loop) el.detailAnimated.src = loop;
-  if (!loop) el.detailAnimated.removeAttribute('src');
+  if (loop && el.detailAnimated.getAttribute("src") !== loop)
+    el.detailAnimated.src = loop;
+  if (!loop) el.detailAnimated.removeAttribute("src");
 
   const animation = item.background?.animation;
-  el.detailSub.textContent = item.animationStatus === 'running'
-    ? 'Animating…'
-    : item.animationStatus === 'error'
-      ? `Animation failed: ${item.animationError || 'unknown error'}`
-      : animation
-        ? `Loop: ${animation.description || 'no motion prompt recorded'}`
-          + `${Number.isInteger(animation.seed) ? ` · seed ${animation.seed}` : ''}`
-          + `${animation.stale ? ' · the still was re-rendered after this loop was made' : ''}`
-        : 'No loop yet — open it on the Create Background tab to animate it.';
+  el.detailSub.textContent =
+    item.animationStatus === "running"
+      ? "Animating…"
+      : item.animationStatus === "error"
+        ? `Animation failed: ${item.animationError || "unknown error"}`
+        : animation
+          ? `Loop: ${animation.description || "no motion prompt recorded"}` +
+            `${Number.isInteger(animation.seed) ? ` · seed ${animation.seed}` : ""}` +
+            `${animation.stale ? " · the still was re-rendered after this loop was made" : ""}`
+          : "No loop yet — open it on the Create Background tab to animate it.";
   // The name it wears over there, so the two lists can be matched by eye.
   const st = item.background?.sillyTavern;
-  if (st && st.imported) el.detailSub.textContent += ` · In SillyTavern as "${st.still}"`;
+  if (st && st.imported)
+    el.detailSub.textContent += ` · In SillyTavern as "${st.still}"`;
 }
 
 /**
@@ -1480,8 +1602,8 @@ function renderBackgroundDetail(item) {
  * would otherwise leave whichever state the last NPC's sheet put them in.
  */
 function openBackgroundDetail(item) {
-  el.detailPortrait.src = item.portraitUrl || '';
-  el.detailToken.removeAttribute('src');
+  el.detailPortrait.src = item.portraitUrl || "";
+  el.detailToken.removeAttribute("src");
   el.regenPanel.hidden = true;
   el.model3dPanel.hidden = true;
   el.animatePanel.hidden = true;
@@ -1506,14 +1628,15 @@ function openBackgroundDetail(item) {
 
 function openDetail(item) {
   const isBackground = item.kind === BACKGROUND_KIND;
-  el.detailSheet.classList.toggle('detail--background', isBackground);
+  el.detailSheet.classList.toggle("detail--background", isBackground);
   el.detailOpenBackground.hidden = !isBackground;
-  el.detailImportSillyTavern.hidden = !isBackground || !item.background?.sillyTavern?.available;
+  el.detailImportSillyTavern.hidden =
+    !isBackground || !item.background?.sillyTavern?.available;
   el.detailImportSillyTavern.disabled = false;
   // A background has no traits, seed or Create tab to save a preset into.
   el.detailSavePreset.hidden = isBackground;
   el.detailSavePreset.disabled = false;
-  setDetailPresetStatus('');
+  setDetailPresetStatus("");
   if (isBackground) {
     openBackgroundDetail(item);
     return;
@@ -1522,8 +1645,8 @@ function openDetail(item) {
   // param (see itemView in server.js), so a Regenerate since this item was
   // last shown naturally produces a different src here - no manual
   // cache-busting needed.
-  el.detailPortrait.src = item.portraitUrl || '';
-  el.detailToken.src = item.tokenUrl || '';
+  el.detailPortrait.src = item.portraitUrl || "";
+  el.detailToken.src = item.tokenUrl || "";
   renderDetailHeader(item);
   renderDetailTraits(item);
   renderDetailPrompts(item);
@@ -1533,10 +1656,13 @@ function openDetail(item) {
   // The trait-specific line belongs to one item and one job, and this is
   // neither of them yet.
   state.regenRunningMessage = null;
-  document.querySelector('input[name="regen-which"][value="both"]').checked = true;
-  document.querySelector('input[name="regen-seed-mode"][value="same"]').checked = true;
+  document.querySelector('input[name="regen-which"][value="both"]').checked =
+    true;
+  document.querySelector(
+    'input[name="regen-seed-mode"][value="same"]',
+  ).checked = true;
   el.regenSeedInput.disabled = true;
-  el.regenSeedInput.value = '';
+  el.regenSeedInput.value = "";
   renderRegenPanel(item);
 
   // The file list is a separate request (see /api/model-3d in server.js): it
@@ -1553,12 +1679,14 @@ function openDetail(item) {
   state.animationView = null;
   state.animationOwnerId = null;
   state.animateLastStatus = item.animationStatus ?? null;
-  document.querySelector('input[name="animate-seed-mode"][value="same"]').checked = true;
+  document.querySelector(
+    'input[name="animate-seed-mode"][value="same"]',
+  ).checked = true;
   el.animateSeedInput.disabled = true;
-  el.animateSeedInput.value = '';
+  el.animateSeedInput.value = "";
   // Back to the default until refreshAnimation learns what this NPC's own
   // loop used; the last sheet's choice is not this one's.
-  el.animatePingpong.checked = true;
+  el.animatePingpong.checked = false;
   renderAnimationPanel(item, null);
   refreshAnimation(item.id);
 
@@ -1576,7 +1704,9 @@ function openDetail(item) {
   // the last NPC would still be open, hiding the trait table on this one.
   el.expressionsSpritesDetails.open = false;
   renderExpressionsPanel(item, null);
-  const expressionsSupported = item.supports ? item.supports.expressions : item.kind === 'npc';
+  const expressionsSupported = item.supports
+    ? item.supports.expressions
+    : item.kind === "npc";
   if (expressionsSupported) refreshExpressions(item.id);
 
   // Opening the sheet is the one unambiguous "I have looked at this": it is
@@ -1614,14 +1744,15 @@ function openDetail(item) {
  */
 function setTraitGuttersDisabled(on) {
   for (const button of el.detailTraits.querySelectorAll(
-    '.reroll-btn[data-trait], .set-trait-btn[data-trait]')) {
+    ".reroll-btn[data-trait], .set-trait-btn[data-trait]",
+  )) {
     button.disabled = on;
   }
 }
 
 /** The detail overlay's "Regenerate art" panel, for whichever item is open. */
 function renderRegenPanel(item) {
-  const supported = typeof item.seed === 'number';
+  const supported = typeof item.seed === "number";
   el.regenPanel.hidden = !supported;
   if (!supported) return;
 
@@ -1635,32 +1766,40 @@ function renderRegenPanel(item) {
   // A running regen shuts everything, and so does a staged edit in flight: it
   // rewrites the whole manifest entry, and a Regenerate landing mid-write would
   // render a half-applied NPC.
-  const running = item.regenStatus === 'running' || state.stagingItemId === item.id;
-  const blocked = running || item.expressionStatus === 'running';
-  const seedMode = document.querySelector('input[name="regen-seed-mode"]:checked')?.value;
+  const running =
+    item.regenStatus === "running" || state.stagingItemId === item.id;
+  const blocked = running || item.expressionStatus === "running";
+  const seedMode = document.querySelector(
+    'input[name="regen-seed-mode"]:checked',
+  )?.value;
   el.regenBtn.disabled = blocked;
-  el.regenBtn.textContent = running ? 'Regenerating…' : 'Regenerate';
-  el.regenBtn.classList.toggle('accent', !!item.artStale && !blocked);
-  for (const radio of document.querySelectorAll('#regen-panel input[type="radio"]')) radio.disabled = blocked;
-  el.regenSeedInput.disabled = blocked || seedMode !== 'specific';
+  el.regenBtn.textContent = running ? "Regenerating…" : "Regenerate";
+  el.regenBtn.classList.toggle("accent", !!item.artStale && !blocked);
+  for (const radio of document.querySelectorAll(
+    '#regen-panel input[type="radio"]',
+  ))
+    radio.disabled = blocked;
+  el.regenSeedInput.disabled = blocked || seedMode !== "specific";
   setTraitGuttersDisabled(blocked);
 
-  const justFinished = item.regenStatus === 'done' && state.regenLastStatus !== 'done';
+  const justFinished =
+    item.regenStatus === "done" && state.regenLastStatus !== "done";
   if (running) {
     // The trait-named line the click wrote, where there is one. This branch
     // runs again two seconds later on the first poll tick, and writing the
     // generic sentence unconditionally is what used to discard it.
-    el.regenStatus.textContent = state.regenRunningMessage
-      || 'Regenerating… this can take a few minutes (ComfyUI must be running).';
-  } else if (item.regenStatus === 'error') {
+    el.regenStatus.textContent =
+      state.regenRunningMessage ||
+      "Regenerating… this can take a few minutes (ComfyUI must be running).";
+  } else if (item.regenStatus === "error") {
     state.regenRunningMessage = null;
-    el.regenStatus.textContent = `Failed: ${item.regenError || 'unknown error'}`;
+    el.regenStatus.textContent = `Failed: ${item.regenError || "unknown error"}`;
   } else if (justFinished) {
     state.regenRunningMessage = null;
     el.regenStatus.textContent = `Done — new seed ${item.seed}.`;
-  } else if (item.regenStatus !== 'done') {
+  } else if (item.regenStatus !== "done") {
     state.regenRunningMessage = null;
-    el.regenStatus.textContent = '';
+    el.regenStatus.textContent = "";
   }
 
   // portraitUrl/tokenUrl already changed (their &v= mtime stamp) the moment
@@ -1687,17 +1826,24 @@ function renderModel3dPanel(item, view) {
   // rather than hardcoding the one kind that has it today, so a later kind
   // that gains the capability needs no change here - and falls back to the
   // kind check for a server too old to send `supports` at all.
-  el.model3dPanel.hidden = item.supports ? !item.supports.model3d : item.kind !== 'npc';
+  el.model3dPanel.hidden = item.supports
+    ? !item.supports.model3d
+    : item.kind !== "npc";
   if (el.model3dPanel.hidden) return;
 
   const status = view ? view.status : item.model3dStatus;
-  const running = status === 'running';
-  const blocked = running || item.expressionStatus === 'running';
-  const built = view ? Boolean(view.shell || view.turnarounds.length) : Boolean(item.has3d);
+  const running = status === "running";
+  const blocked = running || item.expressionStatus === "running";
+  const built = view
+    ? Boolean(view.shell || view.turnarounds.length)
+    : Boolean(item.has3d);
 
   el.model3dBtn.disabled = blocked;
-  el.model3dBtn.textContent = running ? 'Building…'
-    : built ? 'Rebuild 3D model' : 'Create 3D model';
+  el.model3dBtn.textContent = running
+    ? "Building…"
+    : built
+      ? "Rebuild 3D model"
+      : "Create 3D model";
 
   // Forced on and locked once a model exists, because generate-3d.py *skips*
   // an NPC whose 3d/ folder is non-empty unless --overwrite. Without this the
@@ -1708,9 +1854,12 @@ function renderModel3dPanel(item, view) {
 
   el.model3dBuilt.textContent = view?.builtAt
     ? `Built ${new Date(view.builtAt).toLocaleString(undefined, {
-      dateStyle: 'medium', timeStyle: 'short',
-    })}`
-    : built ? '' : 'No model yet.';
+        dateStyle: "medium",
+        timeStyle: "short",
+      })}`
+    : built
+      ? ""
+      : "No model yet.";
 
   if (running) {
     // A reconstruction runs for minutes. generate-3d.py flushes a line as it
@@ -1718,28 +1867,31 @@ function renderModel3dPanel(item, view) {
     // and "possibly hung" - see model3dJobsByItemId in server.js.
     el.model3dStatus.textContent = view?.stage
       ? `Building… ${view.stage}`
-      : 'Building… this takes several minutes (ComfyUI and Blender must both be available).';
-  } else if (status === 'error') {
-    el.model3dStatus.textContent = `Failed: ${(view ? view.error : item.model3dError) || 'unknown error'}`;
+      : "Building… this takes several minutes (ComfyUI and Blender must both be available).";
+  } else if (status === "error") {
+    el.model3dStatus.textContent = `Failed: ${(view ? view.error : item.model3dError) || "unknown error"}`;
   } else {
-    el.model3dStatus.textContent = '';
+    el.model3dStatus.textContent = "";
   }
 
   el.model3dTurnarounds.innerHTML = (view?.turnaroundUrls || [])
-    .map((url, i) => `<img src="${escapeHtml(url)}" alt="Turnaround ${i * 90}°"
-        title="Turnaround ${i * 90}°">`)
-    .join('');
+    .map(
+      (url, i) => `<img src="${escapeHtml(url)}" alt="Turnaround ${i * 90}°"
+        title="Turnaround ${i * 90}°">`,
+    )
+    .join("");
   // The turnarounds reuse the overlay's existing hover viewer rather than
   // growing one of their own - 78px is enough to see that a build happened
   // and nowhere near enough to judge it.
-  for (const img of el.model3dTurnarounds.querySelectorAll('img')) attachImageZoom(img);
+  for (const img of el.model3dTurnarounds.querySelectorAll("img"))
+    attachImageZoom(img);
 
   // Named rather than linked: the browser sandbox will not open a 14 MB GLB
   // usefully, and the point of the line is to say what is on disk to go and
   // find. The turnarounds above are the part that can actually be looked at.
   el.model3dFiles.textContent = view
-    ? [view.shell, view.print, view.rigged].filter(Boolean).join('  ·  ')
-    : '';
+    ? [view.shell, view.print, view.rigged].filter(Boolean).join("  ·  ")
+    : "";
 }
 
 /**
@@ -1758,7 +1910,9 @@ async function refreshModel3d(id) {
     if (state.detailItemId !== id) return;
     const item = state.items.find((i) => i.id === id);
     if (item) renderModel3dPanel(item, view);
-  } catch { /* leave the panel showing whatever it last knew */ }
+  } catch {
+    /* leave the panel showing whatever it last knew */
+  }
 }
 
 /**
@@ -1769,7 +1923,9 @@ async function refreshModel3d(id) {
  * paint the frame and the description line waits.
  */
 function renderAnimationPanel(item, view) {
-  const supported = item.supports ? !!item.supports.animate : item.kind === 'npc';
+  const supported = item.supports
+    ? !!item.supports.animate
+    : item.kind === "npc";
   el.animatePanel.hidden = !supported;
 
   // The figure follows the item row, whose animationUrl carries the loop's
@@ -1777,57 +1933,74 @@ function renderAnimationPanel(item, view) {
   // browser fetches the new bytes without any cache-busting here.
   const url = view && view.url ? view.url : item.animationUrl;
   el.detailAnimatedFigure.hidden = !supported || !url;
-  if (url && el.detailAnimated.getAttribute('src') !== url) el.detailAnimated.src = url;
-  if (!url) el.detailAnimated.removeAttribute('src');
+  if (url && el.detailAnimated.getAttribute("src") !== url)
+    el.detailAnimated.src = url;
+  if (!url) el.detailAnimated.removeAttribute("src");
   if (!supported) return;
 
   const status = view ? view.status : item.animationStatus;
-  const running = status === 'running';
-  const blocked = running || item.expressionStatus === 'running';
+  const running = status === "running";
+  const blocked = running || item.expressionStatus === "running";
   const built = view ? Boolean(view.url) : Boolean(item.hasAnimation);
-  const chosen = view ? (view.pending || view.description || '') : '';
+  const chosen = view ? view.pending || view.description || "" : "";
   const nothingToSend = !!view && !chosen && !view.descriptions.length;
-  const staged = !!view && !!view.pending && view.pending !== (view.description || null);
+  const staged =
+    !!view && !!view.pending && view.pending !== (view.description || null);
 
   el.animateBtn.disabled = blocked || nothingToSend;
-  el.animateBtn.textContent = running ? 'Animating…' : built ? 'Re-animate portrait' : 'Animate portrait';
+  el.animateBtn.textContent = running
+    ? "Animating…"
+    : built
+      ? "Re-animate portrait"
+      : "Animate portrait";
   // Amber for the same reason Regenerate goes amber: something chosen or
   // changed that the loop on disk does not yet show.
-  el.animateBtn.classList.toggle('accent', !blocked && built && !!view && (view.stale || staged));
+  el.animateBtn.classList.toggle(
+    "accent",
+    !blocked && built && !!view && (view.stale || staged),
+  );
   el.animateStale.hidden = !(view && view.stale);
 
   el.animateDescription.textContent = view
-    ? (chosen
+    ? chosen
       ? `Description: ${chosen}`
       : nothingToSend
-        ? 'The tables file has no ## Animation table, so there is nothing to describe the motion with.'
-        : 'Description: drawn from the Animation table when you press Animate — or choose one on the Animation row below.')
-    : '';
+        ? "The tables file has no ## Animation table, so there is nothing to describe the motion with."
+        : "Description: drawn from the Animation table when you press Animate — or choose one on the Animation row below."
+    : "";
 
-  const seedMode = document.querySelector('input[name="animate-seed-mode"]:checked')?.value;
-  for (const radio of document.querySelectorAll('#animate-panel input[type="radio"]')) radio.disabled = blocked;
-  el.animateSeedInput.disabled = blocked || seedMode !== 'specific';
+  const seedMode = document.querySelector(
+    'input[name="animate-seed-mode"]:checked',
+  )?.value;
+  for (const radio of document.querySelectorAll(
+    '#animate-panel input[type="radio"]',
+  ))
+    radio.disabled = blocked;
+  el.animateSeedInput.disabled = blocked || seedMode !== "specific";
   el.animatePingpong.disabled = blocked;
 
   // "· one way" only when the record says so: a loop from before the choice
   // was recorded is not known to be either, and the default is the quiet one.
   el.animateBuilt.textContent = view?.builtAt
     ? `Animated ${new Date(view.builtAt).toLocaleString(undefined, {
-      dateStyle: 'medium', timeStyle: 'short',
-    })}${Number.isInteger(view.seed) ? ` · seed ${view.seed}` : ''}${view.pingpong === false ? ' · one way' : ''}`
-    : built ? '' : 'No animation yet.';
+        dateStyle: "medium",
+        timeStyle: "short",
+      })}${Number.isInteger(view.seed) ? ` · seed ${view.seed}` : ""}${view.pingpong === false ? " · one way" : ""}`
+    : built
+      ? ""
+      : "No animation yet.";
 
-  const justFinished = status === 'done' && state.animateLastStatus !== 'done';
+  const justFinished = status === "done" && state.animateLastStatus !== "done";
   if (running) {
     el.animateStatus.textContent = view?.stage
       ? `Animating… ${view.stage}`
-      : 'Animating… this takes a few minutes (ComfyUI with the Wan 2.2 models must be running).';
-  } else if (status === 'error') {
-    el.animateStatus.textContent = `Failed: ${(view ? view.error : item.animationError) || 'unknown error'}`;
+      : "Animating… this takes a few minutes (ComfyUI with the Wan 2.2 models must be running).";
+  } else if (status === "error") {
+    el.animateStatus.textContent = `Failed: ${(view ? view.error : item.animationError) || "unknown error"}`;
   } else if (justFinished) {
-    el.animateStatus.textContent = 'Done.';
+    el.animateStatus.textContent = "Done.";
   } else {
-    el.animateStatus.textContent = '';
+    el.animateStatus.textContent = "";
   }
   state.animateLastStatus = status ?? null;
 }
@@ -1847,7 +2020,7 @@ async function refreshAnimation(id) {
     // about it, so "Same seed" and an untouched checkbox together reproduce
     // the loop that is there. Only on a change of owner: a poll tick while
     // the user has just unticked it must not tick it back.
-    if (state.animationOwnerId !== id && typeof view.pingpong === 'boolean') {
+    if (state.animationOwnerId !== id && typeof view.pingpong === "boolean") {
       el.animatePingpong.checked = view.pingpong;
     }
     state.animationView = view;
@@ -1858,102 +2031,144 @@ async function refreshAnimation(id) {
       renderDetailTraits(item);
       // Repainting the traits hands back enabled gutters; a running regen or
       // staged edit has to shut them again, the order renderDetailFor keeps.
-      setTraitGuttersDisabled(item.regenStatus === 'running' || state.stagingItemId === item.id);
+      setTraitGuttersDisabled(
+        item.regenStatus === "running" || state.stagingItemId === item.id,
+      );
     }
-  } catch { /* leave the panel showing whatever it last knew */ }
+  } catch {
+    /* leave the panel showing whatever it last knew */
+  }
 }
 
 /* ---- NPC expression sprites ---- */
 
 /** Browser mirror of the generator's documented custom-label normalization. */
 function sanitizeExpressionLabel(value) {
-  return String(value ?? '').trim().toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
 /** The checkbox grid is server-owned: `labels` is the API's shared list. */
 function expressionLabelGridMarkup(labels, selected) {
-  return (labels || []).map((label) => `<label class="expression-label">
-    <input type="checkbox" value="${escapeHtml(label)}"${selected.has(label) ? ' checked' : ''}>
+  return (labels || [])
+    .map(
+      (label) => `<label class="expression-label">
+    <input type="checkbox" value="${escapeHtml(label)}"${selected.has(label) ? " checked" : ""}>
     ${escapeHtml(label)}
-  </label>`).join('');
+  </label>`,
+    )
+    .join("");
 }
 
 function missingExpressionLabels(view) {
-  const byLabel = new Map((view.groups || []).map((group) => [group.label, group.files || []]));
-  return (view.labels || []).filter((label) => !(byLabel.get(label) || []).length);
+  const byLabel = new Map(
+    (view.groups || []).map((group) => [group.label, group.files || []]),
+  );
+  return (view.labels || []).filter(
+    (label) => !(byLabel.get(label) || []).length,
+  );
 }
 
 function expressionCustomChipsMarkup(custom) {
-  return (custom || []).map((entry, index) => `<span class="expression-custom-chip">
+  return (custom || [])
+    .map(
+      (entry, index) => `<span class="expression-custom-chip">
     <strong>${escapeHtml(entry.label)}</strong>
-    <span>${entry.text ? escapeHtml(entry.text) : 'table prompt'}</span>
+    <span>${entry.text ? escapeHtml(entry.text) : "table prompt"}</span>
     <button type="button" data-custom-remove="${index}" aria-label="Remove ${escapeHtml(entry.label)}">&times;</button>
-  </span>`).join('');
+  </span>`,
+    )
+    .join("");
 }
 
 /**
  * Rows arrive in display order from the API: defaults first, custom last.
  * onlyGenerated drops the labels that have no sprite yet.
  */
-function expressionSpriteRowsMarkup(id, groups, pendingDeleteFile, onlyGenerated) {
-  const shown = (groups || []).filter((group) => !onlyGenerated || (group.files || []).length);
+function expressionSpriteRowsMarkup(
+  id,
+  groups,
+  pendingDeleteFile,
+  onlyGenerated,
+) {
+  const shown = (groups || []).filter(
+    (group) => !onlyGenerated || (group.files || []).length,
+  );
   if (onlyGenerated && !shown.length) {
     return '<p class="expression-none-generated">No sprites generated yet.</p>';
   }
-  return shown.map((group) => {
-    const files = group.files || [];
-    const sprites = files.length ? files.map((sprite) => {
-      const file = sprite.file;
-      const meta = [sprite.prompt || '', Number.isInteger(sprite.seed) ? `seed ${sprite.seed}` : '']
-        .filter(Boolean).join(' · ');
-      const url = `/api/expression-image?id=${encodeURIComponent(id)}&file=${encodeURIComponent(file)}`;
-      const actions = pendingDeleteFile === file
-        ? `<span class="expression-delete-confirm">Delete this sprite?
+  return shown
+    .map((group) => {
+      const files = group.files || [];
+      const sprites = files.length
+        ? files
+            .map((sprite) => {
+              const file = sprite.file;
+              const meta = [
+                sprite.prompt || "",
+                Number.isInteger(sprite.seed) ? `seed ${sprite.seed}` : "",
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              const url = `/api/expression-image?id=${encodeURIComponent(id)}&file=${encodeURIComponent(file)}`;
+              const actions =
+                pendingDeleteFile === file
+                  ? `<span class="expression-delete-confirm">Delete this sprite?
             <button type="button" class="danger" data-expression-delete-confirm="${escapeHtml(file)}">Delete</button>
             <button type="button" data-expression-delete-cancel="${escapeHtml(file)}">Cancel</button>
           </span>`
-        : `<button type="button" data-expression-redo="${escapeHtml(file)}">Redo</button>
+                  : `<button type="button" data-expression-redo="${escapeHtml(file)}">Redo</button>
           <button type="button" data-expression-delete="${escapeHtml(file)}">Delete</button>`;
-      return `<figure class="expression-sprite">
+              return `<figure class="expression-sprite">
         <div class="expression-image-wrap">
           <img src="${escapeHtml(url)}" alt="${escapeHtml(group.label)} expression"
             title="${escapeHtml(meta || file)}">
-          ${sprite.stale ? '<span class="expression-stale">old source image</span>' : ''}
+          ${sprite.stale ? '<span class="expression-stale">old source image</span>' : ""}
         </div>
         <figcaption><span>${escapeHtml(file)}</span><span class="expression-sprite-actions">${actions}</span></figcaption>
       </figure>`;
-    }).join('') : '<div class="expression-empty">No sprite yet</div>';
-    return `<section class="expression-sprite-row">
+            })
+            .join("")
+        : '<div class="expression-empty">No sprite yet</div>';
+      return `<section class="expression-sprite-row">
       <h4>${escapeHtml(group.label)}</h4>
       <div class="expression-sprite-list">${sprites}</div>
     </section>`;
-  }).join('');
+    })
+    .join("");
 }
 
 /** Text beside the collapsed sprite section's summary, e.g. "(3 of 28 labels, 5 sprites)". */
 function expressionSpritesCountText(groups) {
   const all = groups || [];
   const filled = all.filter((group) => (group.files || []).length).length;
-  const sprites = all.reduce((sum, group) => sum + (group.files || []).length, 0);
-  return `(${filled} of ${all.length} labels, ${sprites} sprite${sprites === 1 ? '' : 's'})`;
+  const sprites = all.reduce(
+    (sum, group) => sum + (group.files || []).length,
+    0,
+  );
+  return `(${filled} of ${all.length} labels, ${sprites} sprite${sprites === 1 ? "" : "s"})`;
 }
 
 /** Validate and shape one POST body independently of its DOM controls. */
 function expressionJobPayload(opts) {
   const count = Number(opts.count);
   if (!Number.isInteger(count) || count < 1 || count > 8) {
-    throw new Error('Variants per label must be a whole number between 1 and 8.');
+    throw new Error(
+      "Variants per label must be a whole number between 1 and 8.",
+    );
   }
-  if (opts.source !== 'token' && opts.source !== 'portrait') {
-    throw new Error('Source image must be Full-body token or Portrait.');
+  if (opts.source !== "token" && opts.source !== "portrait") {
+    throw new Error("Source image must be Full-body token or Portrait.");
   }
   const body = {
     id: opts.id,
     labels: opts.labels || [],
     custom: opts.custom || [],
     count,
-    mode: opts.mode === 'replace' ? 'replace' : 'add',
+    mode: opts.mode === "replace" ? "replace" : "add",
     keepBackground: !!opts.keepBackground,
     source: opts.source,
   };
@@ -1963,11 +2178,13 @@ function expressionJobPayload(opts) {
 
 function renderExpressionSourceAvailability(view, reset) {
   const selected = el.expressionsSource.value;
-  for (const kind of ['token', 'portrait']) {
-    const option = el.expressionsSource.querySelector(`option[value="${kind}"]`);
+  for (const kind of ["token", "portrait"]) {
+    const option = el.expressionsSource.querySelector(
+      `option[value="${kind}"]`,
+    );
     if (option) option.disabled = !view.sources?.[kind]?.available;
   }
-  el.expressionsSource.value = reset ? (view.defaultSource || '') : selected;
+  el.expressionsSource.value = reset ? view.defaultSource || "" : selected;
 }
 
 /**
@@ -1978,19 +2195,30 @@ function renderExpressionSourceAvailability(view, reset) {
  * job response.
  */
 function expressionJobRunning(item, job) {
-  return item.expressionStatus === 'running' || job?.status === 'running';
+  return item.expressionStatus === "running" || job?.status === "running";
 }
 
 function expressionStartBlocked(item, job, startPendingId) {
-  return expressionJobRunning(item, job) || startPendingId === item.id
-    || item.regenStatus === 'running' || item.model3dStatus === 'running'
-    || item.animationStatus === 'running';
+  return (
+    expressionJobRunning(item, job) ||
+    startPendingId === item.id ||
+    item.regenStatus === "running" ||
+    item.model3dStatus === "running" ||
+    item.animationStatus === "running"
+  );
 }
 
-function expressionSpriteActionDisabled(action, item, job, startPendingId, sourceAvailable = true) {
-  const expressionBusy = expressionJobRunning(item, job) || startPendingId === item.id;
-  if (action === 'delete') return expressionBusy;
-  if (action !== 'redo') return false;
+function expressionSpriteActionDisabled(
+  action,
+  item,
+  job,
+  startPendingId,
+  sourceAvailable = true,
+) {
+  const expressionBusy =
+    expressionJobRunning(item, job) || startPendingId === item.id;
+  if (action === "delete") return expressionBusy;
+  if (action !== "redo") return false;
   return !sourceAvailable || expressionStartBlocked(item, job, startPendingId);
 }
 
@@ -1999,34 +2227,47 @@ function setExpressionActionError(id, message) {
 }
 
 function selectedExpressionLabels() {
-  return [...el.expressionsLabels.querySelectorAll('input[type="checkbox"]:checked')]
-    .map((input) => input.value);
+  return [
+    ...el.expressionsLabels.querySelectorAll('input[type="checkbox"]:checked'),
+  ].map((input) => input.value);
 }
 
 function renderExpressionCustomChips() {
-  el.expressionCustomChips.innerHTML = expressionCustomChipsMarkup(state.expressionCustom);
+  el.expressionCustomChips.innerHTML = expressionCustomChipsMarkup(
+    state.expressionCustom,
+  );
 }
 
 /** Reset the form exactly once for a new sheet owner, never on a poll tick. */
 function renderExpressionForm(view) {
   const selected = new Set(view.labels || []);
-  el.expressionsLabels.innerHTML = expressionLabelGridMarkup(view.labels, selected);
+  el.expressionsLabels.innerHTML = expressionLabelGridMarkup(
+    view.labels,
+    selected,
+  );
   state.expressionCustom = [];
   renderExpressionCustomChips();
-  el.expressionCustomLabel.value = '';
-  el.expressionCustomPrompt.value = '';
-  el.expressionCustomStatus.textContent = '';
-  el.expressionsCount.value = '1';
-  document.querySelector('input[name="expressions-mode"][value="add"]').checked = true;
+  el.expressionCustomLabel.value = "";
+  el.expressionCustomPrompt.value = "";
+  el.expressionCustomStatus.textContent = "";
+  el.expressionsCount.value = "1";
+  document.querySelector(
+    'input[name="expressions-mode"][value="add"]',
+  ).checked = true;
   el.expressionsKeepBackground.checked = false;
   renderExpressionSourceAvailability(view, true);
-  el.expressionsImportFolder.value = view.importTarget?.folderName || '';
-  el.expressionsImportStatus.textContent = '';
+  el.expressionsImportFolder.value = view.importTarget?.folderName || "";
+  el.expressionsImportStatus.textContent = "";
 }
 
 function expressionImportFolderError(folderName) {
-  if (typeof folderName !== 'string' || !folderName.trim()) return 'Folder name must not be empty.';
-  if (folderName.includes('/') || folderName.includes('\\') || folderName.includes('..')) {
+  if (typeof folderName !== "string" || !folderName.trim())
+    return "Folder name must not be empty.";
+  if (
+    folderName.includes("/") ||
+    folderName.includes("\\") ||
+    folderName.includes("..")
+  ) {
     return 'Folder name must not contain path separators or "..".';
   }
   return null;
@@ -2034,12 +2275,14 @@ function expressionImportFolderError(folderName) {
 
 function expressionConfiguredBaseError(importTarget) {
   if (!importTarget) return null;
-  return Object.hasOwn(importTarget, 'baseError') ? importTarget.baseError : importTarget.error;
+  return Object.hasOwn(importTarget, "baseError")
+    ? importTarget.baseError
+    : importTarget.error;
 }
 
 function updateExpressionImportTarget(view) {
   if (!view?.importTarget) {
-    el.expressionsImportTarget.textContent = '';
+    el.expressionsImportTarget.textContent = "";
     return;
   }
   const baseError = expressionConfiguredBaseError(view.importTarget);
@@ -2047,8 +2290,8 @@ function updateExpressionImportTarget(view) {
     el.expressionsImportTarget.textContent = baseError;
     return;
   }
-  const directory = view.importTarget.directory || '';
-  const separator = directory.includes('\\') ? '\\' : '/';
+  const directory = view.importTarget.directory || "";
+  const separator = directory.includes("\\") ? "\\" : "/";
   const folder = el.expressionsImportFolder.value.trim();
   const folderError = expressionImportFolderError(folder);
   if (folderError) {
@@ -2056,13 +2299,15 @@ function updateExpressionImportTarget(view) {
     return;
   }
   el.expressionsImportTarget.textContent = folder
-    ? `${directory.replace(/[\\/]+$/, '')}${separator}${folder}`
+    ? `${directory.replace(/[\\/]+$/, "")}${separator}${folder}`
     : view.importTarget.path || directory;
 }
 
 /** Paint server results without replacing any control the user can edit. */
 function renderExpressionsPanel(item, view) {
-  const unsupported = item.supports ? !item.supports.expressions : item.kind !== 'npc';
+  const unsupported = item.supports
+    ? !item.supports.expressions
+    : item.kind !== "npc";
   el.expressionsPanel.hidden = unsupported;
   if (unsupported) return;
 
@@ -2074,19 +2319,33 @@ function renderExpressionsPanel(item, view) {
 
   const job = view?.job || null;
   const running = expressionJobRunning(item, job);
-  const status = running ? 'running' : job ? job.status : item.expressionStatus;
+  const status = running ? "running" : job ? job.status : item.expressionStatus;
   const starting = state.expressionStartPendingId === item.id;
   const expressionBusy = running || starting;
-  const anotherPortraitJob = item.regenStatus === 'running'
-    || item.model3dStatus === 'running' || item.animationStatus === 'running';
-  const chosen = selectedExpressionLabels().length + state.expressionCustom.length;
-  const sourceAvailable = !!view?.sources?.[el.expressionsSource.value]?.available;
+  const anotherPortraitJob =
+    item.regenStatus === "running" ||
+    item.model3dStatus === "running" ||
+    item.animationStatus === "running";
+  const chosen =
+    selectedExpressionLabels().length + state.expressionCustom.length;
+  const sourceAvailable =
+    !!view?.sources?.[el.expressionsSource.value]?.available;
 
-  el.expressionsGenerate.disabled = expressionBusy || anotherPortraitJob || chosen === 0
-    || !view || !sourceAvailable;
-  el.expressionsGenerate.textContent = starting ? 'Starting…' : running ? 'Generating…' : 'Generate';
+  el.expressionsGenerate.disabled =
+    expressionBusy ||
+    anotherPortraitJob ||
+    chosen === 0 ||
+    !view ||
+    !sourceAvailable;
+  el.expressionsGenerate.textContent = starting
+    ? "Starting…"
+    : running
+      ? "Generating…"
+      : "Generate";
   el.expressionsCancel.disabled = !running;
-  for (const input of el.expressionsPanel.querySelectorAll('input, button, select')) {
+  for (const input of el.expressionsPanel.querySelectorAll(
+    "input, button, select",
+  )) {
     if (input === el.expressionsCancel) continue;
     if (input === el.expressionsImport) continue;
     if (input.dataset?.expressionViewControl !== undefined) continue;
@@ -2094,54 +2353,84 @@ function renderExpressionsPanel(item, view) {
   }
   // Generate can also be unavailable for selection/conflict reasons after the
   // broad running-state pass above.
-  el.expressionsGenerate.disabled = expressionBusy || anotherPortraitJob || chosen === 0
-    || !view || !sourceAvailable;
+  el.expressionsGenerate.disabled =
+    expressionBusy ||
+    anotherPortraitJob ||
+    chosen === 0 ||
+    !view ||
+    !sourceAvailable;
 
-  const actionError = state.expressionActionError?.id === item.id
-    ? state.expressionActionError.message : null;
+  const actionError =
+    state.expressionActionError?.id === item.id
+      ? state.expressionActionError.message
+      : null;
   if (actionError) {
     el.expressionsStage.textContent = actionError;
   } else if (running) {
     el.expressionsStage.textContent = job?.stage
-      ? `Generating… ${job.stage}` : 'Generating… this can take several minutes per sprite.';
-  } else if (status === 'error') {
-    el.expressionsStage.textContent = `Failed: ${job?.error || 'unknown error'}`;
-  } else if (status === 'done' && state.expressionLastStatus === 'running') {
-    el.expressionsStage.textContent = 'Done.';
-  } else if (status === 'canceled') {
-    el.expressionsStage.textContent = 'Canceled.';
-  } else if (status !== 'done') {
-    el.expressionsStage.textContent = '';
+      ? `Generating… ${job.stage}`
+      : "Generating… this can take several minutes per sprite.";
+  } else if (status === "error") {
+    el.expressionsStage.textContent = `Failed: ${job?.error || "unknown error"}`;
+  } else if (status === "done" && state.expressionLastStatus === "running") {
+    el.expressionsStage.textContent = "Done.";
+  } else if (status === "canceled") {
+    el.expressionsStage.textContent = "Canceled.";
+  } else if (status !== "done") {
+    el.expressionsStage.textContent = "";
   }
-  el.expressionsLog.textContent = job?.log || '';
+  el.expressionsLog.textContent = job?.log || "";
   state.expressionLastStatus = status ?? null;
 
   if (view) {
     el.expressionsSprites.innerHTML = expressionSpriteRowsMarkup(
-      item.id, view.groups, state.expressionDeleteFile, state.expressionSpritesOnlyGenerated);
-    el.expressionsSpritesCount.textContent = expressionSpritesCountText(view.groups);
+      item.id,
+      view.groups,
+      state.expressionDeleteFile,
+      state.expressionSpritesOnlyGenerated,
+    );
+    el.expressionsSpritesCount.textContent = expressionSpritesCountText(
+      view.groups,
+    );
     updateExpressionImportTarget(view);
-    const hasFiles = (view.groups || []).some((group) => (group.files || []).length);
-    const importFolderError = expressionImportFolderError(el.expressionsImportFolder.value.trim());
+    const hasFiles = (view.groups || []).some(
+      (group) => (group.files || []).length,
+    );
+    const importFolderError = expressionImportFolderError(
+      el.expressionsImportFolder.value.trim(),
+    );
     const importBaseError = expressionConfiguredBaseError(view.importTarget);
-    el.expressionsImport.disabled = expressionBusy || !hasFiles || !!importBaseError || !!importFolderError;
-    for (const button of el.expressionsSprites.querySelectorAll('button')) {
-      const action = button.dataset.expressionRedo ? 'redo' : 'delete';
+    el.expressionsImport.disabled =
+      expressionBusy || !hasFiles || !!importBaseError || !!importFolderError;
+    for (const button of el.expressionsSprites.querySelectorAll("button")) {
+      const action = button.dataset.expressionRedo ? "redo" : "delete";
       button.disabled = expressionSpriteActionDisabled(
-        action, item, job, state.expressionStartPendingId, sourceAvailable);
+        action,
+        item,
+        job,
+        state.expressionStartPendingId,
+        sourceAvailable,
+      );
     }
   } else {
-    el.expressionsSprites.textContent = '';
-    el.expressionsSpritesCount.textContent = '';
-    el.expressionsImportTarget.textContent = '';
+    el.expressionsSprites.textContent = "";
+    el.expressionsSpritesCount.textContent = "";
+    el.expressionsImportTarget.textContent = "";
     el.expressionsImport.disabled = true;
   }
 }
 
 function expressionResponseIsCurrent(id, requestSerial, view) {
-  if (state.detailItemId !== id || requestSerial !== state.expressionRequestSerial) return false;
-  if (state.expressionExpectedJobId
-      && (!view.job || view.job.jobId !== state.expressionExpectedJobId)) return false;
+  if (
+    state.detailItemId !== id ||
+    requestSerial !== state.expressionRequestSerial
+  )
+    return false;
+  if (
+    state.expressionExpectedJobId &&
+    (!view.job || view.job.jobId !== state.expressionExpectedJobId)
+  )
+    return false;
   return true;
 }
 
@@ -2149,8 +2438,8 @@ function expressionResponseIsCurrent(id, requestSerial, view) {
 async function refreshExpressions(id) {
   if (!id) return;
   const item = state.items.find((entry) => entry.id === id);
-  const unsupported = item
-    && (item.supports ? !item.supports.expressions : item.kind !== 'npc');
+  const unsupported =
+    item && (item.supports ? !item.supports.expressions : item.kind !== "npc");
   if (unsupported) return;
   const requestSerial = ++state.expressionRequestSerial;
   try {
@@ -2160,40 +2449,51 @@ async function refreshExpressions(id) {
     if (!expressionResponseIsCurrent(id, requestSerial, view)) return;
     state.expressionView = view;
     state.expressionOwnerId = id;
-    if (view.job && view.job.jobId === state.expressionExpectedJobId
-        && view.job.status !== 'running') state.expressionExpectedJobId = null;
+    if (
+      view.job &&
+      view.job.jobId === state.expressionExpectedJobId &&
+      view.job.status !== "running"
+    )
+      state.expressionExpectedJobId = null;
     if (item) renderExpressionsPanel(item, view);
-  } catch { /* preserve the last useful panel during a transient poll failure */ }
+  } catch {
+    /* preserve the last useful panel during a transient poll failure */
+  }
 }
 
 /** Start a normal run or an exact-file Redo using the same guarded path. */
 async function startExpressionJob(body) {
   const id = body.id;
   if (state.expressionStartPendingId === id) {
-    throw new Error('An expression job is already starting.');
+    throw new Error("An expression job is already starting.");
   }
   const existingItem = state.items.find((entry) => entry.id === id);
-  const existingJob = state.expressionOwnerId === id ? state.expressionView?.job : null;
+  const existingJob =
+    state.expressionOwnerId === id ? state.expressionView?.job : null;
   if (existingItem && expressionStartBlocked(existingItem, existingJob, null)) {
-    throw new Error('A portrait job is already running.');
+    throw new Error("A portrait job is already running.");
   }
   const startSerial = ++state.expressionStartSerial;
   setExpressionActionError(id, null);
   state.expressionStartPendingId = id;
   rerenderCurrentExpressions();
   try {
-    const res = await fetch('/api/expressions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await fetch("/api/expressions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     const job = await res.json();
     if (!res.ok) throw new Error(job.error || `HTTP ${res.status}`);
     startPolling();
-    if (state.detailItemId !== id || startSerial !== state.expressionStartSerial) return job;
+    if (
+      state.detailItemId !== id ||
+      startSerial !== state.expressionStartSerial
+    )
+      return job;
     state.expressionExpectedJobId = job.jobId;
     const item = state.items.find((entry) => entry.id === id);
-    if (item) item.expressionStatus = 'running';
+    if (item) item.expressionStatus = "running";
     state.expressionView = { ...(state.expressionView || {}), job };
     state.expressionOwnerId = id;
     if (item) renderDetailFor(item);
@@ -2207,8 +2507,10 @@ async function startExpressionJob(body) {
     }
     throw err;
   } finally {
-    if (startSerial === state.expressionStartSerial
-        && state.expressionStartPendingId === id) {
+    if (
+      startSerial === state.expressionStartSerial &&
+      state.expressionStartPendingId === id
+    ) {
       state.expressionStartPendingId = null;
       if (state.detailItemId === id) rerenderCurrentExpressions();
     }
@@ -2218,63 +2520,76 @@ async function startExpressionJob(body) {
 function rerenderCurrentExpressions() {
   const id = state.detailItemId;
   const item = state.items.find((entry) => entry.id === id);
-  if (item) renderExpressionsPanel(item,
-    state.expressionOwnerId === id ? state.expressionView : null);
+  if (item)
+    renderExpressionsPanel(
+      item,
+      state.expressionOwnerId === id ? state.expressionView : null,
+    );
 }
 
-el.expressionsAll.addEventListener('click', () => {
-  for (const input of el.expressionsLabels.querySelectorAll('input[type="checkbox"]')) {
+el.expressionsAll.addEventListener("click", () => {
+  for (const input of el.expressionsLabels.querySelectorAll(
+    'input[type="checkbox"]',
+  )) {
     input.checked = true;
   }
   rerenderCurrentExpressions();
 });
 
-el.expressionsNone.addEventListener('click', () => {
-  for (const input of el.expressionsLabels.querySelectorAll('input[type="checkbox"]')) {
+el.expressionsNone.addEventListener("click", () => {
+  for (const input of el.expressionsLabels.querySelectorAll(
+    'input[type="checkbox"]',
+  )) {
     input.checked = false;
   }
   rerenderCurrentExpressions();
 });
 
-el.expressionsMissing.addEventListener('click', () => {
+el.expressionsMissing.addEventListener("click", () => {
   const missing = new Set(missingExpressionLabels(state.expressionView || {}));
-  for (const input of el.expressionsLabels.querySelectorAll('input[type="checkbox"]')) {
+  for (const input of el.expressionsLabels.querySelectorAll(
+    'input[type="checkbox"]',
+  )) {
     input.checked = missing.has(input.value);
   }
   rerenderCurrentExpressions();
 });
 
-el.expressionsLabels.addEventListener('change', rerenderCurrentExpressions);
+el.expressionsLabels.addEventListener("change", rerenderCurrentExpressions);
 
-el.expressionCustomAdd.addEventListener('click', () => {
+el.expressionCustomAdd.addEventListener("click", () => {
   const label = sanitizeExpressionLabel(el.expressionCustomLabel.value);
   if (!label) {
-    el.expressionCustomStatus.textContent = 'Enter a custom label containing a letter or number.';
+    el.expressionCustomStatus.textContent =
+      "Enter a custom label containing a letter or number.";
     return;
   }
   if (state.expressionCustom.some((entry) => entry.label === label)) {
     el.expressionCustomStatus.textContent = `Custom expression “${label}” is already in this run.`;
     return;
   }
-  state.expressionCustom.push({ label, text: el.expressionCustomPrompt.value.trim() });
-  el.expressionCustomLabel.value = '';
-  el.expressionCustomPrompt.value = '';
-  el.expressionCustomStatus.textContent = '';
+  state.expressionCustom.push({
+    label,
+    text: el.expressionCustomPrompt.value.trim(),
+  });
+  el.expressionCustomLabel.value = "";
+  el.expressionCustomPrompt.value = "";
+  el.expressionCustomStatus.textContent = "";
   renderExpressionCustomChips();
   rerenderCurrentExpressions();
 });
 
-el.expressionCustomChips.addEventListener('click', (event) => {
-  const button = event.target.closest('[data-custom-remove]');
+el.expressionCustomChips.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-custom-remove]");
   if (!button) return;
   state.expressionCustom.splice(Number(button.dataset.customRemove), 1);
   renderExpressionCustomChips();
   rerenderCurrentExpressions();
 });
 
-el.expressionsSource.addEventListener('change', rerenderCurrentExpressions);
+el.expressionsSource.addEventListener("change", rerenderCurrentExpressions);
 
-el.expressionsGenerate.addEventListener('click', async () => {
+el.expressionsGenerate.addEventListener("click", async () => {
   const id = state.detailItemId;
   if (!id) return;
   try {
@@ -2283,17 +2598,22 @@ el.expressionsGenerate.addEventListener('click', async () => {
       labels: selectedExpressionLabels(),
       custom: state.expressionCustom.map((entry) => ({ ...entry })),
       count: el.expressionsCount.value,
-      mode: document.querySelector('input[name="expressions-mode"]:checked')?.value || 'add',
+      mode:
+        document.querySelector('input[name="expressions-mode"]:checked')
+          ?.value || "add",
       keepBackground: el.expressionsKeepBackground.checked,
       source: el.expressionsSource.value,
     });
     if (!body.labels.length && !body.custom.length) {
-      setExpressionActionError(id, 'Select at least one expression or add a custom one.');
+      setExpressionActionError(
+        id,
+        "Select at least one expression or add a custom one.",
+      );
       rerenderCurrentExpressions();
       return;
     }
     el.expressionsGenerate.disabled = true;
-    el.expressionsStage.textContent = 'Starting…';
+    el.expressionsStage.textContent = "Starting…";
     await startExpressionJob(body);
   } catch (err) {
     if (state.detailItemId === id) {
@@ -2303,21 +2623,25 @@ el.expressionsGenerate.addEventListener('click', async () => {
   }
 });
 
-el.expressionsCancel.addEventListener('click', async () => {
+el.expressionsCancel.addEventListener("click", async () => {
   const id = state.detailItemId;
   if (!id) return;
   setExpressionActionError(id, null);
   el.expressionsCancel.disabled = true;
   try {
-    const res = await fetch('/api/expressions/cancel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await fetch("/api/expressions/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
     const job = await res.json();
     if (!res.ok) throw new Error(job.error || `HTTP ${res.status}`);
-    if (state.detailItemId !== id
-        || (state.expressionExpectedJobId && job.jobId !== state.expressionExpectedJobId)) return;
+    if (
+      state.detailItemId !== id ||
+      (state.expressionExpectedJobId &&
+        job.jobId !== state.expressionExpectedJobId)
+    )
+      return;
     const item = state.items.find((entry) => entry.id === id);
     if (item) item.expressionStatus = job.status;
     state.expressionView = { ...(state.expressionView || {}), job };
@@ -2332,38 +2656,53 @@ el.expressionsCancel.addEventListener('click', async () => {
   }
 });
 
-el.expressionsOnlyGenerated.addEventListener('change', () => {
+el.expressionsOnlyGenerated.addEventListener("change", () => {
   state.expressionSpritesOnlyGenerated = el.expressionsOnlyGenerated.checked;
   rerenderCurrentExpressions();
 });
 
 // The summary closes the section from the top; this closes it from the bottom
 // and brings the summary back into view so the page doesn't jump past it.
-el.expressionsSpritesCollapse.addEventListener('click', () => {
+el.expressionsSpritesCollapse.addEventListener("click", () => {
   el.expressionsSpritesDetails.open = false;
-  el.expressionsSpritesDetails.scrollIntoView({ block: 'nearest' });
+  el.expressionsSpritesDetails.scrollIntoView({ block: "nearest" });
 });
 
-el.expressionsSprites.addEventListener('click', async (event) => {
-  const button = event.target.closest('button');
+el.expressionsSprites.addEventListener("click", async (event) => {
+  const button = event.target.closest("button");
   const id = state.detailItemId;
   if (!button || !id) return;
   const item = state.items.find((entry) => entry.id === id);
   if (!item) return;
-  const viewJob = state.expressionOwnerId === id ? state.expressionView?.job : null;
+  const viewJob =
+    state.expressionOwnerId === id ? state.expressionView?.job : null;
 
   const redo = button.dataset.expressionRedo;
   if (redo) {
-    if (expressionSpriteActionDisabled(
-      'redo', item, viewJob, state.expressionStartPendingId)) return;
+    if (
+      expressionSpriteActionDisabled(
+        "redo",
+        item,
+        viewJob,
+        state.expressionStartPendingId,
+      )
+    )
+      return;
     try {
       setExpressionActionError(id, null);
       el.expressionsStage.textContent = `Starting Redo for ${redo}…`;
-      await startExpressionJob(expressionJobPayload({
-        id, labels: [], custom: [], count: 1, mode: 'add',
-        keepBackground: el.expressionsKeepBackground.checked, file: redo,
-        source: el.expressionsSource.value,
-      }));
+      await startExpressionJob(
+        expressionJobPayload({
+          id,
+          labels: [],
+          custom: [],
+          count: 1,
+          mode: "add",
+          keepBackground: el.expressionsKeepBackground.checked,
+          file: redo,
+          source: el.expressionsSource.value,
+        }),
+      );
     } catch (err) {
       if (state.detailItemId === id) {
         setExpressionActionError(id, `Couldn't redo: ${err.message}`);
@@ -2373,8 +2712,15 @@ el.expressionsSprites.addEventListener('click', async (event) => {
     return;
   }
 
-  if (expressionSpriteActionDisabled(
-    'delete', item, viewJob, state.expressionStartPendingId)) return;
+  if (
+    expressionSpriteActionDisabled(
+      "delete",
+      item,
+      viewJob,
+      state.expressionStartPendingId,
+    )
+  )
+    return;
   const ask = button.dataset.expressionDelete;
   if (ask) {
     state.expressionDeleteFile = ask;
@@ -2391,8 +2737,10 @@ el.expressionsSprites.addEventListener('click', async (event) => {
   try {
     setExpressionActionError(id, null);
     button.disabled = true;
-    await api(`/api/expressions/file?id=${encodeURIComponent(id)}&file=${encodeURIComponent(confirmed)}`,
-      { method: 'DELETE' });
+    await api(
+      `/api/expressions/file?id=${encodeURIComponent(id)}&file=${encodeURIComponent(confirmed)}`,
+      { method: "DELETE" },
+    );
     if (state.detailItemId !== id) return;
     state.expressionDeleteFile = null;
     el.expressionsStage.textContent = `Deleted ${confirmed}.`;
@@ -2407,22 +2755,25 @@ el.expressionsSprites.addEventListener('click', async (event) => {
   }
 });
 
-el.expressionsImportFolder.addEventListener('input', () => {
+el.expressionsImportFolder.addEventListener("input", () => {
   updateExpressionImportTarget(state.expressionView);
   rerenderCurrentExpressions();
 });
 
-el.expressionsImport.addEventListener('click', async () => {
+el.expressionsImport.addEventListener("click", async () => {
   const id = state.detailItemId;
   if (!id) return;
   setExpressionActionError(id, null);
   el.expressionsImport.disabled = true;
-  el.expressionsImportStatus.textContent = 'Importing…';
+  el.expressionsImportStatus.textContent = "Importing…";
   try {
-    const result = await api('/api/expressions/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, folderName: el.expressionsImportFolder.value.trim() }),
+    const result = await api("/api/expressions/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id,
+        folderName: el.expressionsImportFolder.value.trim(),
+      }),
     });
     if (state.detailItemId !== id) return;
     el.expressionsImportStatus.textContent = `Imported: copied ${result.copied}, replaced ${result.replaced} · ${result.path}`;
@@ -2446,13 +2797,13 @@ function openSetAnimation(view) {
     let selected = current;
 
     elSetTrait.title.textContent = `Set ${ANIMATION_TRAIT}`;
-    elSetTrait.filter.value = '';
+    elSetTrait.filter.value = "";
     elSetTrait.filter.hidden = view.descriptions.length < 12;
     elSetTrait.releaseRow.hidden = true;
     elSetTrait.release.checked = false;
     elSetTrait.warning.hidden = true;
     const okLabel = elSetTrait.ok.textContent;
-    elSetTrait.ok.textContent = 'Choose';
+    elSetTrait.ok.textContent = "Choose";
     elSetTrait.ok.disabled = !selected;
     elSetTrait.overlay.hidden = false;
     elSetTrait.cancel.focus();
@@ -2461,16 +2812,20 @@ function openSetAnimation(view) {
       elSetTrait.overlay.hidden = true;
       elSetTrait.warning.hidden = false;
       elSetTrait.ok.textContent = okLabel;
-      elSetTrait.ok.removeEventListener('click', onOk);
-      elSetTrait.cancel.removeEventListener('click', onCancel);
-      elSetTrait.overlay.removeEventListener('click', onBackdrop);
-      elSetTrait.filter.removeEventListener('input', render);
-      elSetTrait.list.removeEventListener('change', onPick);
+      elSetTrait.ok.removeEventListener("click", onOk);
+      elSetTrait.cancel.removeEventListener("click", onCancel);
+      elSetTrait.overlay.removeEventListener("click", onBackdrop);
+      elSetTrait.filter.removeEventListener("input", render);
+      elSetTrait.list.removeEventListener("change", onPick);
       resolve(result);
     };
-    const onOk = () => { if (selected) cleanup(selected); };
+    const onOk = () => {
+      if (selected) cleanup(selected);
+    };
     const onCancel = () => cleanup(null);
-    const onBackdrop = (e) => { if (e.target === elSetTrait.overlay) cleanup(null); };
+    const onBackdrop = (e) => {
+      if (e.target === elSetTrait.overlay) cleanup(null);
+    };
     const onPick = (e) => {
       if (!view.descriptions.includes(e.target.value)) return;
       selected = e.target.value;
@@ -2483,22 +2838,27 @@ function openSetAnimation(view) {
         ? view.descriptions.filter((d) => d.toLowerCase().includes(needle))
         : view.descriptions;
       if (!visible.length) {
-        elSetTrait.list.textContent = 'Nothing matches that.';
+        elSetTrait.list.textContent = "Nothing matches that.";
         return;
       }
-      elSetTrait.list.innerHTML = visible.map((text) => '<label class="set-trait-row">'
-        + `<input type="radio" name="set-trait-value" value="${escapeHtml(text)}"`
-        + `${text === selected ? ' checked' : ''}>`
-        + `<span class="set-trait-label">${escapeHtml(text)}`
-        + `${text === current ? ' <em>(current)</em>' : ''}</span>`
-        + '</label>').join('');
+      elSetTrait.list.innerHTML = visible
+        .map(
+          (text) =>
+            '<label class="set-trait-row">' +
+            `<input type="radio" name="set-trait-value" value="${escapeHtml(text)}"` +
+            `${text === selected ? " checked" : ""}>` +
+            `<span class="set-trait-label">${escapeHtml(text)}` +
+            `${text === current ? " <em>(current)</em>" : ""}</span>` +
+            "</label>",
+        )
+        .join("");
     }
 
-    elSetTrait.ok.addEventListener('click', onOk);
-    elSetTrait.cancel.addEventListener('click', onCancel);
-    elSetTrait.overlay.addEventListener('click', onBackdrop);
-    elSetTrait.filter.addEventListener('input', render);
-    elSetTrait.list.addEventListener('change', onPick);
+    elSetTrait.ok.addEventListener("click", onOk);
+    elSetTrait.cancel.addEventListener("click", onCancel);
+    elSetTrait.overlay.addEventListener("click", onBackdrop);
+    elSetTrait.filter.addEventListener("input", render);
+    elSetTrait.list.addEventListener("change", onPick);
     render();
   });
 }
@@ -2508,13 +2868,15 @@ function openSetAnimation(view) {
  * repaint from the server's answer. Nothing renders; that is the button.
  */
 async function stageAnimationDescription(id, body) {
-  for (const button of el.detailTraits.querySelectorAll('.anim-reroll-btn, .anim-set-btn')) {
+  for (const button of el.detailTraits.querySelectorAll(
+    ".anim-reroll-btn, .anim-set-btn",
+  )) {
     button.disabled = true;
   }
   try {
-    const view = await api('/api/animation/description', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const view = await api("/api/animation/description", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, ...body }),
     });
     if (state.detailItemId !== id) return;
@@ -2524,7 +2886,9 @@ async function stageAnimationDescription(id, body) {
     if (item) {
       renderAnimationPanel(item, view);
       renderDetailTraits(item);
-      setTraitGuttersDisabled(item.regenStatus === 'running' || state.stagingItemId === item.id);
+      setTraitGuttersDisabled(
+        item.regenStatus === "running" || state.stagingItemId === item.id,
+      );
     }
   } catch (err) {
     el.animateStatus.textContent = `Couldn't choose a description: ${err.message}`;
@@ -2532,82 +2896,92 @@ async function stageAnimationDescription(id, body) {
   }
 }
 
-el.detailTraits.addEventListener('click', async (event) => {
-  const button = event.target.closest('.anim-reroll-btn');
+el.detailTraits.addEventListener("click", async (event) => {
+  const button = event.target.closest(".anim-reroll-btn");
   if (!button || !state.detailItemId) return;
-  await stageAnimationDescription(state.detailItemId, { op: 'reroll' });
+  await stageAnimationDescription(state.detailItemId, { op: "reroll" });
 });
 
-el.detailTraits.addEventListener('click', async (event) => {
-  const button = event.target.closest('.anim-set-btn');
+el.detailTraits.addEventListener("click", async (event) => {
+  const button = event.target.closest(".anim-set-btn");
   if (!button || !state.detailItemId) return;
   const id = state.detailItemId;
   const view = state.animationOwnerId === id ? state.animationView : null;
   if (!view) return;
   const picked = await openSetAnimation(view);
   if (!picked) return;
-  await stageAnimationDescription(id, { op: 'set', value: picked });
+  await stageAnimationDescription(id, { op: "set", value: picked });
 });
 
-for (const input of document.querySelectorAll('input[name="animate-seed-mode"]')) {
-  input.addEventListener('change', () => {
-    el.animateSeedInput.disabled = input.value !== 'specific';
-    if (input.value === 'specific') el.animateSeedInput.focus();
+for (const input of document.querySelectorAll(
+  'input[name="animate-seed-mode"]',
+)) {
+  input.addEventListener("change", () => {
+    el.animateSeedInput.disabled = input.value !== "specific";
+    if (input.value === "specific") el.animateSeedInput.focus();
   });
 }
 
-el.animateBtn.addEventListener('click', async () => {
+el.animateBtn.addEventListener("click", async () => {
   const id = state.detailItemId;
   if (!id) return;
-  const seedMode = document.querySelector('input[name="animate-seed-mode"]:checked')?.value || 'same';
+  const seedMode =
+    document.querySelector('input[name="animate-seed-mode"]:checked')?.value ||
+    "same";
   const body = { id, seedMode, pingpong: el.animatePingpong.checked };
-  if (seedMode === 'specific') {
+  if (seedMode === "specific") {
     const seed = Number(el.animateSeedInput.value);
     if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295) {
-      el.animateStatus.textContent = 'Enter a whole number seed between 0 and 4294967295.';
+      el.animateStatus.textContent =
+        "Enter a whole number seed between 0 and 4294967295.";
       return;
     }
     body.seed = seed;
   }
 
   el.animateBtn.disabled = true;
-  el.animateBtn.textContent = 'Animating…';
-  el.animateStatus.textContent = 'Starting…';
+  el.animateBtn.textContent = "Animating…";
+  el.animateStatus.textContent = "Starting…";
   try {
-    const res = await fetch('/api/animation', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await fetch("/api/animation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     const result = await res.json();
     if (!res.ok) {
       el.animateStatus.textContent = `Couldn't start: ${result.error || result.reason || res.status}`;
       const item = state.items.find((i) => i.id === id);
-      if (item) renderAnimationPanel(item, state.animationOwnerId === id ? state.animationView : null);
+      if (item)
+        renderAnimationPanel(
+          item,
+          state.animationOwnerId === id ? state.animationView : null,
+        );
       return;
     }
-    el.animateStatus.textContent = 'Animating… this takes a few minutes (ComfyUI with the Wan 2.2 models must be running).';
+    el.animateStatus.textContent =
+      "Animating… this takes a few minutes (ComfyUI with the Wan 2.2 models must be running).";
     startPolling();
     await refreshItems();
     await refreshAnimation(id);
   } catch (err) {
     el.animateStatus.textContent = `Couldn't start: ${err.message}`;
     el.animateBtn.disabled = false;
-    el.animateBtn.textContent = 'Animate portrait';
+    el.animateBtn.textContent = "Animate portrait";
   }
 });
 
-el.model3dBtn.addEventListener('click', async () => {
+el.model3dBtn.addEventListener("click", async () => {
   const id = state.detailItemId;
   if (!id) return;
 
   el.model3dBtn.disabled = true;
-  el.model3dBtn.textContent = 'Building…';
-  el.model3dStatus.textContent = 'Starting…';
+  el.model3dBtn.textContent = "Building…";
+  el.model3dStatus.textContent = "Starting…";
   try {
-    const res = await fetch('/api/model-3d', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await fetch("/api/model-3d", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id,
         rig: el.model3dRig.checked,
@@ -2637,48 +3011,56 @@ el.model3dBtn.addEventListener('click', async () => {
   }
 });
 
-for (const input of document.querySelectorAll('input[name="regen-seed-mode"]')) {
-  input.addEventListener('change', () => {
-    el.regenSeedInput.disabled = input.value !== 'specific';
-    if (input.value === 'specific') el.regenSeedInput.focus();
+for (const input of document.querySelectorAll(
+  'input[name="regen-seed-mode"]',
+)) {
+  input.addEventListener("change", () => {
+    el.regenSeedInput.disabled = input.value !== "specific";
+    if (input.value === "specific") el.regenSeedInput.focus();
   });
 }
 
-el.regenBtn.addEventListener('click', async () => {
+el.regenBtn.addEventListener("click", async () => {
   const id = state.detailItemId;
   if (!id) return;
-  const which = document.querySelector('input[name="regen-which"]:checked')?.value || 'both';
-  const seedMode = document.querySelector('input[name="regen-seed-mode"]:checked')?.value || 'same';
+  const which =
+    document.querySelector('input[name="regen-which"]:checked')?.value ||
+    "both";
+  const seedMode =
+    document.querySelector('input[name="regen-seed-mode"]:checked')?.value ||
+    "same";
   const body = { id, which, seedMode };
-  if (seedMode === 'specific') {
+  if (seedMode === "specific") {
     const seed = Number(el.regenSeedInput.value);
     if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295) {
-      el.regenStatus.textContent = 'Enter a whole number seed between 0 and 4294967295.';
+      el.regenStatus.textContent =
+        "Enter a whole number seed between 0 and 4294967295.";
       return;
     }
     body.seed = seed;
   }
 
   el.regenBtn.disabled = true;
-  el.regenBtn.textContent = 'Regenerating…';
-  el.regenStatus.textContent = 'Starting…';
+  el.regenBtn.textContent = "Regenerating…";
+  el.regenStatus.textContent = "Starting…";
   try {
-    const res = await fetch('/api/regenerate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await fetch("/api/regenerate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     const result = await res.json();
     if (!res.ok) {
       el.regenStatus.textContent = `Couldn't start: ${result.reason || result.error || res.status}`;
       el.regenBtn.disabled = false;
-      el.regenBtn.textContent = 'Regenerate';
+      el.regenBtn.textContent = "Regenerate";
       return;
     }
     // The generic line is the right one here - this button re-renders the NPC
     // as it stands rather than editing anything.
     state.regenRunningMessage = null;
-    el.regenStatus.textContent = 'Regenerating… this can take a few minutes (ComfyUI must be running).';
+    el.regenStatus.textContent =
+      "Regenerating… this can take a few minutes (ComfyUI must be running).";
     // Both before the await, not after: refreshItems() throws through api() on
     // any non-OK /api/items, and a 202 followed by one bad list load would
     // otherwise leave a job genuinely running with no poller watching it and no
@@ -2689,13 +3071,13 @@ el.regenBtn.addEventListener('click', async () => {
   } catch (err) {
     el.regenStatus.textContent = `Couldn't start: ${err.message}`;
     el.regenBtn.disabled = false;
-    el.regenBtn.textContent = 'Regenerate';
+    el.regenBtn.textContent = "Regenerate";
   }
 });
 
 /* ---- copying the prompts ---- */
 
-const NL = '\n';
+const NL = "\n";
 
 /** Writes `text` to the clipboard, reporting whether it landed.
  *
@@ -2714,18 +3096,18 @@ async function copyToClipboard(text) {
   } catch {
     // Permission denied or a non-secure context that defines the API anyway.
   }
-  const scratch = document.createElement('textarea');
+  const scratch = document.createElement("textarea");
   scratch.value = text;
-  scratch.setAttribute('readonly', '');
+  scratch.setAttribute("readonly", "");
   // Off-screen but still focusable: display:none or visibility:hidden would
   // make select() a no-op and the copy silently empty.
-  scratch.style.position = 'fixed';
-  scratch.style.top = '-1000px';
+  scratch.style.position = "fixed";
+  scratch.style.top = "-1000px";
   document.body.appendChild(scratch);
   scratch.select();
   let ok = false;
   try {
-    ok = document.execCommand('copy');
+    ok = document.execCommand("copy");
   } catch {
     ok = false;
   }
@@ -2737,13 +3119,13 @@ async function copyToClipboard(text) {
 function flashCopyResult(button, ok) {
   const original = button.dataset.label || button.textContent;
   button.dataset.label = original;
-  button.classList.toggle('copied', ok);
-  button.classList.toggle('copy-failed', !ok);
-  button.textContent = ok ? 'Copied' : 'Copy failed';
+  button.classList.toggle("copied", ok);
+  button.classList.toggle("copy-failed", !ok);
+  button.textContent = ok ? "Copied" : "Copy failed";
   clearTimeout(button._copyTimer);
   button._copyTimer = setTimeout(() => {
     button.textContent = button.dataset.label;
-    button.classList.remove('copied', 'copy-failed');
+    button.classList.remove("copied", "copy-failed");
   }, 1200);
 }
 
@@ -2752,25 +3134,25 @@ function flashCopyResult(button, ok) {
 // prompts pane alone would ship it inert. Delegated at all because the sheet is
 // re-rendered per NPC, and re-binding per render would stack duplicate
 // listeners on the same buttons.
-el.overlay.addEventListener('click', async (e) => {
-  const button = e.target.closest('.copy-btn');
+el.overlay.addEventListener("click", async (e) => {
+  const button = e.target.closest(".copy-btn");
   if (!button) return;
 
   let text;
-  if (button.hasAttribute('data-copy-both')) {
+  if (button.hasAttribute("data-copy-both")) {
     // Labelled, because two unlabelled prompts pasted together are not
     // distinguishable once they are in the buffer.
     const parts = [];
     if (el.detailPortraitPrompt.textContent) {
-      parts.push('Portrait prompt' + NL + el.detailPortraitPrompt.textContent);
+      parts.push("Portrait prompt" + NL + el.detailPortraitPrompt.textContent);
     }
     if (el.detailTokenPrompt.textContent) {
-      parts.push('Token prompt' + NL + el.detailTokenPrompt.textContent);
+      parts.push("Token prompt" + NL + el.detailTokenPrompt.textContent);
     }
     text = parts.join(NL + NL);
   } else {
     const target = document.getElementById(button.dataset.copyTarget);
-    text = target ? target.textContent : '';
+    text = target ? target.textContent : "";
   }
 
   if (!text) {
@@ -2780,12 +3162,12 @@ el.overlay.addEventListener('click', async (e) => {
   flashCopyResult(button, await copyToClipboard(text));
 });
 
-el.detailClose.addEventListener('click', () => {
+el.detailClose.addEventListener("click", () => {
   el.overlay.hidden = true;
   el.imageZoom.hidden = true;
   state.detailItemId = null;
 });
-el.overlay.addEventListener('click', (e) => {
+el.overlay.addEventListener("click", (e) => {
   if (e.target === el.overlay) {
     el.overlay.hidden = true;
     el.imageZoom.hidden = true;
@@ -2797,7 +3179,7 @@ el.overlay.addEventListener('click', (e) => {
 function isTypingTarget(target) {
   if (!target) return false;
   if (target.isContentEditable) return true;
-  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
 /**
@@ -2836,9 +3218,16 @@ function cancelRerollConfirm() {
  */
 function topmostOverlay() {
   if (!elSettings.overlay.hidden) return { close: () => closeSettings() };
-  if (!el.imageZoom.hidden) return { close: () => { el.imageZoom.hidden = true; } };
-  if (!elDeleteConfirm.overlay.hidden) return { close: () => cancelDeleteConfirm() };
-  if (!elRerollConfirm.overlay.hidden) return { close: () => cancelRerollConfirm() };
+  if (!el.imageZoom.hidden)
+    return {
+      close: () => {
+        el.imageZoom.hidden = true;
+      },
+    };
+  if (!elDeleteConfirm.overlay.hidden)
+    return { close: () => cancelDeleteConfirm() };
+  if (!elRerollConfirm.overlay.hidden)
+    return { close: () => cancelRerollConfirm() };
   if (!elTraits.overlay.hidden) return { close: () => closeTraitDetail() };
   if (!elTraits.imageOverlay.hidden) return { close: () => closeTraitImage() };
   if (!elTables.preview.hidden) return { close: () => cancelPresetPreview() };
@@ -2847,7 +3236,9 @@ function topmostOverlay() {
 
 /** Move `offset` places through the grid's current order and open that NPC. */
 function stepDetail(offset) {
-  const index = state.visibleItems.findIndex((i) => i.id === state.detailItemId);
+  const index = state.visibleItems.findIndex(
+    (i) => i.id === state.detailItemId,
+  );
   if (index === -1) return;
   // Clamped, not wrapping: arrowing off the end of a filtered list and
   // landing back at the start reads as a bug rather than a convenience.
@@ -2855,15 +3246,15 @@ function stepDetail(offset) {
   if (next) openDetail(next);
 }
 
-document.addEventListener('keydown', (e) => {
+document.addEventListener("keydown", (e) => {
   if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
   // Esc must work even while focus is in a field (e.g. the regenerate-seed
   // input) - the hint line advertises "Esc close" unconditionally. Arrow
   // keys stay blocked while typing, since those belong to the NPC sheet's
   // navigation, not to whatever field is focused.
-  if (e.key !== 'Escape' && isTypingTarget(document.activeElement)) return;
+  if (e.key !== "Escape" && isTypingTarget(document.activeElement)) return;
 
-  if (e.key === 'Escape') {
+  if (e.key === "Escape") {
     const nested = topmostOverlay();
     if (nested) {
       nested.close();
@@ -2882,83 +3273,90 @@ document.addEventListener('keydown', (e) => {
   // is stacked on top of it - arrowing the list out from under an open
   // delete confirmation would be actively dangerous.
   if (el.overlay.hidden || topmostOverlay()) return;
-  if (e.key === 'ArrowLeft') {
+  if (e.key === "ArrowLeft") {
     stepDetail(-1);
     e.preventDefault();
-  } else if (e.key === 'ArrowRight') {
+  } else if (e.key === "ArrowRight") {
     stepDetail(1);
     e.preventDefault();
   }
 });
 
 function attachImageZoom(imgEl) {
-  imgEl.addEventListener('mouseenter', () => {
+  imgEl.addEventListener("mouseenter", () => {
     if (!imgEl.src) return;
     el.imageZoomImg.src = imgEl.src;
     el.imageZoomImg.alt = imgEl.alt;
     el.imageZoom.hidden = false;
   });
-  imgEl.addEventListener('mouseleave', () => { el.imageZoom.hidden = true; });
+  imgEl.addEventListener("mouseleave", () => {
+    el.imageZoom.hidden = true;
+  });
 }
 attachImageZoom(el.detailPortrait);
 attachImageZoom(el.detailToken);
 
-el.selectAll.addEventListener('change', () => {
-  const notImported = state.visibleItems.filter((i) => !i.imported && i.importable);
-  if (el.selectAll.checked) notImported.forEach((i) => state.selected.add(i.id));
+el.selectAll.addEventListener("change", () => {
+  const notImported = state.visibleItems.filter(
+    (i) => !i.imported && i.importable,
+  );
+  if (el.selectAll.checked)
+    notImported.forEach((i) => state.selected.add(i.id));
   else notImported.forEach((i) => state.selected.delete(i.id));
   render();
 });
 
-el.filterSearch.addEventListener('input', () => {
+el.filterSearch.addEventListener("input", () => {
   state.search = el.filterSearch.value;
   render();
 });
 
-el.sortSelect.addEventListener('change', () => {
+el.sortSelect.addEventListener("change", () => {
   state.sort = el.sortSelect.value;
   render();
 });
 
-el.addFilterBtn.addEventListener('click', () => {
-  state.filters.push({ key: '', value: '' });
+el.addFilterBtn.addEventListener("click", () => {
+  state.filters.push({ key: "", value: "" });
   renderFilterRows();
   render();
 });
 
-el.importBtn.addEventListener('click', async () => {
+el.importBtn.addEventListener("click", async () => {
   const ids = [...state.selected];
   if (!ids.length || state.category === BACKGROUND_KIND) return;
   el.importBtn.disabled = true;
-  const { results } = await api('/api/import', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const { results } = await api("/api/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids }),
   });
   const skipped = results.filter((r) => !r.queued);
   el.status.textContent = skipped.length
-    ? `Queued ${results.length - skipped.length}, skipped ${skipped.length} (${skipped.map((s) => s.reason).join('; ')})`
+    ? `Queued ${results.length - skipped.length}, skipped ${skipped.length} (${skipped.map((s) => s.reason).join("; ")})`
     : `Queued ${results.length} item(s) — waiting for Foundry to pick them up…`;
   state.selected.clear();
   await refreshItems();
   startPolling();
 });
 
-el.deleteBtn.addEventListener('click', async () => {
+el.deleteBtn.addEventListener("click", async () => {
   const ids = [...state.selected];
   if (!ids.length) return;
-  const names = ids.map((id) => state.items.find((i) => i.id === id)?.name || id);
+  const names = ids.map(
+    (id) => state.items.find((i) => i.id === id)?.name || id,
+  );
   if (!(await confirmDelete(names))) return;
 
   el.deleteBtn.disabled = true;
-  const { results } = await api('/api/delete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const { results } = await api("/api/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids }),
   });
   const failed = results.filter((r) => !r.deleted);
   el.status.textContent = failed.length
-    ? `Deleted ${results.length - failed.length}, failed ${failed.length} (${failed.map((f) => f.reason).join('; ')})`
+    ? `Deleted ${results.length - failed.length}, failed ${failed.length} (${failed.map((f) => f.reason).join("; ")})`
     : `Deleted ${results.length} item(s).`;
   // Forget that these were ever looked at, for the ones that really went. The
   // server prunes its own seen store inside deleteItem for a reason: an id is
@@ -2980,14 +3378,14 @@ el.deleteBtn.addEventListener('click', async () => {
 // it rather than growing a second copy of that panel here. loadBackgrounds()
 // is awaited because switchTab only starts it, and openBackgroundAnimate
 // needs the gallery list the panel reads the still out of.
-el.detailOpenBackground.addEventListener('click', async () => {
+el.detailOpenBackground.addEventListener("click", async () => {
   const item = state.items.find((i) => i.id === state.detailItemId);
   const rel = item?.background?.rel;
   if (!rel) return;
   el.overlay.hidden = true;
   el.imageZoom.hidden = true;
   state.detailItemId = null;
-  switchTab('backgrounds');
+  switchTab("backgrounds");
   try {
     await loadBackgrounds();
     openBackgroundAnimate(rel);
@@ -3000,7 +3398,7 @@ el.detailOpenBackground.addEventListener('click', async () => {
 // "generated" line, which a background leaves empty, and repaints the sheet
 // from the refreshed row so its "In SillyTavern as" line comes from the
 // folder rather than from here.
-el.detailImportSillyTavern.addEventListener('click', () => {
+el.detailImportSillyTavern.addEventListener("click", () => {
   const item = state.items.find((i) => i.id === state.detailItemId);
   const rel = item?.background?.rel;
   if (!rel) return;
@@ -3027,9 +3425,9 @@ el.detailImportSillyTavern.addEventListener('click', () => {
  * el.detailGenerated, which the SillyTavern import above already borrows for
  * a background and renderDetailHeader repaints on every poll tick. */
 function setDetailPresetStatus(text, isError) {
-  el.detailPresetStatus.textContent = text || '';
+  el.detailPresetStatus.textContent = text || "";
   el.detailPresetStatus.hidden = !text;
-  el.detailPresetStatus.classList.toggle('is-error', !!isError);
+  el.detailPresetStatus.classList.toggle("is-error", !!isError);
 }
 
 /**
@@ -3039,10 +3437,12 @@ function setDetailPresetStatus(text, isError) {
  * to a dropdown it is not in.
  */
 function presetSavedMessage(name, overrideCount, kind) {
-  const tab = kind === 'spaceship' ? 'Create Spaceship' : 'Create NPC';
+  const tab = kind === "spaceship" ? "Create Spaceship" : "Create NPC";
   const n = Number(overrideCount) || 0;
-  return `Saved “${name}” with ${n} override${n === 1 ? '' : 's'}. `
-    + `Load it from the ${tab} tab's Presets.`;
+  return (
+    `Saved “${name}” with ${n} override${n === 1 ? "" : "s"}. ` +
+    `Load it from the ${tab} tab's Presets.`
+  );
 }
 
 // "Save as Create preset…": this entry's seed, pronouns and rolled traits as
@@ -3051,25 +3451,27 @@ function presetSavedMessage(name, overrideCount, kind) {
 // manifest's raw bullets, which this page is never sent. The prompt defaults
 // to the NPC's name only as a label - the preset itself carries no name, so
 // loading "Vela Ostrom" rolls someone like her, not a second Vela.
-el.detailSavePreset.addEventListener('click', async () => {
+el.detailSavePreset.addEventListener("click", async () => {
   const item = state.items.find((i) => i.id === state.detailItemId);
   if (!item || item.kind === BACKGROUND_KIND) return;
-  const name = window.prompt('Name this preset', item.name || '');
+  const name = window.prompt("Name this preset", item.name || "");
   if (name === null) return;
   el.detailSavePreset.disabled = true;
-  setDetailPresetStatus('Saving…');
+  setDetailPresetStatus("Saving…");
   try {
-    const { slug, overrideCount } = await api('/api/create-presets/from-item', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const { slug, overrideCount } = await api("/api/create-presets/from-item", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: item.id, name }),
     });
     // The tab's dropdown is filled once at load, so refresh it now - with the
     // new preset selected - rather than leaving it to appear on the next
     // page load. A failure here is reported on that tab's own status line.
-    if (item.kind === 'spaceship') await refreshShipCreatePresets(slug);
+    if (item.kind === "spaceship") await refreshShipCreatePresets(slug);
     else await refreshCreatePresets(slug);
-    setDetailPresetStatus(presetSavedMessage(name.trim(), overrideCount, item.kind));
+    setDetailPresetStatus(
+      presetSavedMessage(name.trim(), overrideCount, item.kind),
+    );
   } catch (err) {
     setDetailPresetStatus(`Couldn't save the preset: ${err.message}`, true);
   } finally {
@@ -3077,16 +3479,16 @@ el.detailSavePreset.addEventListener('click', async () => {
   }
 });
 
-el.detailDeleteBtn.addEventListener('click', async () => {
+el.detailDeleteBtn.addEventListener("click", async () => {
   const id = state.detailItemId;
   if (!id) return;
   const item = state.items.find((i) => i.id === id);
   const name = item?.name || id;
   if (!(await confirmDelete([name]))) return;
 
-  const { results } = await api('/api/delete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const { results } = await api("/api/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids: [id] }),
   });
   const result = results[0];
@@ -3103,7 +3505,7 @@ el.detailDeleteBtn.addEventListener('click', async () => {
     el.status.textContent = `Deleted "${name}".`;
     await refreshItems();
   } else {
-    el.status.textContent = `Couldn't delete "${name}": ${result?.reason || 'unknown error'}`;
+    el.status.textContent = `Couldn't delete "${name}": ${result?.reason || "unknown error"}`;
   }
 });
 
@@ -3121,7 +3523,12 @@ function startPolling() {
   state.pollTimer = setInterval(async () => {
     ticks += 1;
     const wantedAtEntry = state.pollWanted;
-    if (state.items.some((i) => i.jobStatus === 'queued' || i.jobStatus === 'sent')) sawImportPending = true;
+    if (
+      state.items.some(
+        (i) => i.jobStatus === "queued" || i.jobStatus === "sent",
+      )
+    )
+      sawImportPending = true;
 
     await refreshItems();
     if (state.detailItemId) {
@@ -3138,11 +3545,21 @@ function startPolling() {
       }
     }
 
-    const building3d = state.items.some((i) => i.model3dStatus === 'running');
-    const animating = state.items.some((i) => i.animationStatus === 'running');
-    const expressionsRunning = state.items.some((i) => i.expressionStatus === 'running');
-    const stillPending = building3d || animating || expressionsRunning || state.items.some((i) =>
-      i.jobStatus === 'queued' || i.jobStatus === 'sent' || i.regenStatus === 'running');
+    const building3d = state.items.some((i) => i.model3dStatus === "running");
+    const animating = state.items.some((i) => i.animationStatus === "running");
+    const expressionsRunning = state.items.some(
+      (i) => i.expressionStatus === "running",
+    );
+    const stillPending =
+      building3d ||
+      animating ||
+      expressionsRunning ||
+      state.items.some(
+        (i) =>
+          i.jobStatus === "queued" ||
+          i.jobStatus === "sent" ||
+          i.regenStatus === "running",
+      );
     // An empty list is not "nothing is pending". generate-npc.py rewrites the
     // whole manifest at the very end of a regen and the server answers [] for a
     // half-written file, so the one tick most likely to read empty is the one
@@ -3155,18 +3572,22 @@ function startPolling() {
     // old 20 minutes cut off runs that were still perfectly fine. A 3D build -
     // a render, two reconstructions and a headless Blender assembly - is in the
     // same range, so both get one number rather than two.
-    const cap = 2700;   // 90 minutes at 2s/tick
-    if (((!stillPending && !listUnreadable) || ticks > cap)
-        // Not over a job started while this tick was awaiting: that job is not
-        // in the list above, so `stillPending` says nothing about it.
-        && state.pollWanted === wantedAtEntry) {
+    const cap = 2700; // 90 minutes at 2s/tick
+    if (
+      ((!stillPending && !listUnreadable) || ticks > cap) &&
+      // Not over a job started while this tick was awaiting: that job is not
+      // in the list above, so `stillPending` says nothing about it.
+      state.pollWanted === wantedAtEntry
+    ) {
       clearInterval(state.pollTimer);
       state.pollTimer = null;
-      if (!stillPending && sawImportPending) el.status.textContent = 'Import complete.';
+      if (!stillPending && sawImportPending)
+        el.status.textContent = "Import complete.";
       // Never stop silently on a job that is still going: the card keeps its
       // "Regenerating…" pill and nothing else on the page would say why.
       if (stillPending) {
-        el.status.textContent = 'Still working after 90 minutes — reload the page to check on it.';
+        el.status.textContent =
+          "Still working after 90 minutes — reload the page to check on it.";
       }
     }
   }, 2000);
@@ -3176,10 +3597,10 @@ function startPolling() {
 /* Tabs                                                                  */
 /* ==================================================================== */
 
-const tabState = { current: 'import' };
+const tabState = { current: "import" };
 
-for (const btn of document.querySelectorAll('#tabs button')) {
-  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+for (const btn of document.querySelectorAll("#tabs button")) {
+  btn.addEventListener("click", () => switchTab(btn.dataset.tab));
 }
 
 function switchTab(tab) {
@@ -3189,42 +3610,51 @@ function switchTab(tab) {
   // "open" (not hidden) but invisible - silently eating the first Esc
   // press and blocking arrow-key navigation on whatever tab comes next.
   // Dismiss it explicitly on the way out.
-  if (tabState.current === 'tables' && !elTables.preview.hidden) cancelPresetPreview();
+  if (tabState.current === "tables" && !elTables.preview.hidden)
+    cancelPresetPreview();
   tabState.current = tab;
-  for (const btn of document.querySelectorAll('#tabs button')) {
-    btn.classList.toggle('active', btn.dataset.tab === tab);
+  for (const btn of document.querySelectorAll("#tabs button")) {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
   }
-  for (const panel of document.querySelectorAll('.tab-panel')) {
+  for (const panel of document.querySelectorAll(".tab-panel")) {
     panel.hidden = panel.id !== `tab-${tab}`;
   }
-  if (tab === 'create' && !createState.tablesLoaded) loadOverrideTables();
+  if (tab === "create" && !createState.tablesLoaded) loadOverrideTables();
   // ensureShipCreateForm() calls ensureVocab('spaceship') itself first - the
   // one part of this the detail sheet also needs - before loading the form's
   // own trait options and ship catalogue.
-  if (tab === 'shipcreate') {
+  if (tab === "shipcreate") {
     ensureShipCreateForm().catch((err) => {
       elShipCreate.status.textContent = `Failed to load: ${err.message}`;
     });
-    refreshShipCreatePresets().catch(() => { /* the list stays empty */ });
+    refreshShipCreatePresets().catch(() => {
+      /* the list stays empty */
+    });
   }
   // Re-listed on every visit rather than once, the way the Tables tab's own
   // presets are: a preset saved in another browser tab should be there when
   // this one comes back to the form, not after a reload.
-  if (tab === 'create') refreshCreatePresets().catch(() => { /* the list stays empty */ });
-  if (tab === 'traits') refreshTraitCandidates().catch((err) => {
-    elTraits.status.textContent = `Failed to load: ${err.message}`;
-  });
-  if (tab === 'backgrounds') {
+  if (tab === "create")
+    refreshCreatePresets().catch(() => {
+      /* the list stays empty */
+    });
+  if (tab === "traits")
+    refreshTraitCandidates().catch((err) => {
+      elTraits.status.textContent = `Failed to load: ${err.message}`;
+    });
+  if (tab === "backgrounds") {
     loadBackgrounds().catch((err) => {
       elBackgrounds.renderStatus.textContent = `Failed to load: ${err.message}`;
     });
   }
-  if (tab === 'tables') {
+  if (tab === "tables") {
     loadTables().catch((err) => {
       elTables.empty.hidden = false;
       elTables.empty.textContent = `Failed to load: ${err.message}`;
     });
-    loadPresets().catch(() => { /* the preset list just stays empty on failure */ });
+    loadPresets().catch(() => {
+      /* the preset list just stays empty on failure */
+    });
   }
 }
 
@@ -3233,10 +3663,10 @@ function switchTab(tab) {
 /* ==================================================================== */
 
 const elBanner = {
-  root: document.getElementById('batch-banner'),
-  text: document.getElementById('batch-banner-text'),
-  show: document.getElementById('batch-banner-show'),
-  dismiss: document.getElementById('batch-banner-dismiss'),
+  root: document.getElementById("batch-banner"),
+  text: document.getElementById("batch-banner-text"),
+  show: document.getElementById("batch-banner-show"),
+  dismiss: document.getElementById("batch-banner-dismiss"),
 };
 
 /**
@@ -3254,7 +3684,7 @@ const elBanner = {
  * the run belongs to, so Show can select it even once the banner's own ×
  * has long since cleared `announcedIds`.
  */
-const bannerState = { announcedIds: [], announcedKind: 'npc' };
+const bannerState = { announcedIds: [], announcedKind: "npc" };
 
 /**
  * Announce a finished generate run wherever the user happens to be standing.
@@ -3277,7 +3707,7 @@ const bannerState = { announcedIds: [], announcedKind: 'npc' };
  * that field existed produced.
  */
 function announceBatchComplete(count, ids, kind) {
-  const jobKind = kind ?? 'npc';
+  const jobKind = kind ?? "npc";
   // Forget that this page marked these seen, before anything reloads. An id
   // outlives the card it was clicked on whenever the same name and seed roll a
   // second folder under it, which is why the server un-sees a run's own output
@@ -3294,7 +3724,8 @@ function announceBatchComplete(count, ids, kind) {
   // until the user reloads by hand. Still gated on the Import tab showing this
   // run's own kind, since refreshItems() reloads the selected category and
   // from anywhere else would do nothing useful.
-  if (tabState.current === 'import' && state.category === jobKind) refreshItems();
+  if (tabState.current === "import" && state.category === jobKind)
+    refreshItems();
   // The banner is the part that has to stay quiet on a zero: an exit code of 0
   // is not a promise that anything landed, and "0 new NPCs finished generating"
   // is worse than silence. The guard lives in the function rather than at the
@@ -3308,10 +3739,11 @@ function announceBatchComplete(count, ids, kind) {
   // CATEGORY_LABELS-driven, the way regenSubject() names a regen's own
   // subject - a spaceship batch has to say "Spaceships", not "NPCs" wearing
   // whatever count it happened to produce.
-  const label = CATEGORY_LABELS[jobKind] || 'items';
-  elBanner.text.textContent = count === 1
-    ? `1 new ${label.replace(/s$/, '')} finished generating.`
-    : `${count} new ${label} finished generating.`;
+  const label = CATEGORY_LABELS[jobKind] || "items";
+  elBanner.text.textContent =
+    count === 1
+      ? `1 new ${label.replace(/s$/, "")} finished generating.`
+      : `${count} new ${label} finished generating.`;
   elBanner.show.textContent = `Show new ${label}`;
   // Visible from all four tabs, since it lives outside every .tab-panel - and
   // it stays up even after the refresh above, as the "that run is over" signal.
@@ -3322,7 +3754,7 @@ function dismissBatchBanner() {
   elBanner.root.hidden = true;
 }
 
-elBanner.dismiss.addEventListener('click', () => {
+elBanner.dismiss.addEventListener("click", () => {
   // Read before the banner goes, and emptied as it goes, so that whatever the
   // × clears is the run the text on screen was talking about and can never be
   // re-cleared against a later one.
@@ -3338,9 +3770,9 @@ elBanner.dismiss.addEventListener('click', () => {
   markBatchSeen(announced);
 });
 
-elBanner.show.addEventListener('click', async () => {
+elBanner.show.addEventListener("click", async () => {
   dismissBatchBanner();
-  switchTab('import');
+  switchTab("import");
   // loadCategories() first, not selectCategory(bannerState.announcedKind)
   // alone: on the very first run of a kind there was no category button for
   // it yet, so selecting it without reloading would leave the category row
@@ -3360,10 +3792,10 @@ elBanner.show.addEventListener('click', async () => {
 /* ==================================================================== */
 
 const elRegenBanner = {
-  root: document.getElementById('regen-banner'),
-  text: document.getElementById('regen-banner-text'),
-  show: document.getElementById('regen-banner-show'),
-  dismiss: document.getElementById('regen-banner-dismiss'),
+  root: document.getElementById("regen-banner"),
+  text: document.getElementById("regen-banner-text"),
+  show: document.getElementById("regen-banner-show"),
+  dismiss: document.getElementById("regen-banner-dismiss"),
 };
 
 /**
@@ -3412,9 +3844,9 @@ function detectRegenFinished(items) {
     // The gate. `previous` is undefined for every item on the first list load
     // of a page, which is exactly right: nothing that was already over when
     // this page opened has any business interrupting anyone.
-    if (previous !== 'running') continue;
-    if (current === 'done') finished.push(item);
-    else if (current === 'error') failed.push(item);
+    if (previous !== "running") continue;
+    if (current === "done") finished.push(item);
+    else if (current === "error") failed.push(item);
   }
   if (finished.length || failed.length) announceRegenComplete(finished, failed);
 }
@@ -3432,7 +3864,7 @@ function detectRegenFinished(items) {
  * or witnessed the job".
  */
 function noteRegenStarted(id) {
-  regenSeen.set(id, 'running');
+  regenSeen.set(id, "running");
 }
 
 /**
@@ -3446,7 +3878,8 @@ function noteRegenStarted(id) {
 function regenSubject(items) {
   if (items.length === 1) return `${items[0].name}'s art`;
   const kinds = new Set(items.map((i) => i.kind));
-  const label = kinds.size === 1 ? (CATEGORY_LABELS[[...kinds][0]] || 'items') : 'items';
+  const label =
+    kinds.size === 1 ? CATEGORY_LABELS[[...kinds][0]] || "items" : "items";
   return `${items.length} ${label}`;
 }
 
@@ -3456,16 +3889,22 @@ function announceRegenComplete(finished, failed) {
   // two regens running at once - but saying only one of them would drop a fact
   // the page has no other way of raising once the poller stops.
   const parts = [];
-  if (finished.length) parts.push(`${regenSubject(finished)} finished regenerating`);
+  if (finished.length)
+    parts.push(`${regenSubject(finished)} finished regenerating`);
   if (failed.length) parts.push(`${regenSubject(failed)} failed to regenerate`);
-  elRegenBanner.text.textContent = `${parts.join('; ')}.`;
-  elRegenBanner.root.classList.toggle('error', failed.length > 0);
+  elRegenBanner.text.textContent = `${parts.join("; ")}.`;
+  elRegenBanner.root.classList.toggle("error", failed.length > 0);
 
   // Failures first in the list too, so the Show button lands on the one with
   // an error message to read rather than on the one that went fine.
   const announced = [...failed, ...finished];
-  regenBannerState.announced = announced.map((i) => ({ id: i.id, kind: i.kind, name: i.name }));
-  elRegenBanner.show.textContent = announced.length === 1 ? 'Show NPC' : 'Show the first';
+  regenBannerState.announced = announced.map((i) => ({
+    id: i.id,
+    kind: i.kind,
+    name: i.name,
+  }));
+  elRegenBanner.show.textContent =
+    announced.length === 1 ? "Show NPC" : "Show the first";
   elRegenBanner.root.hidden = false;
 }
 
@@ -3473,7 +3912,7 @@ function dismissRegenBanner() {
   elRegenBanner.root.hidden = true;
 }
 
-elRegenBanner.dismiss.addEventListener('click', () => {
+elRegenBanner.dismiss.addEventListener("click", () => {
   // Hides it, and does nothing else. Emphatically not the batch banner's ×,
   // which doubles as a bulk "mark this run seen": a regenerated NPC is one the
   // user already knew about and carries no New tag of its own, so clearing tags
@@ -3483,12 +3922,12 @@ elRegenBanner.dismiss.addEventListener('click', () => {
   dismissRegenBanner();
 });
 
-elRegenBanner.show.addEventListener('click', async () => {
+elRegenBanner.show.addEventListener("click", async () => {
   const target = regenBannerState.announced[0];
   dismissRegenBanner();
   regenBannerState.announced = [];
   if (!target) return;
-  switchTab('import');
+  switchTab("import");
   // By the item's own kind, not a hardcoded 'npc' - Regenerate is offered on
   // anything with a seed, and sending someone to the NPC list to find a mech
   // would be worse than not offering the button. loadCategories() first for the
@@ -3503,7 +3942,8 @@ elRegenBanner.show.addEventListener('click', async () => {
     // opens the first; the sheet's arrow keys walk to the rest.
     const item = state.items.find((i) => i.id === target.id);
     if (item) openDetail(item);
-    else el.status.textContent = `"${target.name}" is no longer in the library.`;
+    else
+      el.status.textContent = `"${target.name}" is no longer in the library.`;
   } catch (err) {
     el.status.textContent = `Couldn't open "${target.name}": ${err.message}`;
   }
@@ -3525,7 +3965,7 @@ const createState = {
   // rerollNeedsConfirm() treats as "assume the worst" rather than as "no
   // cascades exist".
   traitDependents: {},
-  traitOptions: {},   // { [baseTableName]: Array<{ value, label, heading, isVariant, enabled }> }
+  traitOptions: {}, // { [baseTableName]: Array<{ value, label, heading, isVariant, enabled }> }
   tablesLoaded: false,
   overrides: [], // { table, value, custom, search }
   // The saved Create-form presets, as /api/create-presets lists them. Kept so
@@ -3565,12 +4005,12 @@ const shipCreateState = {
   // vocabulary the detail sheet reads and the Create form's own state -
   // rather than a second object, which would leave two places to look for
   // "everything the ship side of this page knows".
-  traitOptions: {},  // /api/trait-options?kind=spaceship - shaped like createState.traitOptions
+  traitOptions: {}, // /api/trait-options?kind=spaceship - shaped like createState.traitOptions
   // /api/ship-catalogue's {types, sizes, themes}, or null before it loads or
   // if the route fails - see sizeBlockReason, which degrades to no gating.
   catalogue: null,
   formLoaded: false, // whether the form's own trait options have been fetched
-  pinned: { 'Ship type': '', Size: '', Theme: '' },
+  pinned: { "Ship type": "", Size: "", Theme: "" },
   overrides: [], // further overrides, same shape as createState.overrides
   presets: [],
   pollTimer: null,
@@ -3608,8 +4048,9 @@ async function ensureVocab(kind) {
   const vocab = vocabFor(kind);
   if (vocab === createState || vocab.tablesLoaded) return;
   try {
-    const { tables, rerollable, rawRerollable, dependents } =
-      await api(`/api/npc-tables?kind=${encodeURIComponent(kind)}`);
+    const { tables, rerollable, rawRerollable, dependents } = await api(
+      `/api/npc-tables?kind=${encodeURIComponent(kind)}`,
+    );
     vocab.overrideTables = tables;
     vocab.rerollableTraits = rerollable || [];
     vocab.rawRerollableTraits = rawRerollable || [];
@@ -3622,33 +4063,34 @@ async function ensureVocab(kind) {
 }
 
 const elCreate = {
-  count: document.getElementById('create-count'),
-  seed: document.getElementById('create-seed'),
-  name: document.getElementById('create-name'),
-  pronouns: document.getElementById('create-pronouns'),
-  server: document.getElementById('create-server'),
-  portrait: document.getElementById('create-portrait'),
-  token: document.getElementById('create-token'),
-  keepRaw: document.getElementById('create-keep-raw'),
-  unarmed: document.getElementById('create-unarmed'),
-  overrideRows: document.getElementById('override-rows'),
-  addOverrideBtn: document.getElementById('add-override'),
-  presetSelect: document.getElementById('create-preset-select'),
-  presetLoad: document.getElementById('create-preset-load'),
-  presetSave: document.getElementById('create-preset-save'),
-  presetDownload: document.getElementById('create-preset-download'),
-  presetDelete: document.getElementById('create-preset-delete'),
-  presetImport: document.getElementById('create-preset-import'),
-  presetStatus: document.getElementById('create-preset-status'),
-  dryRunBtn: document.getElementById('create-dry-run-btn'),
-  generateBtn: document.getElementById('create-generate-btn'),
-  status: document.getElementById('create-status'),
-  log: document.getElementById('create-log'),
+  count: document.getElementById("create-count"),
+  seed: document.getElementById("create-seed"),
+  name: document.getElementById("create-name"),
+  pronouns: document.getElementById("create-pronouns"),
+  server: document.getElementById("create-server"),
+  portrait: document.getElementById("create-portrait"),
+  token: document.getElementById("create-token"),
+  keepRaw: document.getElementById("create-keep-raw"),
+  unarmed: document.getElementById("create-unarmed"),
+  overrideRows: document.getElementById("override-rows"),
+  addOverrideBtn: document.getElementById("add-override"),
+  presetSelect: document.getElementById("create-preset-select"),
+  presetLoad: document.getElementById("create-preset-load"),
+  presetSave: document.getElementById("create-preset-save"),
+  presetDownload: document.getElementById("create-preset-download"),
+  presetDelete: document.getElementById("create-preset-delete"),
+  presetImport: document.getElementById("create-preset-import"),
+  presetStatus: document.getElementById("create-preset-status"),
+  dryRunBtn: document.getElementById("create-dry-run-btn"),
+  generateBtn: document.getElementById("create-generate-btn"),
+  status: document.getElementById("create-status"),
+  log: document.getElementById("create-log"),
 };
 
 async function loadOverrideTables() {
   try {
-    const { tables, rerollable, rawRerollable, dependents } = await api('/api/npc-tables');
+    const { tables, rerollable, rawRerollable, dependents } =
+      await api("/api/npc-tables");
     createState.overrideTables = tables;
     createState.rerollableTraits = rerollable || [];
     createState.rawRerollableTraits = rawRerollable || [];
@@ -3672,18 +4114,18 @@ async function loadOverrideTables() {
     // Own try/catch for the same reason as pronouns below: the picker is an
     // enhancement over the free-text input, which still works without it.
     try {
-      const { options } = await api('/api/trait-options');
+      const { options } = await api("/api/trait-options");
       createState.traitOptions = options;
       renderOverrideRows();
     } catch {
-      createState.traitOptions = {};   // every row falls back to free text
+      createState.traitOptions = {}; // every row falls back to free text
     }
 
-    const { subjects } = await api('/api/pronouns');
-    const select = document.getElementById('create-pronouns');
+    const { subjects } = await api("/api/pronouns");
+    const select = document.getElementById("create-pronouns");
     select.innerHTML = '<option value="">Any</option>';
     for (const subject of subjects) {
-      const option = document.createElement('option');
+      const option = document.createElement("option");
       option.value = subject;
       option.textContent = subject;
       select.appendChild(option);
@@ -3694,7 +4136,7 @@ async function loadOverrideTables() {
 }
 
 /** Sentinel <option> value meaning "let me type something not in the table". */
-const CUSTOM_OVERRIDE = '__custom__';
+const CUSTOM_OVERRIDE = "__custom__";
 
 /**
  * Which of the two images a forced trait actually reaches, as the sentence
@@ -3723,14 +4165,18 @@ const CUSTOM_OVERRIDE = '__custom__';
  */
 function traitScopeNote(table) {
   const NOTES = {
-    Backdrop: 'Portrait images only — the token renders on flat white for background '
-      + 'removal, so it has no scene for a backdrop to sit in.',
-    Stance: 'Token images only — the token is the full-body figure and this is its pose. '
-      + 'The portrait is framed by its Backdrop instead.',
-    Weather: 'Portrait images only, and only when the rolled Backdrop is an outdoor one: '
-      + 'rain inside a cockpit is nonsense, so the generator drops it otherwise.',
-    'Glow placement': 'Portrait images only — the token has no scene to place a glow '
-      + 'against and keeps its own unplaced wording.',
+    Backdrop:
+      "Portrait images only — the token renders on flat white for background " +
+      "removal, so it has no scene for a backdrop to sit in.",
+    Stance:
+      "Token images only — the token is the full-body figure and this is its pose. " +
+      "The portrait is framed by its Backdrop instead.",
+    Weather:
+      "Portrait images only, and only when the rolled Backdrop is an outdoor one: " +
+      "rain inside a cockpit is nonsense, so the generator drops it otherwise.",
+    "Glow placement":
+      "Portrait images only — the token has no scene to place a glow " +
+      "against and keeps its own unplaced wording.",
   };
   return NOTES[table] || null;
 }
@@ -3768,9 +4214,11 @@ function pronounBlockReason(option, subject) {
   // which subjects each base table is superseded for and puts them here.
   const replaced = (option.replacedFor || []).includes(subject);
   if (replaced) {
-    return `Pronouns is “${subject}”, and “${option.heading} (${subject})” replaces `
-      + `“${option.heading}” outright for that pronoun rather than adding to it - so the `
-      + 'generator would never roll this value. Pick one from the variant instead.';
+    return (
+      `Pronouns is “${subject}”, and “${option.heading} (${subject})” replaces ` +
+      `“${option.heading}” outright for that pronoun rather than adding to it - so the ` +
+      "generator would never roll this value. Pick one from the variant instead."
+    );
   }
 
   const wants = option.variantSubject;
@@ -3778,11 +4226,15 @@ function pronounBlockReason(option, subject) {
   if (subject && subject === wants) return null;
   const from = option.heading ? `“${option.heading}”` : `the ${wants} table`;
   if (!subject) {
-    return `Set Pronouns to “${wants}” to use values from ${from}. With Pronouns `
-      + 'left on Any the generator rolls them, so this one may land on an NPC it contradicts.';
+    return (
+      `Set Pronouns to “${wants}” to use values from ${from}. With Pronouns ` +
+      "left on Any the generator rolls them, so this one may land on an NPC it contradicts."
+    );
   }
-  return `Needs Pronouns “${wants}”: this value comes from ${from}, and Pronouns `
-    + `is “${subject}”.`;
+  return (
+    `Needs Pronouns “${wants}”: this value comes from ${from}, and Pronouns ` +
+    `is “${subject}”.`
+  );
 }
 
 /**
@@ -3801,10 +4253,14 @@ function pronounBlockReason(option, subject) {
  * options array would corrupt createState.traitOptions for every other row.
  */
 function filterTraitOptions(options, query) {
-  const terms = String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const terms = String(query || "")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
   if (!terms.length) return (options || []).slice();
   return (options || []).filter((option) => {
-    const haystack = `${option.label || ''}\n${option.heading || ''}`.toLowerCase();
+    const haystack =
+      `${option.label || ""}\n${option.heading || ""}`.toLowerCase();
     return terms.every((term) => haystack.includes(term));
   });
 }
@@ -3826,31 +4282,34 @@ function filterTraitOptions(options, query) {
  */
 function populateOverrideValues(valueSelect, options, override, subject) {
   const filtered = filterTraitOptions(options, override.search);
-  valueSelect.innerHTML = '';
+  valueSelect.innerHTML = "";
 
-  const blank = document.createElement('option');
-  blank.value = '';
-  if (!options.length) blank.textContent = '— no values loaded —';
-  else if (!filtered.length) blank.textContent = '— nothing matches that search —';
-  else blank.textContent = '— pick a value —';
+  const blank = document.createElement("option");
+  blank.value = "";
+  if (!options.length) blank.textContent = "— no values loaded —";
+  else if (!filtered.length)
+    blank.textContent = "— nothing matches that search —";
+  else blank.textContent = "— pick a value —";
   valueSelect.appendChild(blank);
 
   // A search that hides the value already chosen would silently reset the
   // row: the <select> would fall back to the blank option and the next change
   // event would write that emptiness into the override. Keeping the current
   // choice pinned at the top means narrowing the list can never lose it.
-  const stillListed = filtered.some((option) => option.value === override.value);
+  const stillListed = filtered.some(
+    (option) => option.value === override.value,
+  );
   const pinned = Boolean(override.value) && !override.custom && !stillListed;
   if (pinned) {
-    const kept = document.createElement('optgroup');
+    const kept = document.createElement("optgroup");
     // The heading says why this one entry is sitting above the results when a
     // search is running. Unlabelled, it reads as a match - which is the exact
     // misreading that made a working search look broken from outside the
     // closed <select>.
-    kept.label = String(override.search || '').trim()
-      ? 'Currently selected (not a match for this search)'
-      : 'Currently selected';
-    const opt = document.createElement('option');
+    kept.label = String(override.search || "").trim()
+      ? "Currently selected (not a match for this search)"
+      : "Currently selected";
+    const opt = document.createElement("option");
     opt.value = override.value;
     const known = options.find((option) => option.value === override.value);
     opt.textContent = known ? known.label : override.value;
@@ -3865,12 +4324,14 @@ function populateOverrideValues(valueSelect, options, override, subject) {
   for (const option of filtered) {
     if (option.heading !== groupName) {
       groupName = option.heading;
-      group = document.createElement('optgroup');
-      group.label = option.variantSubject ? `${option.heading} (this pronoun set only)` : option.heading;
+      group = document.createElement("optgroup");
+      group.label = option.variantSubject
+        ? `${option.heading} (this pronoun set only)`
+        : option.heading;
       valueSelect.appendChild(group);
     }
     const reason = pronounBlockReason(option, subject);
-    const opt = document.createElement('option');
+    const opt = document.createElement("option");
     opt.value = option.value;
     // Two independent reasons a value can be marked, and they are not the
     // same thing: 'disabled' is a bullet the user switched off on the Tables
@@ -3886,23 +4347,28 @@ function populateOverrideValues(valueSelect, options, override, subject) {
         ? `${label}  [needs pronouns: ${option.variantSubject}]`
         : `${label}  [replaced for “${subject}”]`;
       opt.disabled = true;
-      opt.className = 'trait-option-unavailable';
+      opt.className = "trait-option-unavailable";
       opt.title = reason;
     } else if (!option.enabled) {
-      opt.className = 'trait-option-disabled';
+      opt.className = "trait-option-disabled";
     }
     opt.textContent = label;
     opt.selected = !override.custom && option.value === override.value;
     group.appendChild(opt);
   }
 
-  const customOpt = document.createElement('option');
+  const customOpt = document.createElement("option");
   customOpt.value = CUSTOM_OVERRIDE;
-  customOpt.textContent = 'Custom value…';
+  customOpt.textContent = "Custom value…";
   customOpt.selected = !!override.custom;
   valueSelect.appendChild(customOpt);
 
-  return { blocked, matched: filtered.length, total: (options || []).length, pinned };
+  return {
+    blocked,
+    matched: filtered.length,
+    total: (options || []).length,
+    pinned,
+  };
 }
 
 /**
@@ -3920,36 +4386,36 @@ function populateOverrideValues(valueSelect, options, override, subject) {
  * treat empty as "hide the element" rather than paint a blank line.
  */
 function overrideSearchNote(result, query) {
-  const text = String(query || '').trim();
-  if (!text || !result) return '';
+  const text = String(query || "").trim();
+  if (!text || !result) return "";
   const { matched = 0, total = 0, pinned = false } = result;
   if (!matched) return `No value in this table matches “${text}”.`;
-  const head = `${matched} of ${total} match${matched === 1 ? 'es' : ''} “${text}”.`;
+  const head = `${matched} of ${total} match${matched === 1 ? "es" : ""} “${text}”.`;
   // Only worth explaining when it is actually happening. Said unconditionally
   // it would be noise on every search that happens to keep its own selection.
   return pinned
-    ? `${head} The value you already picked is not one of them - it stays selected, `
-      + 'at the top of the list, until you choose another or press Clear.'
+    ? `${head} The value you already picked is not one of them - it stays selected, ` +
+        "at the top of the list, until you choose another or press Clear."
     : head;
 }
 
 function renderOverrideRows() {
-  elCreate.overrideRows.innerHTML = '';
+  elCreate.overrideRows.innerHTML = "";
   // Blank means Any, which the pronoun rule treats as "not she and not he" -
   // see pronounBlockReason for why a rolled pronoun set is not good enough to
   // unlock a bullet written for one.
-  const subject = (elCreate.pronouns && elCreate.pronouns.value) || '';
+  const subject = (elCreate.pronouns && elCreate.pronouns.value) || "";
 
   createState.overrides.forEach((override, index) => {
-    if (!override.table) override.table = createState.overrideTables[0] || '';
-    if (typeof override.search !== 'string') override.search = '';
+    if (!override.table) override.table = createState.overrideTables[0] || "";
+    if (typeof override.search !== "string") override.search = "";
 
-    const row = document.createElement('div');
-    row.className = 'filter-row';
+    const row = document.createElement("div");
+    row.className = "filter-row";
 
-    const tableSelect = document.createElement('select');
+    const tableSelect = document.createElement("select");
     for (const t of createState.overrideTables) {
-      const opt = document.createElement('option');
+      const opt = document.createElement("option");
       opt.value = t;
       opt.textContent = t;
       opt.selected = t === override.table;
@@ -3960,8 +4426,8 @@ function renderOverrideRows() {
     // Everything about the value - search, picker, readout, notes - stacks
     // inside one cell so the row stays three columns wide however tall the
     // readout grows.
-    const cell = document.createElement('div');
-    cell.className = 'override-cell';
+    const cell = document.createElement("div");
+    cell.className = "override-cell";
     row.appendChild(cell);
 
     // A picker over the table's own bullets, plus the free-text input that
@@ -3978,9 +4444,9 @@ function renderOverrideRows() {
     // through a list that long but the arrow keys and a one-character
     // type-ahead that matches from the start of the label - which for these is
     // always the same handful of opening phrases.
-    const search = document.createElement('input');
-    search.type = 'search';
-    search.className = 'override-search';
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "override-search";
     search.value = override.search;
     search.placeholder = options.length
       ? `Search ${override.table}… (${options.length} values)`
@@ -3992,33 +4458,34 @@ function renderOverrideRows() {
     // notes: it answers a keystroke, and feedback about typing that appears
     // four elements away from where the typing happens is feedback nobody
     // connects to the typing.
-    const searchNote = document.createElement('div');
-    searchNote.className = 'override-search-note';
+    const searchNote = document.createElement("div");
+    searchNote.className = "override-search-note";
     cell.appendChild(searchNote);
 
     // The value select and its Clear button share a line. Clear undoes the
     // choice without touching the row, which is the gap this fills: the only
     // other way back to "nothing picked" was to open a list of up to 319
     // bullets and find the blank option at the very top of it.
-    const valueRow = document.createElement('div');
-    valueRow.className = 'override-value-row';
+    const valueRow = document.createElement("div");
+    valueRow.className = "override-value-row";
     cell.appendChild(valueRow);
 
-    const valueSelect = document.createElement('select');
-    valueSelect.className = 'filter-value';
+    const valueSelect = document.createElement("select");
+    valueSelect.className = "filter-value";
     valueRow.appendChild(valueSelect);
 
-    const clear = document.createElement('button');
-    clear.type = 'button';
-    clear.className = 'override-clear';
-    clear.textContent = 'Clear';
-    clear.title = 'Clear the chosen value and keep this override row';
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "override-clear";
+    clear.textContent = "Clear";
+    clear.title = "Clear the chosen value and keep this override row";
     valueRow.appendChild(clear);
 
-    const valueInput = document.createElement('input');
-    valueInput.type = 'text';
-    valueInput.className = 'filter-value';
-    valueInput.placeholder = 'value, e.g. "a field medic" or "in her sixties || young"';
+    const valueInput = document.createElement("input");
+    valueInput.type = "text";
+    valueInput.className = "filter-value";
+    valueInput.placeholder =
+      'value, e.g. "a field medic" or "in her sixties || young"';
     valueInput.value = override.value;
     // With no options to pick from - a table the generator has that the
     // tables file does not, or a failed /api/trait-options - the row falls
@@ -4033,12 +4500,12 @@ function renderOverrideRows() {
     // Deliberately the RAW value rather than the prettied label: it is what
     // gets sent to --set-trait, flag segments and all, and the flags are the
     // part a reader most needs to check.
-    const full = document.createElement('div');
-    full.className = 'override-full';
+    const full = document.createElement("div");
+    full.className = "override-full";
     cell.appendChild(full);
 
-    const note = document.createElement('div');
-    note.className = 'override-note';
+    const note = document.createElement("div");
+    note.className = "override-note";
     cell.appendChild(note);
 
     // Both notes go in one element, since they are both "here is what this row
@@ -4054,10 +4521,12 @@ function renderOverrideRows() {
       if (scope) notes.push(scope);
       const blockedCount = (result && result.blocked) || 0;
       if (blockedCount) {
-        notes.push(`${blockedCount} value${blockedCount === 1 ? ' is' : 's are'} greyed out because `
-          + `Pronouns is ${subject ? `“${subject}”` : 'Any'}. Hover one for the reason.`);
+        notes.push(
+          `${blockedCount} value${blockedCount === 1 ? " is" : "s are"} greyed out because ` +
+            `Pronouns is ${subject ? `“${subject}”` : "Any"}. Hover one for the reason.`,
+        );
       }
-      note.textContent = notes.join(' ');
+      note.textContent = notes.join(" ");
       note.hidden = !notes.length;
       searchNote.textContent = overrideSearchNote(result, override.search);
       searchNote.hidden = !searchNote.textContent;
@@ -4073,26 +4542,28 @@ function renderOverrideRows() {
     // rather than updating the three or four pieces it happens to remember,
     // which is how the note and the list drifted apart in the first place.
     const refresh = () => {
-      showNotes(populateOverrideValues(valueSelect, options, override, subject));
+      showNotes(
+        populateOverrideValues(valueSelect, options, override, subject),
+      );
       showFull();
       clear.disabled = !override.value && !override.custom;
     };
     refresh();
 
-    search.addEventListener('input', () => {
+    search.addEventListener("input", () => {
       override.search = search.value;
       // Only the <select> and the notes are rebuilt - see populateOverrideValues
       // on why the whole row must not be.
       refresh();
     });
 
-    valueInput.addEventListener('input', () => {
+    valueInput.addEventListener("input", () => {
       override.value = valueInput.value;
       showFull();
       clear.disabled = !override.value && !override.custom;
     });
 
-    valueSelect.addEventListener('change', () => {
+    valueSelect.addEventListener("change", () => {
       if (valueSelect.value === CUSTOM_OVERRIDE) {
         override.custom = true;
         valueInput.hidden = false;
@@ -4112,10 +4583,10 @@ function renderOverrideRows() {
     // different one out of the same search - but the box is focused with its
     // text selected, so typing a new query replaces the old one in one go and
     // keeps the old one for anyone who only wanted the value gone.
-    clear.addEventListener('click', () => {
-      override.value = '';
+    clear.addEventListener("click", () => {
+      override.value = "";
       override.custom = false;
-      valueInput.value = '';
+      valueInput.value = "";
       valueInput.hidden = options.length > 0;
       refresh();
       if (!search.hidden) {
@@ -4128,20 +4599,20 @@ function renderOverrideRows() {
     // to be rebuilt - and the old value, which belonged to the old table, is
     // dropped rather than carried into a table it means nothing in. The
     // search text goes with it for the same reason.
-    tableSelect.addEventListener('change', () => {
+    tableSelect.addEventListener("change", () => {
       override.table = tableSelect.value;
-      override.value = '';
+      override.value = "";
       override.custom = false;
-      override.search = '';
+      override.search = "";
       renderOverrideRows();
     });
 
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'filter-remove';
-    remove.textContent = '×';
-    remove.title = 'Remove override';
-    remove.addEventListener('click', () => {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "filter-remove";
+    remove.textContent = "×";
+    remove.title = "Remove override";
+    remove.addEventListener("click", () => {
       createState.overrides.splice(index, 1);
       renderOverrideRows();
     });
@@ -4169,14 +4640,14 @@ function clearOverridesBlockedByPronouns(overrides, traitOptions, subject) {
     const chosen = options.find((option) => option.value === override.value);
     if (!chosen) continue;
     if (!pronounBlockReason(chosen, subject)) continue;
-    override.value = '';
+    override.value = "";
     cleared += 1;
   }
   return cleared;
 }
 
-elCreate.addOverrideBtn.addEventListener('click', () => {
-  createState.overrides.push({ table: '', value: '' });
+elCreate.addOverrideBtn.addEventListener("click", () => {
+  createState.overrides.push({ table: "", value: "" });
   renderOverrideRows();
 });
 
@@ -4184,25 +4655,30 @@ elCreate.addOverrideBtn.addEventListener('click', () => {
 // to redraw every row - and clear any value the new setting has just ruled
 // out. The disabled options cover the choice that has not been made yet; this
 // covers the one that already was.
-elCreate.pronouns.addEventListener('change', () => {
+elCreate.pronouns.addEventListener("change", () => {
   const cleared = clearOverridesBlockedByPronouns(
-    createState.overrides, createState.traitOptions, elCreate.pronouns.value);
+    createState.overrides,
+    createState.traitOptions,
+    elCreate.pronouns.value,
+  );
   renderOverrideRows();
   if (cleared) {
-    elCreate.status.textContent = `Cleared ${cleared} trait override${cleared === 1 ? '' : 's'} `
-      + 'that the new pronoun set rules out — pick replacements below.';
+    elCreate.status.textContent =
+      `Cleared ${cleared} trait override${cleared === 1 ? "" : "s"} ` +
+      "that the new pronoun set rules out — pick replacements below.";
   }
 });
 
-elCreate.count.addEventListener('input', () => {
+elCreate.count.addEventListener("input", () => {
   const single = Number(elCreate.count.value) === 1;
   elCreate.name.disabled = !single;
-  if (!single) elCreate.name.value = '';
+  if (!single) elCreate.name.value = "";
 });
 
 function createRequestBody(dryRun) {
   const count = Number(elCreate.count.value) || 1;
-  const seed = elCreate.seed.value.trim() === '' ? null : Number(elCreate.seed.value);
+  const seed =
+    elCreate.seed.value.trim() === "" ? null : Number(elCreate.seed.value);
   return {
     count,
     seed,
@@ -4220,20 +4696,23 @@ function createRequestBody(dryRun) {
 
 async function startCreateJob(dryRun) {
   if (elCreate.portrait.checked === false && elCreate.token.checked === false) {
-    elCreate.status.textContent = "Can't uncheck both portrait and token — nothing would be generated.";
+    elCreate.status.textContent =
+      "Can't uncheck both portrait and token — nothing would be generated.";
     return;
   }
   elCreate.dryRunBtn.disabled = true;
   elCreate.generateBtn.disabled = true;
-  elCreate.status.textContent = dryRun ? 'Rolling and building prompts…' : 'Starting…';
+  elCreate.status.textContent = dryRun
+    ? "Rolling and building prompts…"
+    : "Starting…";
   elCreate.log.hidden = true;
-  elCreate.log.textContent = '';
+  elCreate.log.textContent = "";
 
   const body = createRequestBody(dryRun);
   try {
-    const res = await fetch('/api/create-npc', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await fetch("/api/create-npc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     const result = await res.json();
@@ -4261,7 +4740,14 @@ async function startCreateJob(dryRun) {
  * form - since everything else here (the log, the running/timeout messages)
  * is already kind-neutral.
  */
-function pollCreateJob(jobId, dryRun, jobCount, state = createState, el = elCreate, subject = 'NPC') {
+function pollCreateJob(
+  jobId,
+  dryRun,
+  jobCount,
+  state = createState,
+  el = elCreate,
+  subject = "NPC",
+) {
   if (state.pollTimer) clearInterval(state.pollTimer);
   let ticks = 0;
   state.pollTimer = setInterval(async () => {
@@ -4279,12 +4765,12 @@ function pollCreateJob(jobId, dryRun, jobCount, state = createState, el = elCrea
     }
 
     el.log.hidden = !job.log;
-    el.log.textContent = job.log || '';
+    el.log.textContent = job.log || "";
 
-    if (job.status === 'running') {
+    if (job.status === "running") {
       el.status.textContent = dryRun
-        ? 'Rolling and building prompts…'
-        : 'Generating… this can take a few minutes per image (ComfyUI must be running).';
+        ? "Rolling and building prompts…"
+        : "Generating… this can take a few minutes per image (ComfyUI must be running).";
       // 600 ticks (20 min) safety net, same as the import/regen poller. Giving
       // up on watching is a terminal path like any other, so it has to hand the
       // form back too: it used to only drop the timer, which left both buttons
@@ -4296,7 +4782,7 @@ function pollCreateJob(jobId, dryRun, jobCount, state = createState, el = elCrea
         el.dryRunBtn.disabled = false;
         el.generateBtn.disabled = false;
         el.status.textContent =
-          'Stopped watching this run after 20 minutes — it may still be going; reload to check.';
+          "Stopped watching this run after 20 minutes — it may still be going; reload to check.";
       }
       return;
     }
@@ -4306,13 +4792,13 @@ function pollCreateJob(jobId, dryRun, jobCount, state = createState, el = elCrea
     el.dryRunBtn.disabled = false;
     el.generateBtn.disabled = false;
 
-    if (job.status === 'done') {
+    if (job.status === "done") {
       // job.produced is what the server measured against the manifest; jobCount
       // is only what was asked for, which is what this used to announce and is
       // why a run that quietly wrote fewer NPCs - or none - still claimed the
       // full batch. Keep the fallback: `produced` is null on an older server or
       // an unreadable manifest, and the request is the best guess we have then.
-      const made = typeof job.produced === 'number' ? job.produced : jobCount;
+      const made = typeof job.produced === "number" ? job.produced : jobCount;
       // A measured zero is worth saying, but only as far as the measurement
       // goes. It is the count of manifest entries that appeared while the child
       // ran, so "no new NPCs were written" is more than it knows: a run can
@@ -4322,21 +4808,21 @@ function pollCreateJob(jobId, dryRun, jobCount, state = createState, el = elCrea
       el.status.textContent = dryRun
         ? `Preview complete — see the rolled ${subject}(s) and prompts below.`
         : made === 0
-          ? `Finished, but no new ${subject}s were detected — check the log below and the `
-            + '"Import Generated Art" tab.'
+          ? `Finished, but no new ${subject}s were detected — check the log below and the ` +
+            '"Import Generated Art" tab.'
           : `Done — see the "Import Generated Art" tab for the new ${subject}(s).`;
       // producedIds rides along with the count and comes from the same
       // measurement: the banner's dismiss button clears the New tag, and the
       // only tags it may clear are the ones this run put there.
       if (!dryRun) announceBatchComplete(made, job.producedIds, job.kind);
     } else {
-      el.status.textContent = `Failed: ${job.error || 'unknown error'}`;
+      el.status.textContent = `Failed: ${job.error || "unknown error"}`;
     }
   }, 2000);
 }
 
-elCreate.dryRunBtn.addEventListener('click', () => startCreateJob(true));
-elCreate.generateBtn.addEventListener('click', () => startCreateJob(false));
+elCreate.dryRunBtn.addEventListener("click", () => startCreateJob(true));
+elCreate.generateBtn.addEventListener("click", () => startCreateJob(false));
 
 /* -------------------------------------------------------------------- */
 /* Create-form presets                                                    */
@@ -4358,7 +4844,8 @@ elCreate.generateBtn.addEventListener('click', () => startCreateJob(false));
 function createFormSettings() {
   return {
     count: Number(elCreate.count.value) || 1,
-    seed: elCreate.seed.value.trim() === '' ? null : Number(elCreate.seed.value),
+    seed:
+      elCreate.seed.value.trim() === "" ? null : Number(elCreate.seed.value),
     pronouns: elCreate.pronouns.value,
     server: elCreate.server.value.trim(),
     portrait: elCreate.portrait.checked,
@@ -4389,19 +4876,22 @@ function createFormSettings() {
 function applyCreateSettings(settings) {
   const s = settings || {};
   elCreate.count.value = String(s.count || 1);
-  elCreate.seed.value = s.seed === null || s.seed === undefined ? '' : String(s.seed);
-  elCreate.pronouns.value = s.pronouns || '';
-  elCreate.server.value = s.server || '';
+  elCreate.seed.value =
+    s.seed === null || s.seed === undefined ? "" : String(s.seed);
+  elCreate.pronouns.value = s.pronouns || "";
+  elCreate.server.value = s.server || "";
   elCreate.portrait.checked = s.portrait !== false;
   elCreate.token.checked = s.token !== false;
   elCreate.keepRaw.checked = !!s.keepRawToken;
   elCreate.unarmed.checked = !!s.unarmed;
-  createState.overrides = (Array.isArray(s.overrides) ? s.overrides : []).map((o) => ({
-    table: String(o.table || ''),
-    value: String(o.value || ''),
-    custom: !!o.custom,
-    search: '',
-  }));
+  createState.overrides = (Array.isArray(s.overrides) ? s.overrides : []).map(
+    (o) => ({
+      table: String(o.table || ""),
+      value: String(o.value || ""),
+      custom: !!o.custom,
+      search: "",
+    }),
+  );
   // The Name field is disabled for a batch, and count is what decides that -
   // so a preset that restores count > 1 has to restore that too, or the field
   // stays enabled and typing in it silently does nothing. It is CLEARED as
@@ -4411,20 +4901,20 @@ function applyCreateSettings(settings) {
   // longer reach, and the server refuses the whole run with "--name only makes
   // sense with a single NPC" over a value that is not on screen.
   elCreate.name.disabled = Number(elCreate.count.value) !== 1;
-  if (elCreate.name.disabled) elCreate.name.value = '';
+  if (elCreate.name.disabled) elCreate.name.value = "";
   renderOverrideRows();
 }
 
 /** Shared by both Create forms' preset rows - `el` defaults to the NPC
  * form's own, the same optional-trailing-parameter seam pollCreateJob uses. */
 function setPresetStatus(text, isError, el = elCreate) {
-  el.presetStatus.textContent = text || '';
-  el.presetStatus.classList.toggle('is-error', !!isError);
+  el.presetStatus.textContent = text || "";
+  el.presetStatus.classList.toggle("is-error", !!isError);
 }
 
 async function refreshCreatePresets(selectSlug) {
   try {
-    const { presets } = await api('/api/create-presets');
+    const { presets } = await api("/api/create-presets");
     createState.presets = presets || [];
   } catch (err) {
     createState.presets = [];
@@ -4432,18 +4922,21 @@ async function refreshCreatePresets(selectSlug) {
     return;
   }
   const wanted = selectSlug || elCreate.presetSelect.value;
-  elCreate.presetSelect.innerHTML = '';
-  const blank = document.createElement('option');
-  blank.value = '';
-  blank.textContent = createState.presets.length ? '— pick a preset —' : '— no presets saved —';
+  elCreate.presetSelect.innerHTML = "";
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = createState.presets.length
+    ? "— pick a preset —"
+    : "— no presets saved —";
   elCreate.presetSelect.appendChild(blank);
   for (const preset of createState.presets) {
-    const opt = document.createElement('option');
+    const opt = document.createElement("option");
     opt.value = preset.slug;
     const n = preset.overrideCount;
-    opt.textContent = typeof n === 'number'
-      ? `${preset.name} (${n} override${n === 1 ? '' : 's'})`
-      : preset.name;
+    opt.textContent =
+      typeof n === "number"
+        ? `${preset.name} (${n} override${n === 1 ? "" : "s"})`
+        : preset.name;
     opt.selected = preset.slug === wanted;
     elCreate.presetSelect.appendChild(opt);
   }
@@ -4455,16 +4948,18 @@ async function refreshCreatePresets(selectSlug) {
   elCreate.presetDelete.disabled = !chosen;
 }
 
-elCreate.presetSelect.addEventListener('change', () => {
+elCreate.presetSelect.addEventListener("change", () => {
   const chosen = !!elCreate.presetSelect.value;
   elCreate.presetLoad.disabled = !chosen;
   elCreate.presetDownload.disabled = !chosen;
   elCreate.presetDelete.disabled = !chosen;
-  setPresetStatus('');
+  setPresetStatus("");
 });
 
-elCreate.presetLoad.addEventListener('click', () => {
-  const preset = createState.presets.find((p) => p.slug === elCreate.presetSelect.value);
+elCreate.presetLoad.addEventListener("click", () => {
+  const preset = createState.presets.find(
+    (p) => p.slug === elCreate.presetSelect.value,
+  );
   if (!preset) return;
   // The list route carries only the summary, so the settings are fetched from
   // the export route - the same JSON the Download button hands over, which is
@@ -4474,16 +4969,18 @@ elCreate.presetLoad.addEventListener('click', () => {
       applyCreateSettings(full.settings);
       setPresetStatus(`Loaded “${full.name || preset.name}”.`);
     })
-    .catch((err) => setPresetStatus(`Could not load that preset: ${err.message}`, true));
+    .catch((err) =>
+      setPresetStatus(`Could not load that preset: ${err.message}`, true),
+    );
 });
 
-elCreate.presetSave.addEventListener('click', async () => {
-  const name = window.prompt('Name this preset');
+elCreate.presetSave.addEventListener("click", async () => {
+  const name = window.prompt("Name this preset");
   if (name === null) return;
   try {
-    const { slug } = await api('/api/create-presets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const { slug } = await api("/api/create-presets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, settings: createFormSettings() }),
     });
     await refreshCreatePresets(slug);
@@ -4493,7 +4990,7 @@ elCreate.presetSave.addEventListener('click', async () => {
   }
 });
 
-elCreate.presetDownload.addEventListener('click', () => {
+elCreate.presetDownload.addEventListener("click", () => {
   const slug = elCreate.presetSelect.value;
   if (!slug) return;
   // Through a hidden <a download> rather than window.location. Both fetch the
@@ -4502,7 +4999,7 @@ elCreate.presetDownload.addEventListener('click', () => {
   // the browser leaves this page and renders the JSON error, throwing away
   // whatever was typed into the form. A link that the browser declines to
   // follow leaves the page alone.
-  const link = document.createElement('a');
+  const link = document.createElement("a");
   link.href = `/api/create-presets/export?slug=${encodeURIComponent(slug)}`;
   link.download = `${slug}.json`;
   document.body.appendChild(link);
@@ -4510,28 +5007,35 @@ elCreate.presetDownload.addEventListener('click', () => {
   link.remove();
 });
 
-elCreate.presetDelete.addEventListener('click', async () => {
-  const preset = createState.presets.find((p) => p.slug === elCreate.presetSelect.value);
+elCreate.presetDelete.addEventListener("click", async () => {
+  const preset = createState.presets.find(
+    (p) => p.slug === elCreate.presetSelect.value,
+  );
   if (!preset) return;
-  if (!window.confirm(`Delete the preset “${preset.name}”? The form itself is not changed.`)) return;
+  if (
+    !window.confirm(
+      `Delete the preset “${preset.name}”? The form itself is not changed.`,
+    )
+  )
+    return;
   try {
-    await api('/api/create-presets/delete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    await api("/api/create-presets/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ slug: preset.slug }),
     });
-    await refreshCreatePresets('');
+    await refreshCreatePresets("");
     setPresetStatus(`Deleted “${preset.name}”.`);
   } catch (err) {
     setPresetStatus(err.message, true);
   }
 });
 
-elCreate.presetImport.addEventListener('change', async () => {
+elCreate.presetImport.addEventListener("change", async () => {
   const file = elCreate.presetImport.files && elCreate.presetImport.files[0];
   // Cleared straight away so importing the same file twice in a row still
   // fires a change event the second time.
-  elCreate.presetImport.value = '';
+  elCreate.presetImport.value = "";
   if (!file) return;
   let parsed;
   try {
@@ -4545,13 +5049,15 @@ elCreate.presetImport.addEventListener('change', async () => {
     // guards the save route has to guard this one, or an imported file would
     // be the way to get an unchecked value into the form and from there onto
     // the generator's command line.
-    const { name, settings } = await api('/api/create-presets/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const { name, settings } = await api("/api/create-presets/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(parsed),
     });
     applyCreateSettings(settings);
-    setPresetStatus(`Loaded “${name}” from file. Save it if you want to keep it.`);
+    setPresetStatus(
+      `Loaded “${name}” from file. Save it if you want to keep it.`,
+    );
   } catch (err) {
     setPresetStatus(err.message, true);
   }
@@ -4575,29 +5081,29 @@ elCreate.presetImport.addEventListener('change', async () => {
  * ever needed.
  */
 const elShipCreate = {
-  count: document.getElementById('create-ship-count'),
-  seed: document.getElementById('create-ship-seed'),
-  name: document.getElementById('create-ship-name'),
-  type: document.getElementById('create-ship-type'),
-  size: document.getElementById('create-ship-size'),
-  theme: document.getElementById('create-ship-theme'),
-  server: document.getElementById('create-ship-server'),
-  portrait: document.getElementById('create-ship-portrait'),
-  token: document.getElementById('create-ship-token'),
-  keepRaw: document.getElementById('create-ship-keep-raw'),
-  overrideRows: document.getElementById('ship-override-rows'),
-  addOverrideBtn: document.getElementById('add-ship-override'),
-  presetSelect: document.getElementById('create-ship-preset-select'),
-  presetLoad: document.getElementById('create-ship-preset-load'),
-  presetSave: document.getElementById('create-ship-preset-save'),
-  presetDownload: document.getElementById('create-ship-preset-download'),
-  presetDelete: document.getElementById('create-ship-preset-delete'),
-  presetImport: document.getElementById('create-ship-preset-import'),
-  presetStatus: document.getElementById('create-ship-preset-status'),
-  dryRunBtn: document.getElementById('create-ship-dry-run-btn'),
-  generateBtn: document.getElementById('create-ship-generate-btn'),
-  status: document.getElementById('create-ship-status'),
-  log: document.getElementById('create-ship-log'),
+  count: document.getElementById("create-ship-count"),
+  seed: document.getElementById("create-ship-seed"),
+  name: document.getElementById("create-ship-name"),
+  type: document.getElementById("create-ship-type"),
+  size: document.getElementById("create-ship-size"),
+  theme: document.getElementById("create-ship-theme"),
+  server: document.getElementById("create-ship-server"),
+  portrait: document.getElementById("create-ship-portrait"),
+  token: document.getElementById("create-ship-token"),
+  keepRaw: document.getElementById("create-ship-keep-raw"),
+  overrideRows: document.getElementById("ship-override-rows"),
+  addOverrideBtn: document.getElementById("add-ship-override"),
+  presetSelect: document.getElementById("create-ship-preset-select"),
+  presetLoad: document.getElementById("create-ship-preset-load"),
+  presetSave: document.getElementById("create-ship-preset-save"),
+  presetDownload: document.getElementById("create-ship-preset-download"),
+  presetDelete: document.getElementById("create-ship-preset-delete"),
+  presetImport: document.getElementById("create-ship-preset-import"),
+  presetStatus: document.getElementById("create-ship-preset-status"),
+  dryRunBtn: document.getElementById("create-ship-dry-run-btn"),
+  generateBtn: document.getElementById("create-ship-generate-btn"),
+  status: document.getElementById("create-ship-status"),
+  log: document.getElementById("create-ship-log"),
 };
 
 /**
@@ -4609,7 +5115,7 @@ const elShipCreate = {
  * traitDependents, ...) and must not fetch twice - see its own docs.
  */
 async function ensureShipCreateForm() {
-  await ensureVocab('spaceship');
+  await ensureVocab("spaceship");
   if (!shipCreateState.formLoaded) {
     // Own try/catch, and formLoaded only flips on success: the three pinned
     // selects and the override picker are built entirely from this fetch, so
@@ -4620,7 +5126,7 @@ async function ensureShipCreateForm() {
     // retries instead of leaving three permanent "— no values loaded —"
     // selects with no message and no way back in.
     try {
-      const { options } = await api('/api/trait-options?kind=spaceship');
+      const { options } = await api("/api/trait-options?kind=spaceship");
       shipCreateState.traitOptions = options;
       shipCreateState.formLoaded = true;
     } catch (err) {
@@ -4642,7 +5148,7 @@ async function ensureShipCreateForm() {
   // degrades to none, exactly as the design's own phase-6 note says.
   if (shipCreateState.catalogue === null) {
     try {
-      shipCreateState.catalogue = await api('/api/ship-catalogue');
+      shipCreateState.catalogue = await api("/api/ship-catalogue");
     } catch {
       shipCreateState.catalogue = null; // Type -> Size gating degrades to none, and we try again next visit
     }
@@ -4681,7 +5187,7 @@ async function ensureShipCreateForm() {
  */
 function shipTypeSlugFor(bullet, catalogue) {
   if (!catalogue || !bullet) return null;
-  const parts = String(bullet).split('||');
+  const parts = String(bullet).split("||");
   if (parts.length < 2) return null;
   const flags = parts.pop();
   if (!flags.trim()) return null;
@@ -4714,7 +5220,7 @@ function shipTypeSlugFor(bullet, catalogue) {
  */
 function sizeBandFor(sizeBullet, catalogue) {
   if (!catalogue || !sizeBullet) return null;
-  const parts = String(sizeBullet).split('||');
+  const parts = String(sizeBullet).split("||");
   if (parts.length < 2) return null;
   const flags = parts.pop();
   if (!flags.trim()) return null;
@@ -4745,9 +5251,11 @@ function sizeBlockReason(sizeBullet, shipTypeSlug) {
   const band = sizeBandFor(sizeBullet, catalogue);
   if (!band || type.sizes.includes(band)) return null;
 
-  const allowed = type.sizes.join(', ') || 'no';
-  return `${type.name} only rolls ${allowed} hull size(s) - this Size is “${band}”, `
-    + 'which that type never rolls.';
+  const allowed = type.sizes.join(", ") || "no";
+  return (
+    `${type.name} only rolls ${allowed} hull size(s) - this Size is “${band}”, ` +
+    "which that type never rolls."
+  );
 }
 
 /**
@@ -4760,13 +5268,15 @@ function sizeBlockReason(sizeBullet, shipTypeSlug) {
  */
 function populateShipPinnedSelect(selectEl, options, chosenValue) {
   if (!selectEl) return;
-  selectEl.innerHTML = '';
-  const blank = document.createElement('option');
-  blank.value = '';
-  blank.textContent = options.length ? '— let the roller choose —' : '— no values loaded —';
+  selectEl.innerHTML = "";
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = options.length
+    ? "— let the roller choose —"
+    : "— no values loaded —";
   selectEl.appendChild(blank);
   for (const option of options) {
-    const opt = document.createElement('option');
+    const opt = document.createElement("option");
     opt.value = option.value;
     opt.textContent = option.label;
     opt.selected = option.value === chosenValue;
@@ -4778,52 +5288,64 @@ function populateShipPinnedSelect(selectEl, options, chosenValue) {
  * drops the pinned Size choice if the Ship type just picked rules it out -
  * the ship analogue of clearOverridesBlockedByPronouns(). */
 function applyShipSizeGating() {
-  const slug = shipTypeSlugFor(shipCreateState.pinned['Ship type'], shipCreateState.catalogue);
+  const slug = shipTypeSlugFor(
+    shipCreateState.pinned["Ship type"],
+    shipCreateState.catalogue,
+  );
   let cleared = false;
   for (const opt of elShipCreate.size.options) {
     if (!opt.value) continue;
     const reason = sizeBlockReason(opt.value, slug);
     opt.disabled = !!reason;
-    opt.title = reason || '';
+    opt.title = reason || "";
     if (reason && opt.value === shipCreateState.pinned.Size) cleared = true;
   }
   if (cleared) {
-    shipCreateState.pinned.Size = '';
-    elShipCreate.size.value = '';
+    shipCreateState.pinned.Size = "";
+    elShipCreate.size.value = "";
   }
 }
 
 function renderShipPinnedSelects() {
-  populateShipPinnedSelect(elShipCreate.type, shipCreateState.traitOptions['Ship type'] || [],
-    shipCreateState.pinned['Ship type']);
-  populateShipPinnedSelect(elShipCreate.size, shipCreateState.traitOptions.Size || [],
-    shipCreateState.pinned.Size);
-  populateShipPinnedSelect(elShipCreate.theme, shipCreateState.traitOptions.Theme || [],
-    shipCreateState.pinned.Theme);
+  populateShipPinnedSelect(
+    elShipCreate.type,
+    shipCreateState.traitOptions["Ship type"] || [],
+    shipCreateState.pinned["Ship type"],
+  );
+  populateShipPinnedSelect(
+    elShipCreate.size,
+    shipCreateState.traitOptions.Size || [],
+    shipCreateState.pinned.Size,
+  );
+  populateShipPinnedSelect(
+    elShipCreate.theme,
+    shipCreateState.traitOptions.Theme || [],
+    shipCreateState.pinned.Theme,
+  );
   applyShipSizeGating();
 }
 
-elShipCreate.type.addEventListener('change', () => {
-  shipCreateState.pinned['Ship type'] = elShipCreate.type.value;
+elShipCreate.type.addEventListener("change", () => {
+  shipCreateState.pinned["Ship type"] = elShipCreate.type.value;
   applyShipSizeGating();
 });
-elShipCreate.size.addEventListener('change', () => {
+elShipCreate.size.addEventListener("change", () => {
   shipCreateState.pinned.Size = elShipCreate.size.value;
 });
-elShipCreate.theme.addEventListener('change', () => {
+elShipCreate.theme.addEventListener("change", () => {
   shipCreateState.pinned.Theme = elShipCreate.theme.value;
 });
 
-elShipCreate.count.addEventListener('input', () => {
+elShipCreate.count.addEventListener("input", () => {
   const single = Number(elShipCreate.count.value) === 1;
   elShipCreate.name.disabled = !single;
-  if (!single) elShipCreate.name.value = '';
+  if (!single) elShipCreate.name.value = "";
 });
 
 // The tables Ship type/Size/Theme already own as pinned selects, above -
 // offering them again in the free-form row would let a second, conflicting
 // --set-trait for the same table reach the generator.
-const SHIP_PINNED_TABLES = ['Ship type', 'Size', 'Theme'];
+const SHIP_PINNED_TABLES = ["Ship type", "Size", "Theme"];
 
 /**
  * The free-form "further overrides" rows, the ship analogue of
@@ -4836,19 +5358,21 @@ const SHIP_PINNED_TABLES = ['Ship type', 'Size', 'Theme'];
  * option-grouping it also does, not for that branch.
  */
 function renderShipOverrideRows() {
-  elShipCreate.overrideRows.innerHTML = '';
-  const tableChoices = shipCreateState.overrideTables.filter((t) => !SHIP_PINNED_TABLES.includes(t));
+  elShipCreate.overrideRows.innerHTML = "";
+  const tableChoices = shipCreateState.overrideTables.filter(
+    (t) => !SHIP_PINNED_TABLES.includes(t),
+  );
 
   shipCreateState.overrides.forEach((override, index) => {
-    if (!override.table) override.table = tableChoices[0] || '';
-    if (typeof override.search !== 'string') override.search = '';
+    if (!override.table) override.table = tableChoices[0] || "";
+    if (typeof override.search !== "string") override.search = "";
 
-    const row = document.createElement('div');
-    row.className = 'filter-row';
+    const row = document.createElement("div");
+    row.className = "filter-row";
 
-    const tableSelect = document.createElement('select');
+    const tableSelect = document.createElement("select");
     for (const t of tableChoices) {
-      const opt = document.createElement('option');
+      const opt = document.createElement("option");
       opt.value = t;
       opt.textContent = t;
       opt.selected = t === override.table;
@@ -4856,15 +5380,15 @@ function renderShipOverrideRows() {
     }
     row.appendChild(tableSelect);
 
-    const cell = document.createElement('div');
-    cell.className = 'override-cell';
+    const cell = document.createElement("div");
+    cell.className = "override-cell";
     row.appendChild(cell);
 
     const options = shipCreateState.traitOptions[override.table] || [];
 
-    const search = document.createElement('input');
-    search.type = 'search';
-    search.className = 'override-search';
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "override-search";
     search.value = override.search;
     search.placeholder = options.length
       ? `Search ${override.table}… (${options.length} values)`
@@ -4875,44 +5399,45 @@ function renderShipOverrideRows() {
     // Same three additions as the NPC row above, and for the same reason -
     // see the comments there. Only the markup is duplicated; the two pieces
     // of logic (populateOverrideValues, overrideSearchNote) are shared.
-    const searchNote = document.createElement('div');
-    searchNote.className = 'override-search-note';
+    const searchNote = document.createElement("div");
+    searchNote.className = "override-search-note";
     cell.appendChild(searchNote);
 
-    const valueRow = document.createElement('div');
-    valueRow.className = 'override-value-row';
+    const valueRow = document.createElement("div");
+    valueRow.className = "override-value-row";
     cell.appendChild(valueRow);
 
-    const valueSelect = document.createElement('select');
-    valueSelect.className = 'filter-value';
+    const valueSelect = document.createElement("select");
+    valueSelect.className = "filter-value";
     valueRow.appendChild(valueSelect);
 
-    const clear = document.createElement('button');
-    clear.type = 'button';
-    clear.className = 'override-clear';
-    clear.textContent = 'Clear';
-    clear.title = 'Clear the chosen value and keep this override row';
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "override-clear";
+    clear.textContent = "Clear";
+    clear.title = "Clear the chosen value and keep this override row";
     valueRow.appendChild(clear);
 
-    const valueInput = document.createElement('input');
-    valueInput.type = 'text';
-    valueInput.className = 'filter-value';
-    valueInput.placeholder = 'value, e.g. "a hull scorched from an old boarding action"';
+    const valueInput = document.createElement("input");
+    valueInput.type = "text";
+    valueInput.className = "filter-value";
+    valueInput.placeholder =
+      'value, e.g. "a hull scorched from an old boarding action"';
     valueInput.value = override.value;
     valueInput.hidden = !override.custom && options.length > 0;
     cell.appendChild(valueInput);
 
-    const full = document.createElement('div');
-    full.className = 'override-full';
+    const full = document.createElement("div");
+    full.className = "override-full";
     cell.appendChild(full);
 
-    const note = document.createElement('div');
-    note.className = 'override-note';
+    const note = document.createElement("div");
+    note.className = "override-note";
     cell.appendChild(note);
 
     const showNotes = (result) => {
       const scope = traitScopeNote(override.table);
-      note.textContent = scope || '';
+      note.textContent = scope || "";
       note.hidden = !scope;
       searchNote.textContent = overrideSearchNote(result, override.search);
       searchNote.hidden = !searchNote.textContent;
@@ -4924,24 +5449,24 @@ function renderShipOverrideRows() {
     };
 
     const refresh = () => {
-      showNotes(populateOverrideValues(valueSelect, options, override, ''));
+      showNotes(populateOverrideValues(valueSelect, options, override, ""));
       showFull();
       clear.disabled = !override.value && !override.custom;
     };
     refresh();
 
-    search.addEventListener('input', () => {
+    search.addEventListener("input", () => {
       override.search = search.value;
       refresh();
     });
 
-    valueInput.addEventListener('input', () => {
+    valueInput.addEventListener("input", () => {
       override.value = valueInput.value;
       showFull();
       clear.disabled = !override.value && !override.custom;
     });
 
-    valueSelect.addEventListener('change', () => {
+    valueSelect.addEventListener("change", () => {
       if (valueSelect.value === CUSTOM_OVERRIDE) {
         override.custom = true;
         valueInput.hidden = false;
@@ -4956,10 +5481,10 @@ function renderShipOverrideRows() {
       refresh();
     });
 
-    clear.addEventListener('click', () => {
-      override.value = '';
+    clear.addEventListener("click", () => {
+      override.value = "";
       override.custom = false;
-      valueInput.value = '';
+      valueInput.value = "";
       valueInput.hidden = options.length > 0;
       refresh();
       if (!search.hidden) {
@@ -4968,20 +5493,20 @@ function renderShipOverrideRows() {
       }
     });
 
-    tableSelect.addEventListener('change', () => {
+    tableSelect.addEventListener("change", () => {
       override.table = tableSelect.value;
-      override.value = '';
+      override.value = "";
       override.custom = false;
-      override.search = '';
+      override.search = "";
       renderShipOverrideRows();
     });
 
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'filter-remove';
-    remove.textContent = '×';
-    remove.title = 'Remove override';
-    remove.addEventListener('click', () => {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "filter-remove";
+    remove.textContent = "×";
+    remove.title = "Remove override";
+    remove.addEventListener("click", () => {
       shipCreateState.overrides.splice(index, 1);
       renderShipOverrideRows();
     });
@@ -4991,8 +5516,8 @@ function renderShipOverrideRows() {
   });
 }
 
-elShipCreate.addOverrideBtn.addEventListener('click', () => {
-  shipCreateState.overrides.push({ table: '', value: '' });
+elShipCreate.addOverrideBtn.addEventListener("click", () => {
+  shipCreateState.overrides.push({ table: "", value: "" });
   renderShipOverrideRows();
 });
 
@@ -5008,13 +5533,19 @@ elShipCreate.addOverrideBtn.addEventListener('click', () => {
  */
 function shipCreateRequestBody(dryRun) {
   const count = Number(elShipCreate.count.value) || 1;
-  const seed = elShipCreate.seed.value.trim() === '' ? null : Number(elShipCreate.seed.value);
-  const pinnedOverrides = SHIP_PINNED_TABLES
-    .map((table) => ({ table, value: shipCreateState.pinned[table] || '' }))
-    .filter((o) => o.value.trim());
-  const freeOverrides = shipCreateState.overrides.filter((o) => o.table && o.value.trim());
+  const seed =
+    elShipCreate.seed.value.trim() === ""
+      ? null
+      : Number(elShipCreate.seed.value);
+  const pinnedOverrides = SHIP_PINNED_TABLES.map((table) => ({
+    table,
+    value: shipCreateState.pinned[table] || "",
+  })).filter((o) => o.value.trim());
+  const freeOverrides = shipCreateState.overrides.filter(
+    (o) => o.table && o.value.trim(),
+  );
   return {
-    kind: 'spaceship',
+    kind: "spaceship",
     count,
     seed,
     name: elShipCreate.name.value.trim(),
@@ -5028,21 +5559,27 @@ function shipCreateRequestBody(dryRun) {
 }
 
 async function startShipCreateJob(dryRun) {
-  if (elShipCreate.portrait.checked === false && elShipCreate.token.checked === false) {
-    elShipCreate.status.textContent = "Can't uncheck both portrait and token — nothing would be generated.";
+  if (
+    elShipCreate.portrait.checked === false &&
+    elShipCreate.token.checked === false
+  ) {
+    elShipCreate.status.textContent =
+      "Can't uncheck both portrait and token — nothing would be generated.";
     return;
   }
   elShipCreate.dryRunBtn.disabled = true;
   elShipCreate.generateBtn.disabled = true;
-  elShipCreate.status.textContent = dryRun ? 'Rolling and building prompts…' : 'Starting…';
+  elShipCreate.status.textContent = dryRun
+    ? "Rolling and building prompts…"
+    : "Starting…";
   elShipCreate.log.hidden = true;
-  elShipCreate.log.textContent = '';
+  elShipCreate.log.textContent = "";
 
   const body = shipCreateRequestBody(dryRun);
   try {
-    const res = await fetch('/api/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await fetch("/api/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     const result = await res.json();
@@ -5052,7 +5589,14 @@ async function startShipCreateJob(dryRun) {
       elShipCreate.generateBtn.disabled = false;
       return;
     }
-    pollCreateJob(result.jobId, dryRun, body.count, shipCreateState, elShipCreate, 'spaceship');
+    pollCreateJob(
+      result.jobId,
+      dryRun,
+      body.count,
+      shipCreateState,
+      elShipCreate,
+      "spaceship",
+    );
   } catch (err) {
     elShipCreate.status.textContent = `Couldn't start: ${err.message}`;
     elShipCreate.dryRunBtn.disabled = false;
@@ -5060,8 +5604,12 @@ async function startShipCreateJob(dryRun) {
   }
 }
 
-elShipCreate.dryRunBtn.addEventListener('click', () => startShipCreateJob(true));
-elShipCreate.generateBtn.addEventListener('click', () => startShipCreateJob(false));
+elShipCreate.dryRunBtn.addEventListener("click", () =>
+  startShipCreateJob(true),
+);
+elShipCreate.generateBtn.addEventListener("click", () =>
+  startShipCreateJob(false),
+);
 
 /* -------------------------------------------------------------------- */
 /* Create-ship-form presets                                              */
@@ -5072,15 +5620,20 @@ elShipCreate.generateBtn.addEventListener('click', () => startShipCreateJob(fals
 function shipFormSettings() {
   return {
     count: Number(elShipCreate.count.value) || 1,
-    seed: elShipCreate.seed.value.trim() === '' ? null : Number(elShipCreate.seed.value),
+    seed:
+      elShipCreate.seed.value.trim() === ""
+        ? null
+        : Number(elShipCreate.seed.value),
     server: elShipCreate.server.value.trim(),
     portrait: elShipCreate.portrait.checked,
     token: elShipCreate.token.checked,
     keepRawToken: elShipCreate.keepRaw.checked,
     overrides: [
-      ...SHIP_PINNED_TABLES
-        .map((table) => ({ table, value: shipCreateState.pinned[table] || '', custom: false }))
-        .filter((o) => o.value.trim()),
+      ...SHIP_PINNED_TABLES.map((table) => ({
+        table,
+        value: shipCreateState.pinned[table] || "",
+        custom: false,
+      })).filter((o) => o.value.trim()),
       ...shipCreateState.overrides
         .filter((o) => o.table && String(o.value).trim())
         .map((o) => ({ table: o.table, value: o.value, custom: !!o.custom })),
@@ -5095,53 +5648,67 @@ function shipFormSettings() {
 function applyShipSettings(settings) {
   const s = settings || {};
   elShipCreate.count.value = String(s.count || 1);
-  elShipCreate.seed.value = s.seed === null || s.seed === undefined ? '' : String(s.seed);
-  elShipCreate.server.value = s.server || '';
+  elShipCreate.seed.value =
+    s.seed === null || s.seed === undefined ? "" : String(s.seed);
+  elShipCreate.server.value = s.server || "";
   elShipCreate.portrait.checked = s.portrait !== false;
   elShipCreate.token.checked = s.token !== false;
   elShipCreate.keepRaw.checked = !!s.keepRawToken;
 
   const overrides = Array.isArray(s.overrides) ? s.overrides : [];
-  shipCreateState.pinned = { 'Ship type': '', Size: '', Theme: '' };
+  shipCreateState.pinned = { "Ship type": "", Size: "", Theme: "" };
   for (const o of overrides) {
-    if (SHIP_PINNED_TABLES.includes(o.table) && !shipCreateState.pinned[o.table]) {
-      shipCreateState.pinned[o.table] = String(o.value || '');
+    if (
+      SHIP_PINNED_TABLES.includes(o.table) &&
+      !shipCreateState.pinned[o.table]
+    ) {
+      shipCreateState.pinned[o.table] = String(o.value || "");
     }
   }
   shipCreateState.overrides = overrides
     .filter((o) => !SHIP_PINNED_TABLES.includes(o.table))
     .map((o) => ({
-      table: String(o.table || ''), value: String(o.value || ''), custom: !!o.custom, search: '',
+      table: String(o.table || ""),
+      value: String(o.value || ""),
+      custom: !!o.custom,
+      search: "",
     }));
 
   elShipCreate.name.disabled = Number(elShipCreate.count.value) !== 1;
-  if (elShipCreate.name.disabled) elShipCreate.name.value = '';
+  if (elShipCreate.name.disabled) elShipCreate.name.value = "";
   renderShipPinnedSelects();
   renderShipOverrideRows();
 }
 
 async function refreshShipCreatePresets(selectSlug) {
   try {
-    const { presets } = await api('/api/create-presets?kind=spaceship');
+    const { presets } = await api("/api/create-presets?kind=spaceship");
     shipCreateState.presets = presets || [];
   } catch (err) {
     shipCreateState.presets = [];
-    setPresetStatus(`Could not list presets: ${err.message}`, true, elShipCreate);
+    setPresetStatus(
+      `Could not list presets: ${err.message}`,
+      true,
+      elShipCreate,
+    );
     return;
   }
   const wanted = selectSlug || elShipCreate.presetSelect.value;
-  elShipCreate.presetSelect.innerHTML = '';
-  const blank = document.createElement('option');
-  blank.value = '';
-  blank.textContent = shipCreateState.presets.length ? '— pick a preset —' : '— no presets saved —';
+  elShipCreate.presetSelect.innerHTML = "";
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = shipCreateState.presets.length
+    ? "— pick a preset —"
+    : "— no presets saved —";
   elShipCreate.presetSelect.appendChild(blank);
   for (const preset of shipCreateState.presets) {
-    const opt = document.createElement('option');
+    const opt = document.createElement("option");
     opt.value = preset.slug;
     const n = preset.overrideCount;
-    opt.textContent = typeof n === 'number'
-      ? `${preset.name} (${n} override${n === 1 ? '' : 's'})`
-      : preset.name;
+    opt.textContent =
+      typeof n === "number"
+        ? `${preset.name} (${n} override${n === 1 ? "" : "s"})`
+        : preset.name;
     opt.selected = preset.slug === wanted;
     elShipCreate.presetSelect.appendChild(opt);
   }
@@ -5151,32 +5718,46 @@ async function refreshShipCreatePresets(selectSlug) {
   elShipCreate.presetDelete.disabled = !chosen;
 }
 
-elShipCreate.presetSelect.addEventListener('change', () => {
+elShipCreate.presetSelect.addEventListener("change", () => {
   const chosen = !!elShipCreate.presetSelect.value;
   elShipCreate.presetLoad.disabled = !chosen;
   elShipCreate.presetDownload.disabled = !chosen;
   elShipCreate.presetDelete.disabled = !chosen;
-  setPresetStatus('', false, elShipCreate);
+  setPresetStatus("", false, elShipCreate);
 });
 
-elShipCreate.presetLoad.addEventListener('click', () => {
-  const preset = shipCreateState.presets.find((p) => p.slug === elShipCreate.presetSelect.value);
+elShipCreate.presetLoad.addEventListener("click", () => {
+  const preset = shipCreateState.presets.find(
+    (p) => p.slug === elShipCreate.presetSelect.value,
+  );
   if (!preset) return;
-  api(`/api/create-presets/export?kind=spaceship&slug=${encodeURIComponent(preset.slug)}`)
+  api(
+    `/api/create-presets/export?kind=spaceship&slug=${encodeURIComponent(preset.slug)}`,
+  )
     .then((full) => {
       applyShipSettings(full.settings);
-      setPresetStatus(`Loaded “${full.name || preset.name}”.`, false, elShipCreate);
+      setPresetStatus(
+        `Loaded “${full.name || preset.name}”.`,
+        false,
+        elShipCreate,
+      );
     })
-    .catch((err) => setPresetStatus(`Could not load that preset: ${err.message}`, true, elShipCreate));
+    .catch((err) =>
+      setPresetStatus(
+        `Could not load that preset: ${err.message}`,
+        true,
+        elShipCreate,
+      ),
+    );
 });
 
-elShipCreate.presetSave.addEventListener('click', async () => {
-  const name = window.prompt('Name this preset');
+elShipCreate.presetSave.addEventListener("click", async () => {
+  const name = window.prompt("Name this preset");
   if (name === null) return;
   try {
-    const { slug } = await api('/api/create-presets?kind=spaceship', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const { slug } = await api("/api/create-presets?kind=spaceship", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, settings: shipFormSettings() }),
     });
     await refreshShipCreatePresets(slug);
@@ -5186,10 +5767,10 @@ elShipCreate.presetSave.addEventListener('click', async () => {
   }
 });
 
-elShipCreate.presetDownload.addEventListener('click', () => {
+elShipCreate.presetDownload.addEventListener("click", () => {
   const slug = elShipCreate.presetSelect.value;
   if (!slug) return;
-  const link = document.createElement('a');
+  const link = document.createElement("a");
   link.href = `/api/create-presets/export?kind=spaceship&slug=${encodeURIComponent(slug)}`;
   link.download = `${slug}.json`;
   document.body.appendChild(link);
@@ -5197,42 +5778,61 @@ elShipCreate.presetDownload.addEventListener('click', () => {
   link.remove();
 });
 
-elShipCreate.presetDelete.addEventListener('click', async () => {
-  const preset = shipCreateState.presets.find((p) => p.slug === elShipCreate.presetSelect.value);
+elShipCreate.presetDelete.addEventListener("click", async () => {
+  const preset = shipCreateState.presets.find(
+    (p) => p.slug === elShipCreate.presetSelect.value,
+  );
   if (!preset) return;
-  if (!window.confirm(`Delete the preset “${preset.name}”? The form itself is not changed.`)) return;
+  if (
+    !window.confirm(
+      `Delete the preset “${preset.name}”? The form itself is not changed.`,
+    )
+  )
+    return;
   try {
-    await api('/api/create-presets/delete?kind=spaceship', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    await api("/api/create-presets/delete?kind=spaceship", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ slug: preset.slug }),
     });
-    await refreshShipCreatePresets('');
+    await refreshShipCreatePresets("");
     setPresetStatus(`Deleted “${preset.name}”.`, false, elShipCreate);
   } catch (err) {
     setPresetStatus(err.message, true, elShipCreate);
   }
 });
 
-elShipCreate.presetImport.addEventListener('change', async () => {
-  const file = elShipCreate.presetImport.files && elShipCreate.presetImport.files[0];
-  elShipCreate.presetImport.value = '';
+elShipCreate.presetImport.addEventListener("change", async () => {
+  const file =
+    elShipCreate.presetImport.files && elShipCreate.presetImport.files[0];
+  elShipCreate.presetImport.value = "";
   if (!file) return;
   let parsed;
   try {
     parsed = JSON.parse(await file.text());
   } catch (err) {
-    setPresetStatus(`That file is not valid JSON: ${err.message}`, true, elShipCreate);
+    setPresetStatus(
+      `That file is not valid JSON: ${err.message}`,
+      true,
+      elShipCreate,
+    );
     return;
   }
   try {
-    const { name, settings } = await api('/api/create-presets/import?kind=spaceship', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(parsed),
-    });
+    const { name, settings } = await api(
+      "/api/create-presets/import?kind=spaceship",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsed),
+      },
+    );
     applyShipSettings(settings);
-    setPresetStatus(`Loaded “${name}” from file. Save it if you want to keep it.`, false, elShipCreate);
+    setPresetStatus(
+      `Loaded “${name}” from file. Save it if you want to keep it.`,
+      false,
+      elShipCreate,
+    );
   } catch (err) {
     setPresetStatus(err.message, true, elShipCreate);
   }
@@ -5248,13 +5848,15 @@ elShipCreate.presetImport.addEventListener('change', async () => {
 const TRAIT_TILE_BATCH = 60;
 
 // Where the List/Pictures choice is remembered, per browser.
-const TRAIT_VIEW_STORAGE_KEY = 'traitImports.view';
+const TRAIT_VIEW_STORAGE_KEY = "traitImports.view";
 
 function readTraitView() {
   try {
-    return localStorage.getItem(TRAIT_VIEW_STORAGE_KEY) === 'pictures' ? 'pictures' : 'list';
+    return localStorage.getItem(TRAIT_VIEW_STORAGE_KEY) === "pictures"
+      ? "pictures"
+      : "list";
   } catch {
-    return 'list';
+    return "list";
   }
 }
 
@@ -5262,11 +5864,11 @@ const traitState = {
   candidates: [],
   visible: [],
   selected: new Set(),
-  search: '',
-  tableFilter: '',
+  search: "",
+  tableFilter: "",
   // The "Filter by" dropdown's key, '' for Any status. See TRAIT_STATUS_TESTS.
-  status: '',
-  sort: 'table',
+  status: "",
+  sort: "table",
   // Every heading in the tables file, from /api/trait-candidates - the
   // choices the detail sheet offers when correcting a candidate's table.
   tables: [],
@@ -5287,52 +5889,52 @@ const traitState = {
 };
 
 const elTraits = {
-  list: document.getElementById('trait-list'),
-  tiles: document.getElementById('trait-tiles'),
-  tilesMore: document.getElementById('trait-tiles-more'),
-  empty: document.getElementById('trait-empty'),
-  status: document.getElementById('trait-status'),
-  shortcuts: document.getElementById('trait-shortcuts'),
-  viewButtons: [...document.querySelectorAll('[data-trait-view]')],
-  importBtn: document.getElementById('trait-import-btn'),
-  clearBtn: document.getElementById('trait-clear-btn'),
-  selectAll: document.getElementById('trait-select-all'),
-  search: document.getElementById('trait-search'),
-  tableFilter: document.getElementById('trait-table-filter'),
-  statusFilter: document.getElementById('trait-status-filter'),
-  sortSelect: document.getElementById('trait-sort-select'),
-  overlay: document.getElementById('trait-detail-overlay'),
-  detailClose: document.getElementById('trait-detail-close'),
-  detailPrev: document.getElementById('trait-detail-prev'),
-  detailNext: document.getElementById('trait-detail-next'),
-  detailPosition: document.getElementById('trait-detail-position'),
-  detailSelect: document.getElementById('trait-detail-select'),
-  detailSelectNext: document.getElementById('trait-detail-select-next'),
-  detailTable: document.getElementById('trait-detail-table'),
-  detailSource: document.getElementById('trait-detail-source'),
-  detailBullet: document.getElementById('trait-detail-bullet'),
-  detailPlacement: document.getElementById('trait-detail-placement'),
-  detailBookkeeping: document.getElementById('trait-detail-bookkeeping'),
-  detailNotes: document.getElementById('trait-detail-notes'),
-  detailImage: document.getElementById('trait-detail-image'),
-  editForm: document.getElementById('trait-edit-form'),
-  editTable: document.getElementById('trait-edit-table'),
-  editBullet: document.getElementById('trait-edit-bullet'),
-  editOriginal: document.getElementById('trait-edit-original'),
-  editSave: document.getElementById('trait-edit-save'),
-  editReset: document.getElementById('trait-edit-reset'),
-  editStatus: document.getElementById('trait-edit-status'),
-  imageOverlay: document.getElementById('trait-image-overlay'),
-  imageClose: document.getElementById('trait-image-close'),
-  imageTitle: document.getElementById('trait-image-title'),
-  imagePrev: document.getElementById('trait-image-prev'),
-  imageNext: document.getElementById('trait-image-next'),
-  imagePosition: document.getElementById('trait-image-position'),
-  imageSelectAll: document.getElementById('trait-image-select-all'),
-  imageSelectNext: document.getElementById('trait-image-select-next'),
-  imageImg: document.getElementById('trait-image-img'),
-  imageMissing: document.getElementById('trait-image-missing'),
-  imageCandidates: document.getElementById('trait-image-candidates'),
+  list: document.getElementById("trait-list"),
+  tiles: document.getElementById("trait-tiles"),
+  tilesMore: document.getElementById("trait-tiles-more"),
+  empty: document.getElementById("trait-empty"),
+  status: document.getElementById("trait-status"),
+  shortcuts: document.getElementById("trait-shortcuts"),
+  viewButtons: [...document.querySelectorAll("[data-trait-view]")],
+  importBtn: document.getElementById("trait-import-btn"),
+  clearBtn: document.getElementById("trait-clear-btn"),
+  selectAll: document.getElementById("trait-select-all"),
+  search: document.getElementById("trait-search"),
+  tableFilter: document.getElementById("trait-table-filter"),
+  statusFilter: document.getElementById("trait-status-filter"),
+  sortSelect: document.getElementById("trait-sort-select"),
+  overlay: document.getElementById("trait-detail-overlay"),
+  detailClose: document.getElementById("trait-detail-close"),
+  detailPrev: document.getElementById("trait-detail-prev"),
+  detailNext: document.getElementById("trait-detail-next"),
+  detailPosition: document.getElementById("trait-detail-position"),
+  detailSelect: document.getElementById("trait-detail-select"),
+  detailSelectNext: document.getElementById("trait-detail-select-next"),
+  detailTable: document.getElementById("trait-detail-table"),
+  detailSource: document.getElementById("trait-detail-source"),
+  detailBullet: document.getElementById("trait-detail-bullet"),
+  detailPlacement: document.getElementById("trait-detail-placement"),
+  detailBookkeeping: document.getElementById("trait-detail-bookkeeping"),
+  detailNotes: document.getElementById("trait-detail-notes"),
+  detailImage: document.getElementById("trait-detail-image"),
+  editForm: document.getElementById("trait-edit-form"),
+  editTable: document.getElementById("trait-edit-table"),
+  editBullet: document.getElementById("trait-edit-bullet"),
+  editOriginal: document.getElementById("trait-edit-original"),
+  editSave: document.getElementById("trait-edit-save"),
+  editReset: document.getElementById("trait-edit-reset"),
+  editStatus: document.getElementById("trait-edit-status"),
+  imageOverlay: document.getElementById("trait-image-overlay"),
+  imageClose: document.getElementById("trait-image-close"),
+  imageTitle: document.getElementById("trait-image-title"),
+  imagePrev: document.getElementById("trait-image-prev"),
+  imageNext: document.getElementById("trait-image-next"),
+  imagePosition: document.getElementById("trait-image-position"),
+  imageSelectAll: document.getElementById("trait-image-select-all"),
+  imageSelectNext: document.getElementById("trait-image-select-next"),
+  imageImg: document.getElementById("trait-image-img"),
+  imageMissing: document.getElementById("trait-image-missing"),
+  imageCandidates: document.getElementById("trait-image-candidates"),
 };
 
 // The same hover-to-full-size the generated-art detail sheet uses. A reference
@@ -5341,11 +5943,12 @@ const elTraits = {
 attachImageZoom(elTraits.detailImage);
 
 async function refreshTraitCandidates() {
-  const { candidates, tables } = await api('/api/trait-candidates');
+  const { candidates, tables } = await api("/api/trait-candidates");
   traitState.candidates = candidates;
   traitState.tables = tables || [];
   for (const id of [...traitState.selected]) {
-    if (!candidates.some((c) => candidateKey(c) === id && !c.imported)) traitState.selected.delete(id);
+    if (!candidates.some((c) => candidateKey(c) === id && !c.imported))
+      traitState.selected.delete(id);
   }
   renderTraitTableFilter();
   renderTraits();
@@ -5366,8 +5969,11 @@ function traitImageUrl(c) {
 function renderTraitTableFilter() {
   const tables = [...new Set(traitState.candidates.map((c) => c.table))].sort();
   const current = elTraits.tableFilter.value;
-  elTraits.tableFilter.innerHTML = '<option value="">All tables</option>'
-    + tables.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+  elTraits.tableFilter.innerHTML =
+    '<option value="">All tables</option>' +
+    tables
+      .map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`)
+      .join("");
   if (tables.includes(current)) elTraits.tableFilter.value = current;
 }
 
@@ -5390,8 +5996,8 @@ function renderTraitTableFilter() {
 const TRAIT_STATUS_TESTS = {
   pending: (c) => !c.imported,
   imported: (c) => !!c.imported,
-  'with-image': (c) => !!c.hasSourceImage,
-  'without-image': (c) => !c.hasSourceImage,
+  "with-image": (c) => !!c.hasSourceImage,
+  "without-image": (c) => !c.hasSourceImage,
   selected: (c) => traitState.selected.has(candidateKey(c)),
 };
 
@@ -5412,14 +6018,21 @@ function traitMatchesStatus(c, status) {
  * filter exists to save you from.
  */
 function traitMatchesOtherFilters(c) {
-  if (traitState.tableFilter && c.table !== traitState.tableFilter) return false;
+  if (traitState.tableFilter && c.table !== traitState.tableFilter)
+    return false;
   const search = traitState.search.trim().toLowerCase();
   if (!search) return true;
-  return [c.bullet, c.sourceImage, c.notes, c.table].filter(Boolean).join('\n').toLowerCase().includes(search);
+  return [c.bullet, c.sourceImage, c.notes, c.table]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase()
+    .includes(search);
 }
 
 function traitMatchesFilters(c) {
-  return traitMatchesOtherFilters(c) && traitMatchesStatus(c, traitState.status);
+  return (
+    traitMatchesOtherFilters(c) && traitMatchesStatus(c, traitState.status)
+  );
 }
 
 /**
@@ -5445,11 +6058,15 @@ function renderTraitStatusFilter() {
 }
 
 function compareTraitCandidates(a, b) {
-  if (traitState.sort === 'when-asc') return (a.generatedAt || '').localeCompare(b.generatedAt || '');
-  if (traitState.sort === 'table') {
-    return a.table.localeCompare(b.table) || (b.generatedAt || '').localeCompare(a.generatedAt || '');
+  if (traitState.sort === "when-asc")
+    return (a.generatedAt || "").localeCompare(b.generatedAt || "");
+  if (traitState.sort === "table") {
+    return (
+      a.table.localeCompare(b.table) ||
+      (b.generatedAt || "").localeCompare(a.generatedAt || "")
+    );
   }
-  return (b.generatedAt || '').localeCompare(a.generatedAt || ''); // when-desc, the default
+  return (b.generatedAt || "").localeCompare(a.generatedAt || ""); // when-desc, the default
 }
 
 /**
@@ -5469,10 +6086,16 @@ function compareTraitCandidates(a, b) {
 function groupTraitCandidatesByImage(candidates) {
   const groups = new Map();
   for (const c of candidates) {
-    const key = `${c.file}::${c.sourceImage || ''}`;
+    const key = `${c.file}::${c.sourceImage || ""}`;
     let group = groups.get(key);
     if (!group) {
-      group = { key, file: c.file, sourceImage: c.sourceImage || '', imageCandidate: null, candidates: [] };
+      group = {
+        key,
+        file: c.file,
+        sourceImage: c.sourceImage || "",
+        imageCandidate: null,
+        candidates: [],
+      };
       groups.set(key, group);
     }
     group.candidates.push(c);
@@ -5502,29 +6125,61 @@ function stepTraitKey(keys, current, offset) {
  */
 const TRAIT_KEYS = {
   list: {
-    j: 'next', ArrowDown: 'next', k: 'prev', ArrowUp: 'prev',
-    ' ': 'toggle', x: 'toggle', Enter: 'open', o: 'open',
-    a: 'selectAll', u: 'clear', '/': 'search', v: 'view',
+    j: "next",
+    ArrowDown: "next",
+    k: "prev",
+    ArrowUp: "prev",
+    " ": "toggle",
+    x: "toggle",
+    Enter: "open",
+    o: "open",
+    a: "selectAll",
+    u: "clear",
+    "/": "search",
+    v: "view",
   },
   pictures: {
-    l: 'next', ArrowRight: 'next', h: 'prev', ArrowLeft: 'prev',
-    j: 'down', ArrowDown: 'down', k: 'up', ArrowUp: 'up',
-    ' ': 'toggle', x: 'toggle', Enter: 'open', o: 'open',
-    a: 'selectAll', u: 'clear', '/': 'search', v: 'view',
+    l: "next",
+    ArrowRight: "next",
+    h: "prev",
+    ArrowLeft: "prev",
+    j: "down",
+    ArrowDown: "down",
+    k: "up",
+    ArrowUp: "up",
+    " ": "toggle",
+    x: "toggle",
+    Enter: "open",
+    o: "open",
+    a: "selectAll",
+    u: "clear",
+    "/": "search",
+    v: "view",
   },
   detail: {
-    ArrowRight: 'next', l: 'next', ArrowLeft: 'prev', h: 'prev',
-    ' ': 'toggle', x: 'toggle', Enter: 'selectNext',
+    ArrowRight: "next",
+    l: "next",
+    ArrowLeft: "prev",
+    h: "prev",
+    " ": "toggle",
+    x: "toggle",
+    Enter: "selectNext",
   },
   image: {
-    ArrowRight: 'next', l: 'next', ArrowLeft: 'prev', h: 'prev',
-    a: 'toggleAll', x: 'toggleAll', Enter: 'selectNext',
+    ArrowRight: "next",
+    l: "next",
+    ArrowLeft: "prev",
+    h: "prev",
+    a: "toggleAll",
+    x: "toggleAll",
+    Enter: "selectNext",
   },
 };
 
 const TRAIT_SHORTCUT_HINTS = {
-  list: 'J/K or ↑↓ move · Space select · Enter open · A select all shown · U clear selection · / search · V pictures',
-  pictures: 'Arrows move · Space select the image’s traits · Enter open · A select all shown · U clear selection · / search · V list',
+  list: "J/K or ↑↓ move · Space select · Enter open · A select all shown · U clear selection · / search · V pictures",
+  pictures:
+    "Arrows move · Space select the image’s traits · Enter open · A select all shown · U clear selection · / search · V list",
 };
 
 /** The action a key press means in one context, or null. */
@@ -5532,7 +6187,8 @@ function traitKeyAction(context, key) {
   const map = TRAIT_KEYS[context];
   if (!map) return null;
   const normalised = key.length === 1 ? key.toLowerCase() : key;
-  if (context === 'image' && /^[1-9]$/.test(normalised)) return `pick:${Number(normalised) - 1}`;
+  if (context === "image" && /^[1-9]$/.test(normalised))
+    return `pick:${Number(normalised) - 1}`;
   return map[normalised] || null;
 }
 
@@ -5551,7 +6207,9 @@ function setTraitSelected(c, on) {
  */
 function toggleTraitSelectedAll(candidates) {
   const pending = candidates.filter((c) => !c.imported);
-  const allOn = pending.length > 0 && pending.every((c) => traitState.selected.has(candidateKey(c)));
+  const allOn =
+    pending.length > 0 &&
+    pending.every((c) => traitState.selected.has(candidateKey(c)));
   for (const c of pending) setTraitSelected(c, !allOn);
 }
 
@@ -5559,25 +6217,30 @@ function renderTraits() {
   // Ahead of the list, so the counts in the dropdown and the rows underneath
   // always describe the same filtered set in the same frame.
   renderTraitStatusFilter();
-  traitState.visible = traitState.candidates.filter(traitMatchesFilters).sort(compareTraitCandidates);
+  traitState.visible = traitState.candidates
+    .filter(traitMatchesFilters)
+    .sort(compareTraitCandidates);
   traitState.groups = groupTraitCandidatesByImage(traitState.visible);
-  const pictures = traitState.view === 'pictures';
+  const pictures = traitState.view === "pictures";
 
   for (const button of elTraits.viewButtons) {
-    button.setAttribute('aria-pressed', String(button.dataset.traitView === traitState.view));
+    button.setAttribute(
+      "aria-pressed",
+      String(button.dataset.traitView === traitState.view),
+    );
   }
   elTraits.shortcuts.textContent = TRAIT_SHORTCUT_HINTS[traitState.view];
   elTraits.empty.hidden = traitState.visible.length > 0;
   elTraits.empty.textContent = traitState.candidates.length
-    ? 'No candidates match the current filters.'
-    : 'No staged trait candidates yet — run the npc-trait-import skill, then reload.';
+    ? "No candidates match the current filters."
+    : "No staged trait candidates yet — run the npc-trait-import skill, then reload.";
 
   // Only the view on screen is built: the other is rebuilt from state the
   // moment it is switched to, and 800 hidden rows or tiles are wasted work.
   elTraits.list.hidden = pictures;
   elTraits.tiles.hidden = !pictures;
-  elTraits.list.innerHTML = '';
-  elTraits.tiles.innerHTML = '';
+  elTraits.list.innerHTML = "";
+  elTraits.tiles.innerHTML = "";
   elTraits.tilesMore.hidden = true;
   if (pictures) renderTraitTiles();
   else renderTraitRows();
@@ -5588,15 +6251,15 @@ function renderTraits() {
 function renderTraitRows() {
   for (const c of traitState.visible) {
     const key = candidateKey(c);
-    const row = document.createElement('div');
-    row.className = 'trait-row' + (c.imported ? ' imported' : '');
+    const row = document.createElement("div");
+    row.className = "trait-row" + (c.imported ? " imported" : "");
     row.dataset.key = key;
 
-    const check = document.createElement('input');
-    check.type = 'checkbox';
+    const check = document.createElement("input");
+    check.type = "checkbox";
     check.disabled = c.imported;
-    check.addEventListener('click', (e) => e.stopPropagation());
-    check.addEventListener('change', () => {
+    check.addEventListener("click", (e) => e.stopPropagation());
+    check.addEventListener("change", () => {
       setTraitSelected(c, check.checked);
       // The highlight follows the tick, so Space next acts on this row.
       setTraitCursor(key, false);
@@ -5604,45 +6267,46 @@ function renderTraitRows() {
     });
     row.appendChild(check);
 
-    const badge = document.createElement('span');
-    badge.className = 'badge table-badge';
+    const badge = document.createElement("span");
+    badge.className = "badge table-badge";
     badge.textContent = c.table;
     row.appendChild(badge);
 
-    const bullet = document.createElement('span');
-    bullet.className = 'trait-bullet';
-    bullet.textContent = c.bullet.length > 160 ? `${c.bullet.slice(0, 160)}…` : c.bullet;
+    const bullet = document.createElement("span");
+    bullet.className = "trait-bullet";
+    bullet.textContent =
+      c.bullet.length > 160 ? `${c.bullet.slice(0, 160)}…` : c.bullet;
     row.appendChild(bullet);
 
     if (c.edited) {
-      const editedBadge = document.createElement('span');
-      editedBadge.className = 'badge';
-      editedBadge.textContent = 'Edited';
+      const editedBadge = document.createElement("span");
+      editedBadge.className = "badge";
+      editedBadge.textContent = "Edited";
       editedBadge.title = `Staged as: ${c.originalTable ?? c.table} — ${c.originalBullet ?? c.bullet}`;
       row.appendChild(editedBadge);
     }
 
     if (c.generatedAt) {
-      const generatedBadge = document.createElement('span');
-      generatedBadge.className = 'badge date-badge';
+      const generatedBadge = document.createElement("span");
+      generatedBadge.className = "badge date-badge";
       generatedBadge.textContent = new Date(c.generatedAt).toLocaleDateString();
       row.appendChild(generatedBadge);
     }
 
     if (c.imported) {
-      const importedBadge = document.createElement('span');
-      importedBadge.className = 'badge';
-      importedBadge.textContent = 'Imported';
+      const importedBadge = document.createElement("span");
+      importedBadge.className = "badge";
+      importedBadge.textContent = "Imported";
       row.appendChild(importedBadge);
       if (c.importedAt) {
-        const importedDateBadge = document.createElement('span');
-        importedDateBadge.className = 'badge date-badge';
+        const importedDateBadge = document.createElement("span");
+        importedDateBadge.className = "badge date-badge";
         importedDateBadge.textContent = `on ${new Date(c.importedAt).toLocaleDateString()}`;
         row.appendChild(importedDateBadge);
       }
     }
 
-    row.addEventListener('click', () => {
+    row.addEventListener("click", () => {
       setTraitCursor(key, false);
       openTraitDetail(c);
     });
@@ -5653,8 +6317,8 @@ function renderTraitRows() {
 
 function paintTraitRow(row, c) {
   const on = traitState.selected.has(candidateKey(c));
-  row.classList.toggle('selected', on);
-  row.classList.toggle('cursor', row.dataset.key === traitState.cursor);
+  row.classList.toggle("selected", on);
+  row.classList.toggle("cursor", row.dataset.key === traitState.cursor);
   row.querySelector('input[type="checkbox"]').checked = on;
 }
 
@@ -5676,40 +6340,44 @@ function appendTraitTiles(limit) {
   }
   const remaining = groups.length - target;
   elTraits.tilesMore.hidden = remaining <= 0;
-  elTraits.tilesMore.textContent = `Show more (${remaining} more image${remaining === 1 ? '' : 's'})`;
+  elTraits.tilesMore.textContent = `Show more (${remaining} more image${remaining === 1 ? "" : "s"})`;
 }
 
 function buildTraitTile(group) {
-  const tile = document.createElement('button');
-  tile.type = 'button';
-  tile.className = 'trait-tile';
+  const tile = document.createElement("button");
+  tile.type = "button";
+  tile.className = "trait-tile";
   tile.dataset.key = group.key;
-  tile.title = group.sourceImage || 'No source image named';
+  tile.title = group.sourceImage || "No source image named";
 
   if (group.imageCandidate) {
-    const img = document.createElement('img');
-    img.loading = 'lazy';
-    img.decoding = 'async';
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.decoding = "async";
     img.alt = group.sourceImage;
     img.src = traitImageUrl(group.imageCandidate);
     tile.appendChild(img);
   } else {
-    const missing = document.createElement('div');
-    missing.className = 'trait-tile-noimage';
-    missing.textContent = group.sourceImage ? 'No staged copy' : 'No source image';
+    const missing = document.createElement("div");
+    missing.className = "trait-tile-noimage";
+    missing.textContent = group.sourceImage
+      ? "No staged copy"
+      : "No source image";
     tile.appendChild(missing);
   }
 
-  const count = document.createElement('span');
-  count.className = 'badge trait-tile-count';
+  const count = document.createElement("span");
+  count.className = "badge trait-tile-count";
   tile.appendChild(count);
 
-  const caption = document.createElement('span');
-  caption.className = 'trait-tile-caption';
-  caption.textContent = [...new Set(group.candidates.map((c) => c.table))].join(' · ');
+  const caption = document.createElement("span");
+  caption.className = "trait-tile-caption";
+  caption.textContent = [...new Set(group.candidates.map((c) => c.table))].join(
+    " · ",
+  );
   tile.appendChild(caption);
 
-  tile.addEventListener('click', () => {
+  tile.addEventListener("click", () => {
     setTileCursor(group.key, false);
     openTraitImage(group.key);
   });
@@ -5719,15 +6387,18 @@ function buildTraitTile(group) {
 
 function paintTraitTile(tile, group) {
   const pending = group.candidates.filter((c) => !c.imported);
-  const picked = pending.filter((c) => traitState.selected.has(candidateKey(c))).length;
-  const count = tile.querySelector('.trait-tile-count');
+  const picked = pending.filter((c) =>
+    traitState.selected.has(candidateKey(c)),
+  ).length;
+  const count = tile.querySelector(".trait-tile-count");
   const total = group.candidates.length;
-  count.textContent = `${total} trait${total === 1 ? '' : 's'}`
-    + (picked ? ` · ${picked} selected` : '')
-    + (pending.length === 0 ? ' · imported' : '');
-  tile.classList.toggle('has-selection', picked > 0);
-  tile.classList.toggle('all-imported', pending.length === 0);
-  tile.classList.toggle('cursor', group.key === traitState.tileCursor);
+  count.textContent =
+    `${total} trait${total === 1 ? "" : "s"}` +
+    (picked ? ` · ${picked} selected` : "") +
+    (pending.length === 0 ? " · imported" : "");
+  tile.classList.toggle("has-selection", picked > 0);
+  tile.classList.toggle("all-imported", pending.length === 0);
+  tile.classList.toggle("cursor", group.key === traitState.tileCursor);
 }
 
 /**
@@ -5760,43 +6431,51 @@ function updateTraitToolbar() {
   elTraits.importBtn.disabled = traitState.selected.size === 0;
   elTraits.clearBtn.disabled = traitState.selected.size === 0;
   const notImported = traitState.visible.filter((c) => !c.imported);
-  elTraits.selectAll.checked = notImported.length > 0
-    && notImported.every((c) => traitState.selected.has(candidateKey(c)));
+  elTraits.selectAll.checked =
+    notImported.length > 0 &&
+    notImported.every((c) => traitState.selected.has(candidateKey(c)));
 }
 
 /** Move the list's keyboard highlight, scrolling the row into view if asked. */
 function setTraitCursor(key, scroll = true) {
   traitState.cursor = key;
-  for (const row of elTraits.list.querySelectorAll('.trait-row.cursor')) row.classList.remove('cursor');
+  for (const row of elTraits.list.querySelectorAll(".trait-row.cursor"))
+    row.classList.remove("cursor");
   if (!key) return;
   const row = elTraits.list.querySelector(`[data-key="${CSS.escape(key)}"]`);
   if (!row) return;
-  row.classList.add('cursor');
-  if (scroll) row.scrollIntoView({ block: 'nearest' });
+  row.classList.add("cursor");
+  if (scroll) row.scrollIntoView({ block: "nearest" });
 }
 
 /** Move the Pictures view's keyboard highlight, building tiles up to it first. */
 function setTileCursor(key, scroll = true) {
   traitState.tileCursor = key;
-  for (const tile of elTraits.tiles.querySelectorAll('.trait-tile.cursor')) tile.classList.remove('cursor');
+  for (const tile of elTraits.tiles.querySelectorAll(".trait-tile.cursor"))
+    tile.classList.remove("cursor");
   const index = traitState.groups.findIndex((g) => g.key === key);
   if (index === -1) return;
-  if (index >= elTraits.tiles.children.length) appendTraitTiles(index + TRAIT_TILE_BATCH);
+  if (index >= elTraits.tiles.children.length)
+    appendTraitTiles(index + TRAIT_TILE_BATCH);
   const tile = elTraits.tiles.children[index];
-  tile.classList.add('cursor');
-  if (scroll) tile.scrollIntoView({ block: 'nearest' });
+  tile.classList.add("cursor");
+  if (scroll) tile.scrollIntoView({ block: "nearest" });
 }
 
 /** How many tiles sit in one row of the grid right now, for ↑ and ↓. */
 function traitTileColumns() {
-  const columns = getComputedStyle(elTraits.tiles).gridTemplateColumns.split(' ').filter(Boolean).length;
+  const columns = getComputedStyle(elTraits.tiles)
+    .gridTemplateColumns.split(" ")
+    .filter(Boolean).length;
   return Math.max(1, columns);
 }
 
 function openTraitDetail(c) {
   traitState.detailKey = candidateKey(c);
   elTraits.detailTable.textContent = c.table;
-  elTraits.detailSource.textContent = c.sourceImage ? `From: ${c.sourceImage}` : '';
+  elTraits.detailSource.textContent = c.sourceImage
+    ? `From: ${c.sourceImage}`
+    : "";
   // hasSourceImage is the server's answer about refs/, not a guess from the
   // filename: a run staged before the skill copied its images, or one whose
   // copies have since been cleaned out, still names its source but has nothing
@@ -5808,16 +6487,16 @@ function openTraitDetail(c) {
   } else {
     // Cleared rather than just hidden, so opening a candidate that has no
     // reference image cannot flash the last one that did.
-    elTraits.detailImage.removeAttribute('src');
-    elTraits.detailImage.alt = '';
+    elTraits.detailImage.removeAttribute("src");
+    elTraits.detailImage.alt = "";
     elTraits.detailImage.hidden = true;
   }
   elTraits.detailBullet.textContent = c.bullet;
-  elTraits.detailPlacement.textContent = c.placementHint || '—';
-  elTraits.detailBookkeeping.textContent = c.bookkeepingNote || '—';
-  elTraits.detailNotes.textContent = c.notes || '—';
+  elTraits.detailPlacement.textContent = c.placementHint || "—";
+  elTraits.detailBookkeeping.textContent = c.bookkeepingNote || "—";
+  elTraits.detailNotes.textContent = c.notes || "—";
   traitState.detail = c;
-  elTraits.editStatus.textContent = '';
+  elTraits.editStatus.textContent = "";
   renderTraitEditForm(c);
   renderTraitDetailNav();
   elTraits.overlay.hidden = false;
@@ -5825,7 +6504,7 @@ function openTraitDetail(c) {
 
 /** A heading's base table name: 'Hair (she) +' -> 'Hair'. Same rule as lib/tableGroups.js. */
 function traitTableBase(name) {
-  const paren = name.indexOf(' (');
+  const paren = name.indexOf(" (");
   return paren === -1 ? name : name.slice(0, paren);
 }
 
@@ -5839,8 +6518,13 @@ function traitTableBase(name) {
  * a different table than the one the entry names.
  */
 function traitEditTableGroups(c, tables) {
-  const all = [...new Set([...tables, c.table, c.originalTable].filter(Boolean))];
-  const bases = new Set([traitTableBase(c.table), traitTableBase(c.originalTable || c.table)]);
+  const all = [
+    ...new Set([...tables, c.table, c.originalTable].filter(Boolean)),
+  ];
+  const bases = new Set([
+    traitTableBase(c.table),
+    traitTableBase(c.originalTable || c.table),
+  ]);
   const family = all.filter((t) => bases.has(traitTableBase(t)));
   const rest = all.filter((t) => !bases.has(traitTableBase(t)));
   return { family, rest };
@@ -5858,18 +6542,24 @@ function renderTraitEditForm(c) {
   if (!editable) return;
 
   const { family, rest } = traitEditTableGroups(c, traitState.tables);
-  const options = (names) => names
-    .map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
-  elTraits.editTable.innerHTML = (family.length
-    ? `<optgroup label="Same table">${options(family)}</optgroup>` : '')
-    + (rest.length ? `<optgroup label="Other tables">${options(rest)}</optgroup>` : '');
+  const options = (names) =>
+    names
+      .map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`)
+      .join("");
+  elTraits.editTable.innerHTML =
+    (family.length
+      ? `<optgroup label="Same table">${options(family)}</optgroup>`
+      : "") +
+    (rest.length
+      ? `<optgroup label="Other tables">${options(rest)}</optgroup>`
+      : "");
   elTraits.editTable.value = c.table;
   elTraits.editBullet.value = c.bullet;
 
   elTraits.editOriginal.hidden = !c.edited;
   elTraits.editOriginal.textContent = c.edited
     ? `Staged as: ${c.originalTable ?? c.table} — ${c.originalBullet ?? c.bullet}`
-    : '';
+    : "";
   elTraits.editReset.hidden = !c.edited;
   updateTraitEditSave();
 }
@@ -5877,9 +6567,11 @@ function renderTraitEditForm(c) {
 /** Save is only live when the form differs from what the entry already says. */
 function updateTraitEditSave() {
   const c = traitState.detail;
-  elTraits.editSave.disabled = !c
-    || (elTraits.editTable.value === c.table && elTraits.editBullet.value.trim() === c.bullet)
-    || !elTraits.editBullet.value.trim();
+  elTraits.editSave.disabled =
+    !c ||
+    (elTraits.editTable.value === c.table &&
+      elTraits.editBullet.value.trim() === c.bullet) ||
+    !elTraits.editBullet.value.trim();
 }
 
 async function submitTraitEdit(body) {
@@ -5887,17 +6579,22 @@ async function submitTraitEdit(body) {
   if (!c) return;
   elTraits.editSave.disabled = true;
   elTraits.editReset.disabled = true;
-  elTraits.editStatus.textContent = 'Saving…';
+  elTraits.editStatus.textContent = "Saving…";
   try {
-    const { candidate } = await api('/api/trait-candidates/edit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const { candidate } = await api("/api/trait-candidates/edit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ file: c.file, id: c.id, ...body }),
     });
     await refreshTraitCandidates();
-    const fresh = traitState.candidates.find((x) => candidateKey(x) === candidateKey(candidate)) || candidate;
+    const fresh =
+      traitState.candidates.find(
+        (x) => candidateKey(x) === candidateKey(candidate),
+      ) || candidate;
     openTraitDetail(fresh);
-    elTraits.editStatus.textContent = body.reset ? 'Reverted to the staged table and text.' : 'Saved.';
+    elTraits.editStatus.textContent = body.reset
+      ? "Reverted to the staged table and text."
+      : "Saved.";
   } catch (err) {
     elTraits.editStatus.textContent = `Could not save: ${err.message}`;
     updateTraitEditSave();
@@ -5906,25 +6603,38 @@ async function submitTraitEdit(body) {
   }
 }
 
-elTraits.editTable.addEventListener('change', updateTraitEditSave);
-elTraits.editBullet.addEventListener('input', updateTraitEditSave);
-elTraits.editForm.addEventListener('submit', (e) => {
+elTraits.editTable.addEventListener("change", updateTraitEditSave);
+elTraits.editBullet.addEventListener("input", updateTraitEditSave);
+elTraits.editForm.addEventListener("submit", (e) => {
   e.preventDefault();
-  submitTraitEdit({ table: elTraits.editTable.value, bullet: elTraits.editBullet.value });
+  submitTraitEdit({
+    table: elTraits.editTable.value,
+    bullet: elTraits.editBullet.value,
+  });
 });
-elTraits.editReset.addEventListener('click', () => submitTraitEdit({ reset: true }));
+elTraits.editReset.addEventListener("click", () =>
+  submitTraitEdit({ reset: true }),
+);
 
 function renderTraitDetailNav() {
-  const index = traitState.visible.findIndex((c) => candidateKey(c) === traitState.detailKey);
-  const c = traitState.visible[index] || traitCandidateByKey(traitState.detailKey);
+  const index = traitState.visible.findIndex(
+    (c) => candidateKey(c) === traitState.detailKey,
+  );
+  const c =
+    traitState.visible[index] || traitCandidateByKey(traitState.detailKey);
   const hasNext = index !== -1 && index < traitState.visible.length - 1;
-  elTraits.detailPosition.textContent = index === -1 ? '' : `${index + 1} of ${traitState.visible.length}`;
+  elTraits.detailPosition.textContent =
+    index === -1 ? "" : `${index + 1} of ${traitState.visible.length}`;
   elTraits.detailPrev.disabled = index <= 0;
   elTraits.detailNext.disabled = !hasNext;
   const on = !!c && traitState.selected.has(candidateKey(c));
   elTraits.detailSelect.disabled = !c || c.imported;
-  elTraits.detailSelect.textContent = c?.imported ? 'Imported' : on ? 'Selected ✓' : 'Select';
-  elTraits.detailSelect.classList.toggle('is-on', on);
+  elTraits.detailSelect.textContent = c?.imported
+    ? "Imported"
+    : on
+      ? "Selected ✓"
+      : "Select";
+  elTraits.detailSelect.classList.toggle("is-on", on);
   elTraits.detailSelectNext.disabled = !c || (c.imported && !hasNext);
 }
 
@@ -5948,18 +6658,20 @@ function openTraitImage(key) {
   if (!group) return;
   const changed = traitState.imageKey !== key;
   traitState.imageKey = key;
-  elTraits.imageTitle.textContent = group.sourceImage || 'No source image named';
+  elTraits.imageTitle.textContent =
+    group.sourceImage || "No source image named";
   if (group.imageCandidate) {
     // Only reassigned when the image really changes, so a repaint after a
     // selection does not flash the picture.
     const src = traitImageUrl(group.imageCandidate);
-    if (elTraits.imageImg.getAttribute('src') !== src) elTraits.imageImg.src = src;
+    if (elTraits.imageImg.getAttribute("src") !== src)
+      elTraits.imageImg.src = src;
     elTraits.imageImg.alt = `Reference image ${group.sourceImage}`;
     elTraits.imageImg.hidden = false;
     elTraits.imageMissing.hidden = true;
   } else {
-    elTraits.imageImg.removeAttribute('src');
-    elTraits.imageImg.alt = '';
+    elTraits.imageImg.removeAttribute("src");
+    elTraits.imageImg.alt = "";
     elTraits.imageImg.hidden = true;
     elTraits.imageMissing.hidden = false;
   }
@@ -5969,57 +6681,57 @@ function openTraitImage(key) {
 }
 
 function renderTraitImageCandidates(group) {
-  elTraits.imageCandidates.innerHTML = '';
+  elTraits.imageCandidates.innerHTML = "";
   group.candidates.forEach((c, i) => {
-    const item = document.createElement('li');
-    item.className = 'trait-image-candidate' + (c.imported ? ' imported' : '');
+    const item = document.createElement("li");
+    item.className = "trait-image-candidate" + (c.imported ? " imported" : "");
     item.dataset.key = candidateKey(c);
 
-    const label = document.createElement('label');
-    const head = document.createElement('span');
-    head.className = 'trait-image-candidate-head';
-    const check = document.createElement('input');
-    check.type = 'checkbox';
+    const label = document.createElement("label");
+    const head = document.createElement("span");
+    head.className = "trait-image-candidate-head";
+    const check = document.createElement("input");
+    check.type = "checkbox";
     check.disabled = c.imported;
-    check.addEventListener('change', () => {
+    check.addEventListener("change", () => {
       setTraitSelected(c, check.checked);
       refreshTraitSelection();
     });
     head.appendChild(check);
-    const number = document.createElement('kbd');
-    number.textContent = i < 9 ? String(i + 1) : '';
+    const number = document.createElement("kbd");
+    number.textContent = i < 9 ? String(i + 1) : "";
     number.hidden = i >= 9;
     head.appendChild(number);
-    const table = document.createElement('span');
-    table.className = 'badge table-badge';
+    const table = document.createElement("span");
+    table.className = "badge table-badge";
     table.textContent = c.table;
     head.appendChild(table);
     if (c.imported) {
-      const importedBadge = document.createElement('span');
-      importedBadge.className = 'badge';
-      importedBadge.textContent = 'Imported';
+      const importedBadge = document.createElement("span");
+      importedBadge.className = "badge";
+      importedBadge.textContent = "Imported";
       head.appendChild(importedBadge);
     }
     label.appendChild(head);
-    const bullet = document.createElement('span');
-    bullet.className = 'trait-image-bullet';
+    const bullet = document.createElement("span");
+    bullet.className = "trait-image-bullet";
     bullet.textContent = c.bullet;
     label.appendChild(bullet);
     item.appendChild(label);
 
     const extras = [
-      ['Placement hint', c.placementHint],
-      ['Bookkeeping note', c.bookkeepingNote],
-      ['Notes', c.notes],
+      ["Placement hint", c.placementHint],
+      ["Bookkeeping note", c.bookkeepingNote],
+      ["Notes", c.notes],
     ].filter(([, text]) => text);
     if (extras.length) {
-      const details = document.createElement('details');
-      const summary = document.createElement('summary');
-      summary.textContent = extras.map(([name]) => name).join(', ');
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = extras.map(([name]) => name).join(", ");
       details.appendChild(summary);
       for (const [name, text] of extras) {
-        const p = document.createElement('p');
-        const strong = document.createElement('strong');
+        const p = document.createElement("p");
+        const strong = document.createElement("strong");
         strong.textContent = `${name}: `;
         p.append(strong, text);
         details.appendChild(p);
@@ -6032,12 +6744,14 @@ function renderTraitImageCandidates(group) {
 
 /** Checkboxes, position and buttons of the open image sheet, from state. */
 function paintTraitImageSheet() {
-  const index = traitState.groups.findIndex((g) => g.key === traitState.imageKey);
+  const index = traitState.groups.findIndex(
+    (g) => g.key === traitState.imageKey,
+  );
   const group = traitState.groups[index];
   if (!group) return;
   for (const item of elTraits.imageCandidates.children) {
     const on = traitState.selected.has(item.dataset.key);
-    item.classList.toggle('selected', on);
+    item.classList.toggle("selected", on);
     item.querySelector('input[type="checkbox"]').checked = on;
   }
   const hasNext = index < traitState.groups.length - 1;
@@ -6045,9 +6759,11 @@ function paintTraitImageSheet() {
   elTraits.imagePrev.disabled = index <= 0;
   elTraits.imageNext.disabled = !hasNext;
   const pending = group.candidates.filter((c) => !c.imported);
-  const allOn = pending.length > 0 && pending.every((c) => traitState.selected.has(candidateKey(c)));
+  const allOn =
+    pending.length > 0 &&
+    pending.every((c) => traitState.selected.has(candidateKey(c)));
   elTraits.imageSelectAll.disabled = pending.length === 0;
-  elTraits.imageSelectAll.textContent = allOn ? 'Deselect all' : 'Select all';
+  elTraits.imageSelectAll.textContent = allOn ? "Deselect all" : "Select all";
   elTraits.imageSelectNext.disabled = pending.length === 0 && !hasNext;
 }
 
@@ -6074,10 +6790,13 @@ function setTraitView(view) {
   traitState.view = view;
   try {
     localStorage.setItem(TRAIT_VIEW_STORAGE_KEY, view);
-  } catch { /* private mode: the choice just lasts until reload */ }
+  } catch {
+    /* private mode: the choice just lasts until reload */
+  }
   renderTraits();
-  if (view === 'pictures' && traitState.tileCursor) setTileCursor(traitState.tileCursor);
-  if (view === 'list' && traitState.cursor) setTraitCursor(traitState.cursor);
+  if (view === "pictures" && traitState.tileCursor)
+    setTileCursor(traitState.tileCursor);
+  if (view === "list" && traitState.cursor) setTraitCursor(traitState.cursor);
 }
 
 /**
@@ -6088,85 +6807,112 @@ function setTraitView(view) {
  * → with the mouse on the image should still move on.
  */
 function traitKeyContext() {
-  if (!elSettings.overlay.hidden || !elDeleteConfirm.overlay.hidden
-      || !elRerollConfirm.overlay.hidden || !elSetTrait.overlay.hidden) return null;
-  if (!elTraits.imageOverlay.hidden) return 'image';
-  if (!elTraits.overlay.hidden) return 'detail';
-  if (tabState.current !== 'traits' || !el.overlay.hidden) return null;
+  if (
+    !elSettings.overlay.hidden ||
+    !elDeleteConfirm.overlay.hidden ||
+    !elRerollConfirm.overlay.hidden ||
+    !elSetTrait.overlay.hidden
+  )
+    return null;
+  if (!elTraits.imageOverlay.hidden) return "image";
+  if (!elTraits.overlay.hidden) return "detail";
+  if (tabState.current !== "traits" || !el.overlay.hidden) return null;
   return traitState.view;
 }
 
 function runTraitAction(context, action) {
-  if (context === 'list') {
+  if (context === "list") {
     const keys = traitState.visible.map(candidateKey);
-    if (action === 'next' || action === 'prev') {
-      setTraitCursor(stepTraitKey(keys, traitState.cursor, action === 'next' ? 1 : -1));
-    } else if (action === 'toggle' || action === 'open') {
-      const c = keys.includes(traitState.cursor) ? traitCandidateByKey(traitState.cursor) : null;
+    if (action === "next" || action === "prev") {
+      setTraitCursor(
+        stepTraitKey(keys, traitState.cursor, action === "next" ? 1 : -1),
+      );
+    } else if (action === "toggle" || action === "open") {
+      const c = keys.includes(traitState.cursor)
+        ? traitCandidateByKey(traitState.cursor)
+        : null;
       if (!c) return setTraitCursor(keys[0] || null);
-      if (action === 'open') return openTraitDetail(c);
+      if (action === "open") return openTraitDetail(c);
       setTraitSelected(c, !traitState.selected.has(candidateKey(c)));
       refreshTraitSelection();
     }
-  } else if (context === 'pictures') {
+  } else if (context === "pictures") {
     const keys = traitState.groups.map((g) => g.key);
-    const steps = { next: 1, prev: -1, down: traitTileColumns(), up: -traitTileColumns() };
+    const steps = {
+      next: 1,
+      prev: -1,
+      down: traitTileColumns(),
+      up: -traitTileColumns(),
+    };
     if (action in steps) {
       setTileCursor(stepTraitKey(keys, traitState.tileCursor, steps[action]));
-    } else if (action === 'toggle' || action === 'open') {
-      const group = traitState.groups.find((g) => g.key === traitState.tileCursor);
+    } else if (action === "toggle" || action === "open") {
+      const group = traitState.groups.find(
+        (g) => g.key === traitState.tileCursor,
+      );
       if (!group) return setTileCursor(keys[0] || null);
-      if (action === 'open') return openTraitImage(group.key);
+      if (action === "open") return openTraitImage(group.key);
       toggleTraitSelectedAll(group.candidates);
       refreshTraitSelection();
     }
-  } else if (context === 'detail') {
+  } else if (context === "detail") {
     const c = traitCandidateByKey(traitState.detailKey);
-    if (action === 'next' || action === 'prev') return stepTraitDetail(action === 'next' ? 1 : -1);
+    if (action === "next" || action === "prev")
+      return stepTraitDetail(action === "next" ? 1 : -1);
     if (!c) return;
-    if (action === 'toggle') setTraitSelected(c, !traitState.selected.has(candidateKey(c)));
-    if (action === 'selectNext') setTraitSelected(c, true);
+    if (action === "toggle")
+      setTraitSelected(c, !traitState.selected.has(candidateKey(c)));
+    if (action === "selectNext") setTraitSelected(c, true);
     refreshTraitSelection();
-    if (action === 'selectNext') stepTraitDetail(1);
-  } else if (context === 'image') {
+    if (action === "selectNext") stepTraitDetail(1);
+  } else if (context === "image") {
     const group = traitImageGroup();
-    if (action === 'next' || action === 'prev') return stepTraitImage(action === 'next' ? 1 : -1);
+    if (action === "next" || action === "prev")
+      return stepTraitImage(action === "next" ? 1 : -1);
     if (!group) return;
-    if (action.startsWith('pick:')) {
+    if (action.startsWith("pick:")) {
       const c = group.candidates[Number(action.slice(5))];
       if (!c) return;
       setTraitSelected(c, !traitState.selected.has(candidateKey(c)));
-    } else if (action === 'toggleAll') {
+    } else if (action === "toggleAll") {
       toggleTraitSelectedAll(group.candidates);
-    } else if (action === 'selectNext') {
+    } else if (action === "selectNext") {
       group.candidates.forEach((c) => setTraitSelected(c, true));
     }
     refreshTraitSelection();
-    if (action === 'selectNext') stepTraitImage(1);
+    if (action === "selectNext") stepTraitImage(1);
   }
 
-  if (action === 'selectAll') {
+  if (action === "selectAll") {
     toggleTraitSelectedAll(traitState.visible);
     refreshTraitSelection();
-  } else if (action === 'clear') {
+  } else if (action === "clear") {
     traitState.selected.clear();
     refreshTraitSelection();
-  } else if (action === 'search') {
+  } else if (action === "search") {
     elTraits.search.focus();
     elTraits.search.select();
-  } else if (action === 'view') {
-    setTraitView(traitState.view === 'list' ? 'pictures' : 'list');
+  } else if (action === "view") {
+    setTraitView(traitState.view === "list" ? "pictures" : "list");
   }
 }
 
-document.addEventListener('keydown', (e) => {
+document.addEventListener("keydown", (e) => {
   // Esc is the shared handler's, through topmostOverlay().
-  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.key === 'Escape') return;
+  if (
+    e.defaultPrevented ||
+    e.ctrlKey ||
+    e.metaKey ||
+    e.altKey ||
+    e.key === "Escape"
+  )
+    return;
   // isTypingTarget counts a checkbox as a field, and a checkbox is exactly what
   // has focus right after a row is ticked with the mouse - which would switch
   // the shortcuts off at the moment someone reaches for them.
   const active = document.activeElement;
-  const toggle = active?.tagName === 'INPUT' && ['checkbox', 'radio'].includes(active.type);
+  const toggle =
+    active?.tagName === "INPUT" && ["checkbox", "radio"].includes(active.type);
   if (isTypingTarget(active) && !toggle) return;
   const context = traitKeyContext();
   const action = context && traitKeyAction(context, e.key);
@@ -6177,37 +6923,65 @@ document.addEventListener('keydown', (e) => {
   runTraitAction(context, action);
 });
 
-elTraits.detailClose.addEventListener('click', closeTraitDetail);
-elTraits.overlay.addEventListener('click', (e) => {
+elTraits.detailClose.addEventListener("click", closeTraitDetail);
+elTraits.overlay.addEventListener("click", (e) => {
   if (e.target === elTraits.overlay) closeTraitDetail();
 });
-elTraits.detailPrev.addEventListener('click', () => runTraitAction('detail', 'prev'));
-elTraits.detailNext.addEventListener('click', () => runTraitAction('detail', 'next'));
-elTraits.detailSelect.addEventListener('click', () => runTraitAction('detail', 'toggle'));
-elTraits.detailSelectNext.addEventListener('click', () => runTraitAction('detail', 'selectNext'));
+elTraits.detailPrev.addEventListener("click", () =>
+  runTraitAction("detail", "prev"),
+);
+elTraits.detailNext.addEventListener("click", () =>
+  runTraitAction("detail", "next"),
+);
+elTraits.detailSelect.addEventListener("click", () =>
+  runTraitAction("detail", "toggle"),
+);
+elTraits.detailSelectNext.addEventListener("click", () =>
+  runTraitAction("detail", "selectNext"),
+);
 
-elTraits.imageClose.addEventListener('click', closeTraitImage);
-elTraits.imageOverlay.addEventListener('click', (e) => {
+elTraits.imageClose.addEventListener("click", closeTraitImage);
+elTraits.imageOverlay.addEventListener("click", (e) => {
   if (e.target === elTraits.imageOverlay) closeTraitImage();
 });
-elTraits.imagePrev.addEventListener('click', () => runTraitAction('image', 'prev'));
-elTraits.imageNext.addEventListener('click', () => runTraitAction('image', 'next'));
-elTraits.imageSelectAll.addEventListener('click', () => runTraitAction('image', 'toggleAll'));
-elTraits.imageSelectNext.addEventListener('click', () => runTraitAction('image', 'selectNext'));
+elTraits.imagePrev.addEventListener("click", () =>
+  runTraitAction("image", "prev"),
+);
+elTraits.imageNext.addEventListener("click", () =>
+  runTraitAction("image", "next"),
+);
+elTraits.imageSelectAll.addEventListener("click", () =>
+  runTraitAction("image", "toggleAll"),
+);
+elTraits.imageSelectNext.addEventListener("click", () =>
+  runTraitAction("image", "selectNext"),
+);
 
 for (const button of elTraits.viewButtons) {
-  button.addEventListener('click', () => setTraitView(button.dataset.traitView));
+  button.addEventListener("click", () =>
+    setTraitView(button.dataset.traitView),
+  );
 }
-elTraits.clearBtn.addEventListener('click', () => runTraitAction(traitState.view, 'clear'));
-elTraits.tilesMore.addEventListener('click', () => appendTraitTiles(traitState.tileLimit + TRAIT_TILE_BATCH));
+elTraits.clearBtn.addEventListener("click", () =>
+  runTraitAction(traitState.view, "clear"),
+);
+elTraits.tilesMore.addEventListener("click", () =>
+  appendTraitTiles(traitState.tileLimit + TRAIT_TILE_BATCH),
+);
 // Scrolling to the bottom builds the next batch by itself; the button stays
 // for anyone whose browser has no IntersectionObserver.
-if ('IntersectionObserver' in window) {
-  new IntersectionObserver((entries) => {
-    if (entries.some((entry) => entry.isIntersecting) && !elTraits.tilesMore.hidden) {
-      appendTraitTiles(traitState.tileLimit + TRAIT_TILE_BATCH);
-    }
-  }, { rootMargin: '400px' }).observe(elTraits.tilesMore);
+if ("IntersectionObserver" in window) {
+  new IntersectionObserver(
+    (entries) => {
+      if (
+        entries.some((entry) => entry.isIntersecting) &&
+        !elTraits.tilesMore.hidden
+      ) {
+        appendTraitTiles(traitState.tileLimit + TRAIT_TILE_BATCH);
+      }
+    },
+    { rootMargin: "400px" },
+  ).observe(elTraits.tilesMore);
 }
 
 /** A filter or sort changed: start the tiles from the first batch again. */
@@ -6216,50 +6990,50 @@ function renderTraitsFromTop() {
   renderTraits();
 }
 
-elTraits.search.addEventListener('input', () => {
+elTraits.search.addEventListener("input", () => {
   traitState.search = elTraits.search.value;
   renderTraitsFromTop();
 });
-elTraits.tableFilter.addEventListener('change', () => {
+elTraits.tableFilter.addEventListener("change", () => {
   traitState.tableFilter = elTraits.tableFilter.value;
   renderTraitsFromTop();
 });
-elTraits.statusFilter.addEventListener('change', () => {
+elTraits.statusFilter.addEventListener("change", () => {
   traitState.status = elTraits.statusFilter.value;
   renderTraitsFromTop();
 });
-elTraits.sortSelect.addEventListener('change', () => {
+elTraits.sortSelect.addEventListener("change", () => {
   traitState.sort = elTraits.sortSelect.value;
   renderTraitsFromTop();
 });
-elTraits.selectAll.addEventListener('change', () => {
+elTraits.selectAll.addEventListener("change", () => {
   const notImported = traitState.visible.filter((c) => !c.imported);
   notImported.forEach((c) => setTraitSelected(c, elTraits.selectAll.checked));
   refreshTraitSelection();
 });
 
-elTraits.importBtn.addEventListener('click', async () => {
+elTraits.importBtn.addEventListener("click", async () => {
   const items = [...traitState.selected].map((key) => {
-    const [file, id] = key.split('::');
+    const [file, id] = key.split("::");
     return { file, id };
   });
   if (!items.length) return;
   elTraits.importBtn.disabled = true;
-  const { results } = await api('/api/trait-candidates/import', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const { results } = await api("/api/trait-candidates/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ items }),
   });
   const failed = results.filter((r) => !r.imported);
   elTraits.status.textContent = failed.length
-    ? `Imported ${results.length - failed.length}, failed ${failed.length} (${failed.map((f) => f.reason).join('; ')})`
+    ? `Imported ${results.length - failed.length}, failed ${failed.length} (${failed.map((f) => f.reason).join("; ")})`
     : `Imported ${results.length} candidate(s) into npc-generator-tables.md.`;
   traitState.selected.clear();
   await refreshTraitCandidates();
 });
 
-el.detailTraits.addEventListener('click', async (event) => {
-  const button = event.target.closest('.reroll-btn');
+el.detailTraits.addEventListener("click", async (event) => {
+  const button = event.target.closest(".reroll-btn");
   if (!button) return;
   const id = state.detailItemId;
   if (!id) return;
@@ -6280,13 +7054,14 @@ el.detailTraits.addEventListener('click', async (event) => {
   // Ask first when the re-roll can reach past the trait named on the button -
   // see rerollNeedsConfirm(). Awaited before anything is disabled or posted, so
   // backing out leaves the sheet exactly as it was.
-  if (rerollNeedsConfirm(trait, vocab) && !(await confirmReroll(trait, vocab))) return;
+  if (rerollNeedsConfirm(trait, vocab) && !(await confirmReroll(trait, vocab)))
+    return;
 
-  await stageTraitEdit({ id, op: 'reroll', table: trait, button });
+  await stageTraitEdit({ id, op: "reroll", table: trait, button });
 });
 
-el.detailTraits.addEventListener('click', async (event) => {
-  const button = event.target.closest('.set-trait-btn');
+el.detailTraits.addEventListener("click", async (event) => {
+  const button = event.target.closest(".set-trait-btn");
   if (!button) return;
   const id = state.detailItemId;
   if (!id) return;
@@ -6302,7 +7077,12 @@ el.detailTraits.addEventListener('click', async (event) => {
   if (!picked) return;
 
   await stageTraitEdit({
-    id, op: 'set', table: trait, value: picked.value, release: picked.release, button,
+    id,
+    op: "set",
+    table: trait,
+    value: picked.value,
+    release: picked.release,
+    button,
   });
 });
 
@@ -6319,13 +7099,18 @@ el.detailTraits.addEventListener('click', async (event) => {
  * report, and "and 0 others" is worse than silence.
  */
 function cascadeSummary(table, log) {
-  const also = [...String(log || '').matchAll(/^\s+with (.+?): /gm)].map((m) => m[1]);
+  const also = [...String(log || "").matchAll(/^\s+with (.+?): /gm)].map(
+    (m) => m[1],
+  );
   if (!also.length) return null;
   // Named up to three, counted past that - the same rule releaseLabel() uses,
   // for the same reason: a line naming eleven traits is not read.
-  const named = also.length <= 3 ? also.join(', ') : `${also.length} other traits`;
-  return `${table} updated — ${named} also changed. The art is now out of date `
-    + '— press Regenerate when you are done editing.';
+  const named =
+    also.length <= 3 ? also.join(", ") : `${also.length} other traits`;
+  return (
+    `${table} updated — ${named} also changed. The art is now out of date ` +
+    "— press Regenerate when you are done editing."
+  );
 }
 
 /**
@@ -6345,9 +7130,10 @@ function cascadeSummary(table, log) {
  * is the stored truth and not an echo of what was asked for.
  */
 async function stageTraitEdit({ id, op, table, value, release, button }) {
-  const label = op === 'reroll' ? `re-roll ${table}` : `set ${table}`;
+  const label = op === "reroll" ? `re-roll ${table}` : `set ${table}`;
   state.stagingItemId = id;
-  state.regenRunningMessage = op === 'reroll' ? `Re-rolling ${table}…` : `Setting ${table}…`;
+  state.regenRunningMessage =
+    op === "reroll" ? `Re-rolling ${table}…` : `Setting ${table}…`;
   el.regenStatus.textContent = state.regenRunningMessage;
   button.disabled = true;
   setTraitGuttersDisabled(true);
@@ -6355,9 +7141,9 @@ async function stageTraitEdit({ id, op, table, value, release, button }) {
   let fresh = null;
   let message;
   try {
-    const res = await fetch('/api/stage-trait', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await fetch("/api/stage-trait", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, op, table, value, release }),
     });
     const result = await res.json();
@@ -6365,8 +7151,9 @@ async function stageTraitEdit({ id, op, table, value, release, button }) {
       message = `Couldn't ${label}: ${result.reason || result.error || res.status}`;
     } else {
       fresh = result.item || null;
-      message = cascadeSummary(table, result.log)
-        || `${table} updated. The art is now out of date — press Regenerate when you are done editing.`;
+      message =
+        cascadeSummary(table, result.log) ||
+        `${table} updated. The art is now out of date — press Regenerate when you are done editing.`;
     }
   } catch (err) {
     message = `Couldn't ${label}: ${err.message}`;
@@ -6401,35 +7188,37 @@ loadCategories().catch((err) => {
 // without ever visiting the Create tab that would otherwise load it. Failure
 // is silent by design: the buttons simply do not appear, which is the same
 // state as a generator too old to have REROLLABLE_TRAITS at all.
-api('/api/npc-tables')
+api("/api/npc-tables")
   .then(({ tables, rerollable, rawRerollable, dependents }) => {
     createState.overrideTables = tables;
     createState.rerollableTraits = rerollable || [];
     createState.rawRerollableTraits = rawRerollable || [];
     createState.traitDependents = dependents || {};
   })
-  .catch(() => { /* no reroll buttons; the Create tab reports its own failure */ });
+  .catch(() => {
+    /* no reroll buttons; the Create tab reports its own failure */
+  });
 
 /* ==================================================================== */
 /* Tables (per-bullet enable/disable)                                   */
 /* ==================================================================== */
 
 const tablesState = {
-  kind: 'npc', // which registry entry's tables file this tab is editing
+  kind: "npc", // which registry entry's tables file this tab is editing
   tables: [],
   groups: [],
   capabilities: { chances: true, odds: true },
   selectedTable: null,
-  search: '',          // the search box's text; survives a Kind switch
+  search: "", // the search box's text; survives a Kind switch
   presets: [],
   pendingPreset: null, // the parsed preset object currently shown in the preview, or null
-  flags: {},           // { [table]: { [flag]: gloss } } - the vocabulary the server sends
-  gates: null,         // { maps, overridden, roles, buckets, tables, error? } - who each gate admits, or null for a kind without gates
+  flags: {}, // { [table]: { [flag]: gloss } } - the vocabulary the server sends
+  gates: null, // { maps, overridden, roles, buckets, tables, error? } - who each gate admits, or null for a kind without gates
   openGates: new Set(), // 'map:flag' of the gate rows the user has expanded, kept across the reload a write causes
-  parents: {},         // { [table]: parentBaseName } - which table's bullet enters a group
-  odds: null,          // the last settled /api/table-odds report, or null
-  oddsStale: false,    // an edit has landed that the settled odds predate
-  oddsReason: null,    // why the last run failed, or null
+  parents: {}, // { [table]: parentBaseName } - which table's bullet enters a group
+  odds: null, // the last settled /api/table-odds report, or null
+  oddsStale: false, // an edit has landed that the settled odds predate
+  oddsReason: null, // why the last run failed, or null
   tableRequest: 0,
   presetRequest: 0,
   oddsRequest: 0,
@@ -6437,35 +7226,35 @@ const tablesState = {
 };
 
 const elTables = {
-  kindSelect: document.getElementById('tables-kind'),
-  headingList: document.getElementById('table-heading-list'),
-  search: document.getElementById('tables-search'),
-  searchNote: document.getElementById('tables-search-note'),
-  bulletHeading: document.getElementById('table-bullet-heading'),
-  bulletList: document.getElementById('table-bullet-list'),
-  empty: document.getElementById('tables-empty'),
-  presetList: document.getElementById('preset-list'),
-  saveBtn: document.getElementById('preset-save-btn'),
-  importInput: document.getElementById('preset-import-input'),
-  preview: document.getElementById('preset-preview'),
-  previewSummary: document.getElementById('preset-preview-summary'),
-  previewList: document.getElementById('preset-preview-list'),
-  applyBtn: document.getElementById('preset-apply-btn'),
-  cancelBtn: document.getElementById('preset-cancel-btn'),
-  chanceNote: document.getElementById('chance-note'),
-  addForm: document.getElementById('table-add-form'),
-  addWeight: document.getElementById('table-add-weight'),
-  addText: document.getElementById('table-add-text'),
-  addBtn: document.getElementById('table-add-btn'),
-  addError: document.getElementById('table-add-error'),
-  gatePanel: document.getElementById('gate-panel'),
-  gateNote: document.getElementById('gate-note'),
-  gateList: document.getElementById('gate-list'),
-  gateAddForm: document.getElementById('gate-add-form'),
-  gateAddName: document.getElementById('gate-add-name'),
-  gateAddBtn: document.getElementById('gate-add-btn'),
-  gateResetBtn: document.getElementById('gate-reset-btn'),
-  gateError: document.getElementById('gate-error'),
+  kindSelect: document.getElementById("tables-kind"),
+  headingList: document.getElementById("table-heading-list"),
+  search: document.getElementById("tables-search"),
+  searchNote: document.getElementById("tables-search-note"),
+  bulletHeading: document.getElementById("table-bullet-heading"),
+  bulletList: document.getElementById("table-bullet-list"),
+  empty: document.getElementById("tables-empty"),
+  presetList: document.getElementById("preset-list"),
+  saveBtn: document.getElementById("preset-save-btn"),
+  importInput: document.getElementById("preset-import-input"),
+  preview: document.getElementById("preset-preview"),
+  previewSummary: document.getElementById("preset-preview-summary"),
+  previewList: document.getElementById("preset-preview-list"),
+  applyBtn: document.getElementById("preset-apply-btn"),
+  cancelBtn: document.getElementById("preset-cancel-btn"),
+  chanceNote: document.getElementById("chance-note"),
+  addForm: document.getElementById("table-add-form"),
+  addWeight: document.getElementById("table-add-weight"),
+  addText: document.getElementById("table-add-text"),
+  addBtn: document.getElementById("table-add-btn"),
+  addError: document.getElementById("table-add-error"),
+  gatePanel: document.getElementById("gate-panel"),
+  gateNote: document.getElementById("gate-note"),
+  gateList: document.getElementById("gate-list"),
+  gateAddForm: document.getElementById("gate-add-form"),
+  gateAddName: document.getElementById("gate-add-name"),
+  gateAddBtn: document.getElementById("gate-add-btn"),
+  gateResetBtn: document.getElementById("gate-reset-btn"),
+  gateError: document.getElementById("gate-error"),
 };
 
 /**
@@ -6495,20 +7284,20 @@ function beginTablesKindLoad(kind) {
   // Disabled until the selected kind's response establishes its capabilities.
   tablesState.capabilities = { chances: false, odds: false };
   tablesState.pendingPreset = null;
-  elTables.headingList.innerHTML = '';
-  elTables.bulletHeading.textContent = '';
-  elTables.bulletList.innerHTML = '';
+  elTables.headingList.innerHTML = "";
+  elTables.bulletHeading.textContent = "";
+  elTables.bulletList.innerHTML = "";
   resetAddForm();
   elTables.addForm.hidden = true;
-  elTables.presetList.innerHTML = '';
-  elTables.presetList.textContent = 'Loading…';
+  elTables.presetList.innerHTML = "";
+  elTables.presetList.textContent = "Loading…";
   elTables.empty.hidden = false;
-  elTables.empty.textContent = 'Loading…';
+  elTables.empty.textContent = "Loading…";
   elTables.saveBtn.disabled = true;
   elTables.importInput.disabled = true;
 }
 
-elTables.kindSelect.addEventListener('change', () => {
+elTables.kindSelect.addEventListener("change", () => {
   if (!elTables.preview.hidden) cancelPresetPreview();
   beginTablesKindLoad(elTables.kindSelect.value);
   const kind = tablesState.kind;
@@ -6517,14 +7306,19 @@ elTables.kindSelect.addEventListener('change', () => {
     elTables.empty.hidden = false;
     elTables.empty.textContent = `Failed to load: ${err.message}`;
   });
-  loadPresets().catch(() => { /* the preset list just stays empty on failure */ });
+  loadPresets().catch(() => {
+    /* the preset list just stays empty on failure */
+  });
 });
 
 async function loadTables() {
   const kind = tablesState.kind;
   const request = ++tablesState.tableRequest;
-  const { groups, flags, gates, capabilities } = await api(`/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`);
-  if (kind !== tablesState.kind || request !== tablesState.tableRequest) return false;
+  const { groups, flags, gates, capabilities } = await api(
+    `/api/table-bullets?kind=${encodeURIComponent(tablesState.kind)}`,
+  );
+  if (kind !== tablesState.kind || request !== tablesState.tableRequest)
+    return false;
   tablesState.groups = groups;
   // Null for a kind whose generator declares no gate maps, and for an older
   // server that never sent the field: either way, no panel.
@@ -6539,7 +7333,9 @@ async function loadTables() {
   // Which table each group is entered from, for the chances estimate and the
   // note; a plain table has no entry.
   tablesState.parents = {};
-  for (const g of groups) for (const r of g.rows) if (r.parent) tablesState.parents[r.table.name] = r.parent;
+  for (const g of groups)
+    for (const r of g.rows)
+      if (r.parent) tablesState.parents[r.table.name] = r.parent;
   // Sent with the tables rather than fetched separately, so the checkboxes
   // can never render against a table list they do not match.
   tablesState.flags = flags || {};
@@ -6553,9 +7349,12 @@ async function loadTables() {
   tablesState.tables = tables;
   elTables.saveBtn.disabled = false;
   elTables.importInput.disabled = false;
-  elTables.empty.textContent = '';
+  elTables.empty.textContent = "";
   elTables.empty.hidden = tables.length > 0;
-  if (!tablesState.selectedTable || !tables.some((t) => t.name === tablesState.selectedTable)) {
+  if (
+    !tablesState.selectedTable ||
+    !tables.some((t) => t.name === tablesState.selectedTable)
+  ) {
     tablesState.selectedTable = tables[0]?.name ?? null;
   }
   renderTableHeadingList();
@@ -6585,39 +7384,47 @@ function tableBulletMatchesSearch(table, bullet, query = tableSearchQuery()) {
 
 function tableMatchesSearch(table, query = tableSearchQuery()) {
   if (!query) return true;
-  return table.name.toLowerCase().includes(query)
-    || table.bullets.some((b) => b.text.toLowerCase().includes(query));
+  return (
+    table.name.toLowerCase().includes(query) ||
+    table.bullets.some((b) => b.text.toLowerCase().includes(query))
+  );
 }
 
 function renderTableHeadingList() {
-  elTables.headingList.innerHTML = '';
+  elTables.headingList.innerHTML = "";
   const query = tableSearchQuery();
-  const matching = tablesState.tables.filter((t) => tableMatchesSearch(t, query));
+  const matching = tablesState.tables.filter((t) =>
+    tableMatchesSearch(t, query),
+  );
   // A search that hides the open table moves to the first table it keeps, so
   // the bullet panel never shows a table the list on its left has dropped.
-  if (matching.length && !matching.some((t) => t.name === tablesState.selectedTable)) {
+  if (
+    matching.length &&
+    !matching.some((t) => t.name === tablesState.selectedTable)
+  ) {
     resetAddForm();
     tablesState.selectedTable = matching[0].name;
   }
   renderTableSearchNote(query, matching.length);
   for (const { group, rows } of tablesState.groups) {
     if (!rows.some((r) => tableMatchesSearch(r.table, query))) continue;
-    const header = document.createElement('div');
-    header.className = 'table-group-header';
+    const header = document.createElement("div");
+    header.className = "table-group-header";
     header.textContent = group;
     elTables.headingList.appendChild(header);
 
     for (const { table, isVariant, isGroup } of rows) {
       if (!tableMatchesSearch(table, query)) continue;
-      const row = document.createElement('button');
-      row.type = 'button';
-      row.className = 'table-heading-row'
-        + (isVariant ? ' variant' : '')
-        + (isGroup ? ' group' : '')
-        + (table.name === tablesState.selectedTable ? ' active' : '');
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className =
+        "table-heading-row" +
+        (isVariant ? " variant" : "") +
+        (isGroup ? " group" : "") +
+        (table.name === tablesState.selectedTable ? " active" : "");
       row.dataset.table = table.name;
       row.textContent = headingLabel(table);
-      row.addEventListener('click', () => {
+      row.addEventListener("click", () => {
         if (tablesState.selectedTable !== table.name) resetAddForm();
         tablesState.selectedTable = table.name;
         renderTableHeadingList();
@@ -6637,18 +7444,26 @@ function renderTableSearchNote(query, tableCount) {
   const note = elTables.searchNote;
   if (!query) {
     note.hidden = true;
-    note.textContent = '';
+    note.textContent = "";
     return;
   }
   note.hidden = false;
   if (!tableCount) {
-    note.textContent = 'No tables or values match';
+    note.textContent = "No tables or values match";
     return;
   }
-  const table = tablesState.tables.find((t) => t.name === tablesState.selectedTable);
-  const shown = table ? table.bullets.filter((b) => tableBulletMatchesSearch(table, b, query)).length : 0;
-  note.textContent = `${tableCount} ${tableCount === 1 ? 'table matches' : 'tables match'}`
-    + (table ? ` · showing ${shown} of ${table.bullets.length} values in ${table.name}` : '');
+  const table = tablesState.tables.find(
+    (t) => t.name === tablesState.selectedTable,
+  );
+  const shown = table
+    ? table.bullets.filter((b) => tableBulletMatchesSearch(table, b, query))
+        .length
+    : 0;
+  note.textContent =
+    `${tableCount} ${tableCount === 1 ? "table matches" : "tables match"}` +
+    (table
+      ? ` · showing ${shown} of ${table.bullets.length} values in ${table.name}`
+      : "");
 }
 
 /** Sets the search text in both the state and the box, without re-rendering. */
@@ -6657,7 +7472,7 @@ function setTablesSearch(text) {
   elTables.search.value = text;
 }
 
-elTables.search.addEventListener('input', () => {
+elTables.search.addEventListener("input", () => {
   tablesState.search = elTables.search.value;
   renderTableHeadingList();
   renderTableBullets();
@@ -6673,14 +7488,18 @@ function headingLabel(table) {
 
 function renderTableBullets() {
   const query = tableSearchQuery();
-  const found = tablesState.tables.find((t) => t.name === tablesState.selectedTable);
+  const found = tablesState.tables.find(
+    (t) => t.name === tablesState.selectedTable,
+  );
   // Nothing in the kind matches: renderTableHeadingList has left the list
   // empty and the selection where it was, and that table is not shown either.
   const table = found && tableMatchesSearch(found, query) ? found : null;
   elTables.bulletHeading.textContent = table
     ? table.name
-    : (found ? 'No tables match that search' : 'Select a table');
-  elTables.bulletList.innerHTML = '';
+    : found
+      ? "No tables match that search"
+      : "Select a table";
+  elTables.bulletList.innerHTML = "";
   elTables.addForm.hidden = !table;
   renderGatePanel(table);
   if (!table) return;
@@ -6688,42 +7507,47 @@ function renderTableBullets() {
     // Hidden, not skipped: renderChances pairs .chance-cell elements with
     // table.bullets by index.
     const matches = tableBulletMatchesSearch(table, bullet, query);
-    const row = document.createElement('label');
-    row.className = 'table-bullet-row';
+    const row = document.createElement("label");
+    row.className = "table-bullet-row";
     row.hidden = !matches;
-    const check = document.createElement('input');
-    check.type = 'checkbox';
+    const check = document.createElement("input");
+    check.type = "checkbox";
     check.checked = bullet.enabled;
-    check.addEventListener('change', () => toggleBullet(table.name, bullet, check));
+    check.addEventListener("change", () =>
+      toggleBullet(table.name, bullet, check),
+    );
     row.appendChild(check);
 
-    const weightInput = document.createElement('input');
-    weightInput.type = 'number';
-    weightInput.className = 'weight-input';
-    weightInput.min = '1';
-    weightInput.step = '1';
+    const weightInput = document.createElement("input");
+    weightInput.type = "number";
+    weightInput.className = "weight-input";
+    weightInput.min = "1";
+    weightInput.step = "1";
     weightInput.value = String(bullet.weight);
-    weightInput.title = 'Weight (relative roll chance)';
-    weightInput.addEventListener('change', () => queueBulletWeight(table.name, bullet, weightInput));
+    weightInput.title = "Weight (relative roll chance)";
+    weightInput.addEventListener("change", () =>
+      queueBulletWeight(table.name, bullet, weightInput),
+    );
     // The write is debounced and the sampled odds take seconds; the estimate
     // costs an arithmetic pass over one table, so it can follow the typing.
     // Held apart from bullet.weight, which stays what the FILE says until a
     // write has actually succeeded.
-    weightInput.addEventListener('input', () => {
+    weightInput.addEventListener("input", () => {
       const typed = Math.trunc(Number(weightInput.value));
-      bullet.pendingWeight = Number.isInteger(typed) && typed >= 1 ? typed : undefined;
+      bullet.pendingWeight =
+        Number.isInteger(typed) && typed >= 1 ? typed : undefined;
       renderChances();
     });
     row.appendChild(weightInput);
 
     if (tablesState.capabilities.chances) {
-      const chance = document.createElement('span');
-      chance.className = 'chance-cell';
+      const chance = document.createElement("span");
+      chance.className = "chance-cell";
       row.appendChild(chance);
     }
 
-    const text = document.createElement('span');
-    text.className = 'table-bullet-text';
+    const text = document.createElement("span");
+    text.className = "table-bullet-text";
     // The prose only. The '|| flags' half is now shown as checkboxes below,
     // and printing it here as well would say the same thing twice - and
     // disagree with the boxes for the moment between a click and its write.
@@ -6735,19 +7559,19 @@ function renderTableBullets() {
     // bullets this slot actually rolls are edited.
     const target = referenceTargetOfText(table.name, bullet.text);
     if (target) {
-      row.classList.add('reference');
-      const jump = document.createElement('button');
-      jump.type = 'button';
-      jump.className = 'group-jump';
-      jump.textContent = 'group ›';
+      row.classList.add("reference");
+      const jump = document.createElement("button");
+      jump.type = "button";
+      jump.className = "group-jump";
+      jump.textContent = "group ›";
       jump.title = `One slot that rolls from the ${target} table`;
-      jump.addEventListener('click', (e) => {
+      jump.addEventListener("click", (e) => {
         e.preventDefault();
         const targetTable = tablesState.tables.find((t) => t.name === target);
         if (!targetTable) return;
         // A search that hides the group would bounce the jump straight back
         // to the first match, so following a reference clears it.
-        if (!tableMatchesSearch(targetTable)) setTablesSearch('');
+        if (!tableMatchesSearch(targetTable)) setTablesSearch("");
         tablesState.selectedTable = target;
         renderTableHeadingList();
         renderTableBullets();
@@ -6773,7 +7597,7 @@ function renderTableBullets() {
  * and keep flags in a third, so slicing at the first '||' would hide a
  * Backdrop's scene sentence from the list.
  */
-const THREE_SEGMENT_TABLES = new Set(['Backdrop', 'Hair colour', 'Faction']);
+const THREE_SEGMENT_TABLES = new Set(["Backdrop", "Hair colour", "Faction"]);
 
 /* 'Hair colour (she) +' is three segments exactly as 'Hair colour' is, so the
    arity follows the base heading - the same rule lib/tableGroups.js already
@@ -6786,8 +7610,9 @@ const THREE_SEGMENT_TABLES = new Set(['Backdrop', 'Hair colour', 'Faction']);
    off and shown as a flag. Mirrors lib/tableFlags.js's isThreeSegment(),
    which takes the same one-level parents lookup for the same reason. */
 function proseSegmentsOf(tableName) {
-  const paren = String(tableName).indexOf(' (');
-  const base = paren === -1 ? String(tableName) : String(tableName).slice(0, paren);
+  const paren = String(tableName).indexOf(" (");
+  const base =
+    paren === -1 ? String(tableName) : String(tableName).slice(0, paren);
   if (THREE_SEGMENT_TABLES.has(base)) return 2;
   const parent = tablesState.parents[tableName] || tablesState.parents[base];
   return parent && THREE_SEGMENT_TABLES.has(parent) ? 2 : 1;
@@ -6795,7 +7620,11 @@ function proseSegmentsOf(tableName) {
 
 function bulletBody(tableName, text) {
   const prose = proseSegmentsOf(tableName);
-  return String(text).split('||').map((p) => p.trim()).slice(0, prose).join(' || ');
+  return String(text)
+    .split("||")
+    .map((p) => p.trim())
+    .slice(0, prose)
+    .join(" || ");
 }
 
 /**
@@ -6803,8 +7632,8 @@ function bulletBody(tableName, text) {
  * lib/tableBullets.js's referenceTargetOf(): read off the prose, arrow first.
  */
 function referenceTargetOfText(tableName, text) {
-  const first = bulletBody(tableName, text).split('||')[0].trim();
-  if (!first.startsWith('=> ')) return null;
+  const first = bulletBody(tableName, text).split("||")[0].trim();
+  if (!first.startsWith("=> ")) return null;
   return first.slice(3).trim() || null;
 }
 
@@ -6831,12 +7660,19 @@ function referenceTargetOfText(tableName, text) {
 function groupEntryShare(table) {
   const parentName = tablesState.parents[table.name];
   if (!parentName) return 1;
-  const base = table.name.includes(' (') ? table.name.slice(0, table.name.indexOf(' (')) : table.name;
-  const parents = tablesState.tables.filter((t) => t.name === parentName || t.name.startsWith(`${parentName} (`));
+  const base = table.name.includes(" (")
+    ? table.name.slice(0, table.name.indexOf(" ("))
+    : table.name;
+  const parents = tablesState.tables.filter(
+    (t) => t.name === parentName || t.name.startsWith(`${parentName} (`),
+  );
 
   for (const parent of parents) {
-    const reference = parent.bullets.find((b) => referenceTargetOfText(parent.name, b.text) === table.name);
-    if (reference) return reference.enabled ? weightShare(parent, reference) : 0;
+    const reference = parent.bullets.find(
+      (b) => referenceTargetOfText(parent.name, b.text) === table.name,
+    );
+    if (reference)
+      return reference.enabled ? weightShare(parent, reference) : 0;
   }
 
   // A pronoun subject in the heading - '(she)', '(he)', '(they)', with or
@@ -6845,11 +7681,16 @@ function groupEntryShare(table) {
   // no pronoun in it, like '(gundam)', leaves isPronounVariant false and the
   // fallback below never runs for it.
   const subject = /\(([^()]*)\)\s*\+?\s*$/.exec(table.name);
-  const isPronounVariant = Boolean(subject) && ['she', 'he', 'they'].includes(subject[1].trim().toLowerCase());
+  const isPronounVariant =
+    Boolean(subject) &&
+    ["she", "he", "they"].includes(subject[1].trim().toLowerCase());
   if (isPronounVariant) {
     for (const parent of parents) {
-      const reference = parent.bullets.find((b) => referenceTargetOfText(parent.name, b.text) === base);
-      if (reference) return reference.enabled ? weightShare(parent, reference) : 0;
+      const reference = parent.bullets.find(
+        (b) => referenceTargetOfText(parent.name, b.text) === base,
+      );
+      if (reference)
+        return reference.enabled ? weightShare(parent, reference) : 0;
     }
   }
 
@@ -6862,9 +7703,11 @@ function groupEntryShare(table) {
 
 function bulletFlagsOf(tableName, text) {
   const prose = proseSegmentsOf(tableName);
-  const parts = String(text).split('||').map((p) => p.trim());
+  const parts = String(text)
+    .split("||")
+    .map((p) => p.trim());
   if (parts.length <= prose) return [];
-  return parts.slice(prose).join(' ').split(/\s+/).filter(Boolean);
+  return parts.slice(prose).join(" ").split(/\s+/).filter(Boolean);
 }
 
 /**
@@ -6878,53 +7721,61 @@ function bulletFlagsOf(tableName, text) {
  * they are preserved through every edit by lib/tableFlags.js.
  */
 function renderBulletFlags(table, bullet) {
-  const vocabulary = tablesState.flags[table.name] || (isRoleTable(table.name) && tablesState.gates ? {} : null);
+  const vocabulary =
+    tablesState.flags[table.name] ||
+    (isRoleTable(table.name) && tablesState.gates ? {} : null);
   if (!vocabulary) return null;
   // A reference carries no flags by the file's rules (check_tables refuses
   // them); its theme tags still show, as text, the way they do on any row.
   if (referenceTargetOfText(table.name, bullet.text)) {
-    const strip = document.createElement('div');
-    strip.className = 'table-bullet-flags';
+    const strip = document.createElement("div");
+    strip.className = "table-bullet-flags";
     for (const theme of bulletFlagsOf(table.name, bullet.text)) {
-      if (!theme.startsWith('@')) continue;
-      const tag = document.createElement('span');
-      tag.className = 'flag-theme';
+      if (!theme.startsWith("@")) continue;
+      const tag = document.createElement("span");
+      tag.className = "flag-theme";
       tag.textContent = theme;
-      tag.title = 'This whole group is themed. Edit the tag in the tables file.';
+      tag.title =
+        "This whole group is themed. Edit the tag in the tables file.";
       strip.appendChild(tag);
     }
     return strip.childNodes.length ? strip : null;
   }
 
-  const strip = document.createElement('div');
-  strip.className = 'table-bullet-flags';
+  const strip = document.createElement("div");
+  strip.className = "table-bullet-flags";
 
   const current = new Set(bulletFlagsOf(table.name, bullet.text));
   for (const [flag, gloss] of Object.entries(vocabulary)) {
-    const label = document.createElement('label');
-    label.className = 'flag-toggle';
+    const label = document.createElement("label");
+    label.className = "flag-toggle";
     label.title = gloss;
-    const box = document.createElement('input');
-    box.type = 'checkbox';
+    const box = document.createElement("input");
+    box.type = "checkbox";
     box.checked = current.has(flag);
-    box.addEventListener('change', () => setBulletFlag(table.name, bullet, flag, box));
+    box.addEventListener("change", () =>
+      setBulletFlag(table.name, bullet, flag, box),
+    );
     label.appendChild(box);
     label.appendChild(document.createTextNode(flag));
     strip.appendChild(label);
   }
 
   for (const theme of current) {
-    if (!theme.startsWith('@')) continue;
-    const tag = document.createElement('span');
-    tag.className = 'flag-theme';
+    if (!theme.startsWith("@")) continue;
+    const tag = document.createElement("span");
+    tag.className = "flag-theme";
     tag.textContent = theme;
-    tag.title = 'A theme tag. Preserved through flag edits; edit it in the tables file.';
+    tag.title =
+      "A theme tag. Preserved through flag edits; edit it in the tables file.";
     strip.appendChild(tag);
   }
   // A Role's own gate controls: the category its bucket-keyed gates read,
   // and whether its Faction is cut to the non-affiliations.
   if (isRoleTable(table.name) && tablesState.gates) {
-    strip.appendChild(renderRoleGateControls(bulletBody(table.name, bullet.text)));
+    strip.appendChild(
+      renderRoleGateControls(bulletBody(table.name, bullet.text)),
+    );
   }
   return strip;
 }
@@ -6949,12 +7800,12 @@ function renderBulletFlags(table, bullet) {
  */
 
 function baseTableName(name) {
-  const paren = String(name).indexOf(' (');
+  const paren = String(name).indexOf(" (");
   return paren === -1 ? String(name) : String(name).slice(0, paren);
 }
 
 function isRoleTable(tableName) {
-  return baseTableName(tableName) === 'Role';
+  return baseTableName(tableName) === "Role";
 }
 
 /**
@@ -6985,8 +7836,9 @@ function rolesByBucket() {
   const groups = new Map(buckets.map((b) => [b, []]));
   for (const role of roles) {
     const bucket = categories[role];
-    if (!groups.has(bucket)) groups.set(bucket || 'Other', groups.get(bucket || 'Other') || []);
-    groups.get(bucket || 'Other').push(role);
+    if (!groups.has(bucket))
+      groups.set(bucket || "Other", groups.get(bucket || "Other") || []);
+    groups.get(bucket || "Other").push(role);
   }
   return groups;
 }
@@ -7002,89 +7854,108 @@ function renderGatePanel(table) {
   const map = gates.maps[key] || {};
   panel.hidden = false;
   panel.dataset.map = key;
-  elTables.gateNote.textContent = key === 'weaponRoles'
-    ? 'The reverse of a lock: a Role ticked under a gate can roll ONLY bullets carrying that flag. Everyone else still rolls the whole table.'
-    : 'A bullet carrying a gate flag can be rolled only by the categories and Roles ticked under it. A gate with nothing ticked admits nobody.';
+  elTables.gateNote.textContent =
+    key === "weaponRoles"
+      ? "The reverse of a lock: a Role ticked under a gate can roll ONLY bullets carrying that flag. Everyone else still rolls the whole table."
+      : "A bullet carrying a gate flag can be rolled only by the categories and Roles ticked under it. A gate with nothing ticked admits nobody.";
   elTables.gateResetBtn.hidden = !gates.overridden.length;
   elTables.gateError.hidden = !gates.error;
-  elTables.gateError.textContent = gates.error || '';
-  elTables.gateAddName.value = '';
+  elTables.gateError.textContent = gates.error || "";
+  elTables.gateAddName.value = "";
   elTables.gateAddBtn.disabled = true;
-  elTables.gateList.innerHTML = '';
+  elTables.gateList.innerHTML = "";
 
   const flags = Object.keys(map);
   if (!flags.length) {
-    const empty = document.createElement('p');
-    empty.className = 'gate-empty';
-    empty.textContent = 'No gates on this table yet. Add one below, then tick it on the bullets it should lock.';
+    const empty = document.createElement("p");
+    empty.className = "gate-empty";
+    empty.textContent =
+      "No gates on this table yet. Add one below, then tick it on the bullets it should lock.";
     elTables.gateList.appendChild(empty);
   }
   for (const flag of flags) {
-    const carrying = table.bullets.filter((b) => bulletFlagsOf(table.name, b.text).includes(flag)).length;
-    elTables.gateList.appendChild(renderGateRow(key, flag, map[flag] || [], carrying));
+    const carrying = table.bullets.filter((b) =>
+      bulletFlagsOf(table.name, b.text).includes(flag),
+    ).length;
+    elTables.gateList.appendChild(
+      renderGateRow(key, flag, map[flag] || [], carrying),
+    );
   }
 }
 
 function renderGateRow(key, flag, admitted, carrying) {
   const { maps } = tablesState.gates;
   const admittedSet = new Set(admitted);
-  const row = document.createElement('details');
-  row.className = 'gate-row';
+  const row = document.createElement("details");
+  row.className = "gate-row";
   row.dataset.flag = flag;
   // Every write reloads the tab and rebuilds this panel, so which rows are
   // open is remembered in state, or the row being edited would snap shut
   // after each tick.
   row.open = tablesState.openGates.has(`${key}:${flag}`);
-  row.addEventListener('toggle', () => {
+  row.addEventListener("toggle", () => {
     if (row.open) tablesState.openGates.add(`${key}:${flag}`);
     else tablesState.openGates.delete(`${key}:${flag}`);
   });
 
-  const summary = document.createElement('summary');
-  const name = document.createElement('code');
+  const summary = document.createElement("summary");
+  const name = document.createElement("code");
   name.textContent = flag;
   summary.appendChild(name);
-  const admits = document.createElement('span');
-  admits.className = 'gate-admits' + (admitted.length ? '' : ' nobody');
+  const admits = document.createElement("span");
+  admits.className = "gate-admits" + (admitted.length ? "" : " nobody");
   admits.textContent = admitted.length
-    ? `${key === 'weaponRoles' ? 'only for' : 'admits'} ${admitted.join(', ')}`
-    : (key === 'weaponRoles' ? 'restricts nobody' : 'admits nobody');
+    ? `${key === "weaponRoles" ? "only for" : "admits"} ${admitted.join(", ")}`
+    : key === "weaponRoles"
+      ? "restricts nobody"
+      : "admits nobody";
   summary.appendChild(admits);
-  const count = document.createElement('span');
-  count.className = 'gate-count';
-  count.textContent = carrying === 1 ? '1 bullet carries it' : `${carrying} bullets carry it`;
+  const count = document.createElement("span");
+  count.className = "gate-count";
+  count.textContent =
+    carrying === 1 ? "1 bullet carries it" : `${carrying} bullets carry it`;
   summary.appendChild(count);
-  const remove = document.createElement('button');
-  remove.type = 'button';
-  remove.className = 'gate-remove';
-  remove.textContent = 'remove';
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "gate-remove";
+  remove.textContent = "remove";
   remove.title = carrying
     ? `Stop reading "${flag}" as a gate. The ${carrying} bullet(s) keep the word but it no longer restricts anyone.`
     : `Stop reading "${flag}" as a gate.`;
-  remove.addEventListener('click', (e) => {
+  remove.addEventListener("click", (e) => {
     e.preventDefault();
     removeGate(key, flag);
   });
   summary.appendChild(remove);
   row.appendChild(summary);
 
-  const members = document.createElement('div');
-  members.className = 'gate-members';
+  const members = document.createElement("div");
+  members.className = "gate-members";
   const categories = maps.roleCategories || {};
   for (const [bucket, roles] of rolesByBucket()) {
-    const group = document.createElement('div');
-    group.className = 'gate-bucket-group';
+    const group = document.createElement("div");
+    group.className = "gate-bucket-group";
     const bucketOn = admittedSet.has(bucket);
-    group.appendChild(gateToggle(bucket, bucketOn, false,
-      `Every Role in ${bucket}`, (on) => setGateMember(key, flag, bucket, on)));
-    const list = document.createElement('div');
-    list.className = 'gate-bucket-roles';
+    group.appendChild(
+      gateToggle(bucket, bucketOn, false, `Every Role in ${bucket}`, (on) =>
+        setGateMember(key, flag, bucket, on),
+      ),
+    );
+    const list = document.createElement("div");
+    list.className = "gate-bucket-roles";
     for (const role of roles) {
       // Ticked-and-dimmed when its category is ticked: the Role is admitted
       // through the bucket, and its own box would be a second, weaker say.
       const implied = bucketOn && categories[role] === bucket;
-      list.appendChild(gateToggle(role, implied || admittedSet.has(role), implied,
-        implied ? `Admitted through ${bucket}` : 'This one Role', (on) => setGateMember(key, flag, role, on)));
+      list.appendChild(
+        gateToggle(
+          role,
+          implied || admittedSet.has(role),
+          implied,
+          implied ? `Admitted through ${bucket}` : "This one Role",
+          (on) => setGateMember(key, flag, role, on),
+        ),
+      );
     }
     group.appendChild(list);
     members.appendChild(group);
@@ -7097,18 +7968,26 @@ function renderGateRow(key, flag, admitted, carrying) {
   const known = new Set([...roles, ...buckets]);
   const stale = admitted.filter((name) => !known.has(name));
   if (stale.length) {
-    const group = document.createElement('div');
-    group.className = 'gate-bucket-group';
-    const heading = document.createElement('span');
-    heading.className = 'gate-toggle';
-    heading.textContent = 'Not in the Role table';
-    heading.title = 'These names admit nobody until a Role bullet matches them again. Untick to drop one.';
+    const group = document.createElement("div");
+    group.className = "gate-bucket-group";
+    const heading = document.createElement("span");
+    heading.className = "gate-toggle";
+    heading.textContent = "Not in the Role table";
+    heading.title =
+      "These names admit nobody until a Role bullet matches them again. Untick to drop one.";
     group.appendChild(heading);
-    const list = document.createElement('div');
-    list.className = 'gate-bucket-roles';
+    const list = document.createElement("div");
+    list.className = "gate-bucket-roles";
     for (const name of stale) {
-      list.appendChild(gateToggle(name, true, false, 'No Role bullet has this exact text',
-        (on) => setGateMember(key, flag, name, on)));
+      list.appendChild(
+        gateToggle(
+          name,
+          true,
+          false,
+          "No Role bullet has this exact text",
+          (on) => setGateMember(key, flag, name, on),
+        ),
+      );
     }
     group.appendChild(list);
     members.appendChild(group);
@@ -7118,14 +7997,14 @@ function renderGateRow(key, flag, admitted, carrying) {
 }
 
 function gateToggle(name, checked, implied, title, onChange) {
-  const label = document.createElement('label');
-  label.className = 'gate-toggle' + (implied ? ' implied' : '');
+  const label = document.createElement("label");
+  label.className = "gate-toggle" + (implied ? " implied" : "");
   label.title = title;
-  const box = document.createElement('input');
-  box.type = 'checkbox';
+  const box = document.createElement("input");
+  box.type = "checkbox";
   box.checked = checked;
   box.disabled = implied;
-  box.addEventListener('change', () => onChange(box.checked));
+  box.addEventListener("change", () => onChange(box.checked));
   label.appendChild(box);
   label.appendChild(document.createTextNode(name));
   return label;
@@ -7138,11 +8017,13 @@ function gateToggle(name, checked, implied, title, onChange) {
  */
 async function writeGates(nextMaps) {
   elTables.gateError.hidden = true;
-  const table = tablesState.tables.find((t) => t.name === tablesState.selectedTable);
+  const table = tablesState.tables.find(
+    (t) => t.name === tablesState.selectedTable,
+  );
   try {
-    await api('/api/gates', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    await api("/api/gates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind: tablesState.kind, gates: nextMaps }),
     });
     await loadTables();
@@ -7160,12 +8041,17 @@ async function writeGates(nextMaps) {
 function setGateMember(key, flag, name, on) {
   const maps = cloneGateMaps();
   const current = new Set((maps[key] || {})[flag] || []);
-  if (on) current.add(name); else current.delete(name);
+  if (on) current.add(name);
+  else current.delete(name);
   // Buckets first, in the panel's order, then Roles in the table's order, so
   // the file reads the way the panel does whatever was clicked first.
   const { buckets, roles } = tablesState.gates;
-  const ordered = [...buckets.filter((b) => current.has(b)), ...roles.filter((r) => current.has(r))];
-  for (const extra of current) if (!ordered.includes(extra)) ordered.push(extra);
+  const ordered = [
+    ...buckets.filter((b) => current.has(b)),
+    ...roles.filter((r) => current.has(r)),
+  ];
+  for (const extra of current)
+    if (!ordered.includes(extra)) ordered.push(extra);
   maps[key] = { ...(maps[key] || {}), [flag]: ordered };
   writeGates(maps);
 }
@@ -7184,7 +8070,8 @@ async function addGate() {
   const flag = elTables.gateAddName.value.trim();
   if (!key || !flag) return;
   if (!GATE_FLAG_RE.test(flag)) {
-    elTables.gateError.textContent = 'A gate flag is one lowercase word: letters, digits, - or _.';
+    elTables.gateError.textContent =
+      "A gate flag is one lowercase word: letters, digits, - or _.";
     elTables.gateError.hidden = false;
     return;
   }
@@ -7207,23 +8094,28 @@ async function addGate() {
   await writeGates(maps);
 }
 
-elTables.gateAddName.addEventListener('input', () => {
+elTables.gateAddName.addEventListener("input", () => {
   elTables.gateAddBtn.disabled = !elTables.gateAddName.value.trim();
   elTables.gateError.hidden = true;
 });
 
-elTables.gateAddForm.addEventListener('submit', (e) => {
+elTables.gateAddForm.addEventListener("submit", (e) => {
   e.preventDefault();
   addGate();
 });
 
-elTables.gateResetBtn.addEventListener('click', async () => {
-  if (!confirm('Delete the gates file beside the tables? Every gate goes back to what generate-npc.py declares.')) return;
+elTables.gateResetBtn.addEventListener("click", async () => {
+  if (
+    !confirm(
+      "Delete the gates file beside the tables? Every gate goes back to what generate-npc.py declares.",
+    )
+  )
+    return;
   elTables.gateResetBtn.disabled = true;
   try {
-    await api('/api/gates/reset', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    await api("/api/gates/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind: tablesState.kind }),
     });
     await loadTables();
@@ -7238,38 +8130,41 @@ elTables.gateResetBtn.addEventListener('click', async () => {
 /** The Role row's category <select> and "works for nobody" box. */
 function renderRoleGateControls(role) {
   const { maps, buckets } = tablesState.gates;
-  const wrap = document.createElement('span');
-  wrap.className = 'gate-role-controls';
+  const wrap = document.createElement("span");
+  wrap.className = "gate-role-controls";
 
-  const categoryLabel = document.createElement('label');
-  categoryLabel.className = 'gate-toggle';
-  categoryLabel.title = 'The category this Role rolls as: bucket-keyed gates (a Backdrop scene for Pilots) and the dress and weapon policies all read it.';
-  categoryLabel.appendChild(document.createTextNode('category'));
-  const select = document.createElement('select');
-  const current = (maps.roleCategories || {})[role] || '';
+  const categoryLabel = document.createElement("label");
+  categoryLabel.className = "gate-toggle";
+  categoryLabel.title =
+    "The category this Role rolls as: bucket-keyed gates (a Backdrop scene for Pilots) and the dress and weapon policies all read it.";
+  categoryLabel.appendChild(document.createTextNode("category"));
+  const select = document.createElement("select");
+  const current = (maps.roleCategories || {})[role] || "";
   for (const bucket of buckets) {
-    const option = document.createElement('option');
+    const option = document.createElement("option");
     option.value = bucket;
     option.textContent = bucket;
     select.appendChild(option);
   }
   if (!current || !buckets.includes(current)) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = current || 'Other (none)';
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = current || "Other (none)";
     select.appendChild(option);
   }
-  const fresh = document.createElement('option');
-  fresh.value = '__new__';
-  fresh.textContent = 'New category…';
+  const fresh = document.createElement("option");
+  fresh.value = "__new__";
+  fresh.textContent = "New category…";
   select.appendChild(fresh);
-  select.value = current && buckets.includes(current) ? current : '';
-  select.addEventListener('change', () => {
+  select.value = current && buckets.includes(current) ? current : "";
+  select.addEventListener("change", () => {
     let bucket = select.value;
-    if (bucket === '__new__') {
-      bucket = (prompt('Name the new category (capitalised, e.g. Clergy):') || '').trim();
+    if (bucket === "__new__") {
+      bucket = (
+        prompt("Name the new category (capitalised, e.g. Clergy):") || ""
+      ).trim();
       if (!bucket) {
-        select.value = current && buckets.includes(current) ? current : '';
+        select.value = current && buckets.includes(current) ? current : "";
         return;
       }
     }
@@ -7279,24 +8174,34 @@ function renderRoleGateControls(role) {
   wrap.appendChild(categoryLabel);
 
   const unaffiliated = (maps.unaffiliatedRoles || []).includes(role);
-  wrap.appendChild(gateToggle('works for nobody', unaffiliated, false,
-    'Cut this Role\'s Faction roll to the bullets flagged unaffiliated.',
-    (on) => setRoleUnaffiliated(role, on)));
+  wrap.appendChild(
+    gateToggle(
+      "works for nobody",
+      unaffiliated,
+      false,
+      "Cut this Role's Faction roll to the bullets flagged unaffiliated.",
+      (on) => setRoleUnaffiliated(role, on),
+    ),
+  );
   return wrap;
 }
 
 function setRoleCategory(role, bucket) {
   const maps = cloneGateMaps();
   maps.roleCategories = { ...(maps.roleCategories || {}) };
-  if (bucket) maps.roleCategories[role] = bucket; else delete maps.roleCategories[role];
+  if (bucket) maps.roleCategories[role] = bucket;
+  else delete maps.roleCategories[role];
   writeGates(maps);
 }
 
 function setRoleUnaffiliated(role, on) {
   const maps = cloneGateMaps();
   const current = new Set(maps.unaffiliatedRoles || []);
-  if (on) current.add(role); else current.delete(role);
-  maps.unaffiliatedRoles = tablesState.gates.roles.filter((r) => current.has(r));
+  if (on) current.add(role);
+  else current.delete(role);
+  maps.unaffiliatedRoles = tablesState.gates.roles.filter((r) =>
+    current.has(r),
+  );
   writeGates(maps);
 }
 
@@ -7312,10 +8217,16 @@ async function setBulletFlag(tableName, bullet, flag, boxEl) {
   const on = boxEl.checked;
   boxEl.disabled = true;
   try {
-    const { text } = await api('/api/table-bullets/set-flag', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: tablesState.kind, table: tableName, text: bullet.text, flag, on }),
+    const { text } = await api("/api/table-bullets/set-flag", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: tablesState.kind,
+        table: tableName,
+        text: bullet.text,
+        flag,
+        on,
+      }),
     });
     bullet.text = text;
     // Not queueOdds(): a flag changes which rolls a bullet is REACHABLE in,
@@ -7368,7 +8279,9 @@ function effectiveWeight(bullet) {
 
 function weightShare(table, bullet) {
   const total = table.bullets.reduce(
-    (sum, b) => sum + (b.enabled ? effectiveWeight(b) : 0), 0);
+    (sum, b) => sum + (b.enabled ? effectiveWeight(b) : 0),
+    0,
+  );
   return total ? effectiveWeight(bullet) / total : 0;
 }
 
@@ -7384,8 +8297,8 @@ function weightShare(table, bullet) {
  * unreachable is exactly what someone reads this column for.
  */
 function formatChance(probability) {
-  if (probability <= 0) return '0%';
-  return probability < 0.005 ? '<1%' : `${Math.round(probability * 100)}%`;
+  if (probability <= 0) return "0%";
+  return probability < 0.005 ? "<1%" : `${Math.round(probability * 100)}%`;
 }
 
 /** Repaint every chance cell in the open table from whatever is currently known. */
@@ -7394,10 +8307,12 @@ function renderChances() {
     elTables.chanceNote.hidden = true;
     return;
   }
-  const table = tablesState.tables.find((t) => t.name === tablesState.selectedTable);
+  const table = tablesState.tables.find(
+    (t) => t.name === tablesState.selectedTable,
+  );
   if (!table) return;
   const settled = tablesState.odds?.tables?.[table.name] ?? null;
-  const cells = elTables.bulletList.querySelectorAll('.chance-cell');
+  const cells = elTables.bulletList.querySelectorAll(".chance-cell");
   // A weight typed but not yet written makes every settled figure in this
   // table out of date, not just its own row's.
   const typing = table.bullets.some((b) => b.pendingWeight !== undefined);
@@ -7406,14 +8321,14 @@ function renderChances() {
   table.bullets.forEach((bullet, i) => {
     const cell = cells[i];
     if (!cell) return;
-    cell.className = 'chance-cell';
-    cell.title = '';
+    cell.className = "chance-cell";
+    cell.title = "";
 
     if (!bullet.enabled) {
       // Not '0%': a disabled bullet was never in the running, and 0% would
       // say it was in the running and lost.
-      cell.textContent = '—';
-      cell.title = 'Disabled — never rolled';
+      cell.textContent = "—";
+      cell.title = "Disabled — never rolled";
       return;
     }
 
@@ -7421,8 +8336,9 @@ function renderChances() {
       // The parent's own reference to this group is unchecked - nothing
       // here is reachable regardless of this bullet's own weight, the same
       // as a disabled bullet is.
-      cell.textContent = '—';
-      cell.title = 'Disabled — never rolled: the parent\'s reference to this group is unchecked';
+      cell.textContent = "—";
+      cell.title =
+        "Disabled — never rolled: the parent's reference to this group is unchecked";
       return;
     }
 
@@ -7435,15 +8351,16 @@ function renderChances() {
     const sampled = settled ? settled[bullet.text] : undefined;
     if (sampled === undefined || tablesState.oddsStale || typing) {
       cell.textContent = `~${formatChance(weightShare(table, bullet) * entry)}`;
-      cell.classList.add('estimate');
+      cell.classList.add("estimate");
       cell.title = settled
-        ? 'Estimate from the weights — the sampled figure is being recalculated'
-        : 'Estimate from the weights alone, ignoring the generator\'s filters';
+        ? "Estimate from the weights — the sampled figure is being recalculated"
+        : "Estimate from the weights alone, ignoring the generator's filters";
       return;
     }
     cell.textContent = formatChance(sampled);
-    cell.title = `Rolled on about ${(sampled * 100).toFixed(1)}% of NPCs, `
-      + `sampled over ${tablesState.odds.samples.toLocaleString()} rolls`;
+    cell.title =
+      `Rolled on about ${(sampled * 100).toFixed(1)}% of NPCs, ` +
+      `sampled over ${tablesState.odds.samples.toLocaleString()} rolls`;
   });
 
   renderChanceNote(table);
@@ -7454,35 +8371,49 @@ function renderChanceNote(table) {
   const lines = [];
 
   if (!tablesState.capabilities.odds) {
-    lines.push(`Chance this description is selected when ${table.name} is requested. `
-      + 'Percentages are exact from the enabled weights.');
+    lines.push(
+      `Chance this description is selected when ${table.name} is requested. ` +
+        "Percentages are exact from the enabled weights.",
+    );
   } else if (tablesState.oddsReason) {
-    lines.push(`Percentages are estimates from the weights alone — the generator could not be sampled (${tablesState.oddsReason}).`);
+    lines.push(
+      `Percentages are estimates from the weights alone — the generator could not be sampled (${tablesState.oddsReason}).`,
+    );
   } else if (!tablesState.odds || tablesState.oddsStale) {
-    lines.push('Percentages are estimates from the weights alone; sampling the generator…');
+    lines.push(
+      "Percentages are estimates from the weights alone; sampling the generator…",
+    );
   } else {
-    lines.push(`Chance a rolled NPC gets this option, sampled over ${tablesState.odds.samples.toLocaleString()} rolls. `
-      + 'The generator\'s filters are included, so a flagged option can read well below its weight.');
+    lines.push(
+      `Chance a rolled NPC gets this option, sampled over ${tablesState.odds.samples.toLocaleString()} rolls. ` +
+        "The generator's filters are included, so a flagged option can read well below its weight.",
+    );
   }
 
   // Two facts about specific headings, hardcoded because they are facts about
   // specific headings. A general "which tables are conditional" facility would
   // be inventing a category to hold one member.
-  if (table.name === 'Weather') {
-    lines.push('Weather is always rolled, but only reaches the prompt when the Backdrop is flagged `weather` — most NPCs show none.');
+  if (table.name === "Weather") {
+    lines.push(
+      "Weather is always rolled, but only reaches the prompt when the Backdrop is flagged `weather` — most NPCs show none.",
+    );
   }
   if (/\(\w+\)/.test(table.name)) {
-    lines.push('This is a per-pronoun variant table, so its rows total less than 100% — only some NPCs roll from it.');
+    lines.push(
+      "This is a per-pronoun variant table, so its rows total less than 100% — only some NPCs roll from it.",
+    );
   }
 
   const parent = tablesState.parents[table.name];
   if (parent) {
-    lines.push(groupEntryShare(table) === 0
-      ? `Disabled — never rolled: the reference to this group in ${parent} is unchecked.`
-      : `Rolled only when ${parent} draws this group, so these rows total the group's own row there.`);
+    lines.push(
+      groupEntryShare(table) === 0
+        ? `Disabled — never rolled: the reference to this group in ${parent} is unchecked.`
+        : `Rolled only when ${parent} draws this group, so these rows total the group's own row there.`,
+    );
   }
 
-  note.textContent = lines.join(' ');
+  note.textContent = lines.join(" ");
   note.hidden = false;
 }
 
@@ -7536,17 +8467,24 @@ async function toggleBullet(tableName, bullet, checkboxEl) {
   const nextEnabled = checkboxEl.checked;
   checkboxEl.disabled = true;
   try {
-    await api('/api/table-bullets/toggle', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: tablesState.kind, table: tableName, text: bullet.text, enabled: nextEnabled }),
+    await api("/api/table-bullets/toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: tablesState.kind,
+        table: tableName,
+        text: bullet.text,
+        enabled: nextEnabled,
+      }),
     });
     bullet.enabled = nextEnabled;
     // Only this row's badge changed. Rebuilding the whole list -- thirty-odd
     // buttons and their group headers -- also threw away the list's scroll
     // position on every click.
     const table = tablesState.tables.find((t) => t.name === tableName);
-    const row = elTables.headingList.querySelector(`[data-table="${CSS.escape(tableName)}"]`);
+    const row = elTables.headingList.querySelector(
+      `[data-table="${CSS.escape(tableName)}"]`,
+    );
     if (table && row) row.textContent = headingLabel(table);
     // Enabling or disabling a bullet changes the denominator for every other
     // row in the table, not just this one's own chance.
@@ -7574,7 +8512,7 @@ const weightTimers = new Map();
 
 /** Key a pending weight write by the bullet it targets, not by the element. */
 function weightKey(tableName, bullet) {
-    return `${tableName}\u0000${bullet.text}`;
+  return `${tableName}\u0000${bullet.text}`;
 }
 
 /**
@@ -7587,10 +8525,13 @@ function weightKey(tableName, bullet) {
 function queueBulletWeight(tableName, bullet, inputEl) {
   const key = weightKey(tableName, bullet);
   clearTimeout(weightTimers.get(key));
-  weightTimers.set(key, setTimeout(() => {
-    weightTimers.delete(key);
-    setBulletWeight(tableName, bullet, inputEl);
-  }, WEIGHT_DEBOUNCE_MS));
+  weightTimers.set(
+    key,
+    setTimeout(() => {
+      weightTimers.delete(key);
+      setBulletWeight(tableName, bullet, inputEl);
+    }, WEIGHT_DEBOUNCE_MS),
+  );
 }
 
 async function setBulletWeight(tableName, bullet, inputEl) {
@@ -7599,7 +8540,7 @@ async function setBulletWeight(tableName, bullet, inputEl) {
     inputEl.value = bullet.weight;
     bullet.pendingWeight = undefined;
     renderChances();
-    alert('Weight must be a whole number of 1 or more.');
+    alert("Weight must be a whole number of 1 or more.");
     return;
   }
   if (nextWeight === bullet.weight) {
@@ -7609,10 +8550,15 @@ async function setBulletWeight(tableName, bullet, inputEl) {
   }
   inputEl.disabled = true;
   try {
-    await api('/api/table-bullets/set-weight', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: tablesState.kind, table: tableName, text: bullet.text, weight: nextWeight }),
+    await api("/api/table-bullets/set-weight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: tablesState.kind,
+        table: tableName,
+        text: bullet.text,
+        weight: nextWeight,
+      }),
     });
     bullet.weight = nextWeight;
     queueOdds();
@@ -7620,7 +8566,7 @@ async function setBulletWeight(tableName, bullet, inputEl) {
     inputEl.value = bullet.weight;
     alert(`Couldn't update that bullet's weight: ${err.message}`);
   } finally {
-    bullet.pendingWeight = undefined;   // the file and the box agree again, either way
+    bullet.pendingWeight = undefined; // the file and the box agree again, either way
     inputEl.disabled = false;
     renderChances();
   }
@@ -7631,19 +8577,19 @@ async function setBulletWeight(tableName, bullet, inputEl) {
 /* ==================================================================== */
 
 function resetAddForm() {
-  elTables.addText.value = '';
-  elTables.addWeight.value = '1';
+  elTables.addText.value = "";
+  elTables.addWeight.value = "1";
   elTables.addBtn.disabled = true;
   elTables.addError.hidden = true;
-  elTables.addError.textContent = '';
+  elTables.addError.textContent = "";
 }
 
-elTables.addText.addEventListener('input', () => {
+elTables.addText.addEventListener("input", () => {
   elTables.addBtn.disabled = !elTables.addText.value.trim();
   elTables.addError.hidden = true;
 });
 
-elTables.addForm.addEventListener('submit', (e) => {
+elTables.addForm.addEventListener("submit", (e) => {
   e.preventDefault();
   addCustomBullet();
 });
@@ -7664,16 +8610,17 @@ async function addCustomBullet() {
   const weight = Math.trunc(Number(elTables.addWeight.value));
   if (!tableName || !text) return;
   if (!Number.isInteger(weight) || weight < 1) {
-    elTables.addError.textContent = 'Weight must be a whole number of 1 or more.';
+    elTables.addError.textContent =
+      "Weight must be a whole number of 1 or more.";
     elTables.addError.hidden = false;
     return;
   }
   elTables.addBtn.disabled = true;
   elTables.addText.disabled = true;
   try {
-    const { bullet } = await api('/api/table-bullets/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const { bullet } = await api("/api/table-bullets/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind, table: tableName, text, weight }),
     });
     // The kind was switched mid-request; its reload already has the new row.
@@ -7681,15 +8628,17 @@ async function addCustomBullet() {
     const table = tablesState.tables.find((t) => t.name === tableName);
     if (!table) return;
     table.bullets.push(bullet);
-    const row = elTables.headingList.querySelector(`[data-table="${CSS.escape(tableName)}"]`);
+    const row = elTables.headingList.querySelector(
+      `[data-table="${CSS.escape(tableName)}"]`,
+    );
     if (row) row.textContent = headingLabel(table);
     resetAddForm();
     if (tablesState.selectedTable === tableName) {
       // A value the search would hide looks like it was never added.
-      if (!tableBulletMatchesSearch(table, bullet)) setTablesSearch('');
+      if (!tableBulletMatchesSearch(table, bullet)) setTablesSearch("");
       renderTableHeadingList();
       renderTableBullets();
-      elTables.addForm.scrollIntoView({ block: 'nearest' });
+      elTables.addForm.scrollIntoView({ block: "nearest" });
     }
     // A new enabled weight changes every row's share of the table.
     queueOdds();
@@ -7710,8 +8659,11 @@ async function addCustomBullet() {
 async function loadPresets() {
   const kind = tablesState.kind;
   const request = ++tablesState.presetRequest;
-  const { presets } = await api(`/api/presets?kind=${encodeURIComponent(kind)}`);
-  if (kind !== tablesState.kind || request !== tablesState.presetRequest) return false;
+  const { presets } = await api(
+    `/api/presets?kind=${encodeURIComponent(kind)}`,
+  );
+  if (kind !== tablesState.kind || request !== tablesState.presetRequest)
+    return false;
   tablesState.presets = presets;
   renderPresetList(kind);
   return true;
@@ -7719,17 +8671,17 @@ async function loadPresets() {
 
 function renderPresetList(kind = tablesState.kind) {
   if (kind !== tablesState.kind) return;
-  elTables.presetList.innerHTML = '';
+  elTables.presetList.innerHTML = "";
   if (!tablesState.presets.length) {
-    elTables.presetList.textContent = 'No saved presets yet.';
+    elTables.presetList.textContent = "No saved presets yet.";
     return;
   }
   for (const preset of tablesState.presets) {
-    const row = document.createElement('div');
-    row.className = 'preset-row';
+    const row = document.createElement("div");
+    row.className = "preset-row";
 
-    const name = document.createElement('span');
-    name.className = 'preset-name';
+    const name = document.createElement("span");
+    name.className = "preset-name";
     // "(12 selected)", not a bare "(12)". The number used to be the count of
     // *disabled* bullets and is now the count of selected ones - the opposite
     // reading - and nothing in the UI said which, so an old preset and a new
@@ -7737,24 +8689,25 @@ function renderPresetList(kind = tablesState.kind) {
     name.textContent = `${preset.name} (${preset.count} selected)`;
     row.appendChild(name);
 
-    const date = document.createElement('span');
-    date.className = 'preset-date';
+    const date = document.createElement("span");
+    date.className = "preset-date";
     date.textContent = new Date(preset.created).toLocaleDateString();
     row.appendChild(date);
 
-    const download = document.createElement('a');
-    download.className = 'preset-download';
-    download.href = `/api/presets/export?kind=${encodeURIComponent(tablesState.kind)}`
-      + `&slug=${encodeURIComponent(preset.slug)}`;
-    download.textContent = 'Download';
+    const download = document.createElement("a");
+    download.className = "preset-download";
+    download.href =
+      `/api/presets/export?kind=${encodeURIComponent(tablesState.kind)}` +
+      `&slug=${encodeURIComponent(preset.slug)}`;
+    download.textContent = "Download";
     download.download = `${preset.slug}.json`;
     row.appendChild(download);
 
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'danger';
-    del.textContent = 'Delete';
-    del.addEventListener('click', () => deletePresetRow(preset.slug, kind));
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "danger";
+    del.textContent = "Delete";
+    del.addEventListener("click", () => deletePresetRow(preset.slug, kind));
     row.appendChild(del);
 
     elTables.presetList.appendChild(row);
@@ -7763,22 +8716,22 @@ function renderPresetList(kind = tablesState.kind) {
 
 async function deletePresetRow(slug, kind = tablesState.kind) {
   if (kind !== tablesState.kind) return;
-  if (!confirm('Delete this preset? This cannot be undone.')) return;
-  await api('/api/presets/delete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  if (!confirm("Delete this preset? This cannot be undone.")) return;
+  await api("/api/presets/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind, slug }),
   });
   await loadPresets();
 }
 
-elTables.saveBtn.addEventListener('click', async () => {
-  const name = prompt('Name this preset:');
+elTables.saveBtn.addEventListener("click", async () => {
+  const name = prompt("Name this preset:");
   if (!name || !name.trim()) return;
   try {
-    await api('/api/presets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    await api("/api/presets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind: tablesState.kind, name: name.trim() }),
     });
     await loadPresets();
@@ -7787,9 +8740,9 @@ elTables.saveBtn.addEventListener('click', async () => {
   }
 });
 
-elTables.importInput.addEventListener('change', async () => {
+elTables.importInput.addEventListener("change", async () => {
   const file = elTables.importInput.files[0];
-  elTables.importInput.value = '';
+  elTables.importInput.value = "";
   if (!file) return;
   let parsed;
   try {
@@ -7800,11 +8753,14 @@ elTables.importInput.addEventListener('change', async () => {
   }
   let diff;
   try {
-    diff = await api(`/api/presets/import?kind=${encodeURIComponent(tablesState.kind)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(parsed),
-    });
+    diff = await api(
+      `/api/presets/import?kind=${encodeURIComponent(tablesState.kind)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsed),
+      },
+    );
   } catch (err) {
     alert(`Couldn't preview that preset: ${err.message}`);
     return;
@@ -7815,44 +8771,48 @@ elTables.importInput.addEventListener('change', async () => {
 
 function renderPresetPreview(diff) {
   elTables.preview.hidden = false;
-  const changing = diff.willEnable.length + diff.willDisable.length + diff.willReweight.length;
+  const changing =
+    diff.willEnable.length + diff.willDisable.length + diff.willReweight.length;
   elTables.previewSummary.textContent =
-    `Will change ${changing} bullet(s): ${diff.willEnable.length} to enable, `
-    + `${diff.willDisable.length} to disable, ${diff.willReweight.length} to reweight. `
-    + `Already matching ${diff.alreadyMatching.length}, not found locally ${diff.notFound.length}.`;
-  elTables.previewList.innerHTML = '';
+    `Will change ${changing} bullet(s): ${diff.willEnable.length} to enable, ` +
+    `${diff.willDisable.length} to disable, ${diff.willReweight.length} to reweight. ` +
+    `Already matching ${diff.alreadyMatching.length}, not found locally ${diff.notFound.length}.`;
+  elTables.previewList.innerHTML = "";
   for (const { table, text, weight } of diff.willEnable) {
-    const li = document.createElement('li');
+    const li = document.createElement("li");
     li.textContent = `${table}: enable "${text}" (x${weight})`;
     elTables.previewList.appendChild(li);
   }
   for (const { table, text, weight } of diff.willReweight) {
-    const li = document.createElement('li');
+    const li = document.createElement("li");
     li.textContent = `${table}: reweight "${text}" to x${weight}`;
     elTables.previewList.appendChild(li);
   }
   for (const { table, text } of diff.willDisable) {
-    const li = document.createElement('li');
+    const li = document.createElement("li");
     li.textContent = `${table}: disable "${text}"`;
     elTables.previewList.appendChild(li);
   }
   for (const { table, text } of diff.notFound) {
-    const li = document.createElement('li');
-    li.className = 'preset-preview-not-found';
+    const li = document.createElement("li");
+    li.className = "preset-preview-not-found";
     li.textContent = `${table}: ${text} (not found locally)`;
     elTables.previewList.appendChild(li);
   }
 }
 
-elTables.applyBtn.addEventListener('click', async () => {
+elTables.applyBtn.addEventListener("click", async () => {
   if (!tablesState.pendingPreset) return;
   let result;
   try {
-    result = await api(`/api/presets/apply?kind=${encodeURIComponent(tablesState.kind)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(tablesState.pendingPreset),
-    });
+    result = await api(
+      `/api/presets/apply?kind=${encodeURIComponent(tablesState.kind)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(tablesState.pendingPreset),
+      },
+    );
   } catch (err) {
     alert(`Couldn't apply preset: ${err.message}`);
     return;
@@ -7863,10 +8823,16 @@ elTables.applyBtn.addEventListener('click', async () => {
   // list exists to stop.
   const failed = result?.failed ?? [];
   if (failed.length) {
-    const lines = failed.slice(0, 10).map((f) => `  ${f.table}: "${f.text}" - ${f.error}`);
-    const more = failed.length > 10 ? `\n  ...and ${failed.length - 10} more` : '';
-    alert(`Applied, but ${failed.length} bullet(s) could not be written:\n\n`
-      + lines.join('\n') + more);
+    const lines = failed
+      .slice(0, 10)
+      .map((f) => `  ${f.table}: "${f.text}" - ${f.error}`);
+    const more =
+      failed.length > 10 ? `\n  ...and ${failed.length - 10} more` : "";
+    alert(
+      `Applied, but ${failed.length} bullet(s) could not be written:\n\n` +
+        lines.join("\n") +
+        more,
+    );
   }
   tablesState.pendingPreset = null;
   elTables.preview.hidden = true;
@@ -7878,7 +8844,7 @@ function cancelPresetPreview() {
   tablesState.pendingPreset = null;
   elTables.preview.hidden = true;
 }
-elTables.cancelBtn.addEventListener('click', cancelPresetPreview);
+elTables.cancelBtn.addEventListener("click", cancelPresetPreview);
 
 /* ==================================================================== */
 /* Backgrounds                                                           */
@@ -7907,9 +8873,9 @@ const backgroundsState = {
   // Whether "Import into SillyTavern" has a folder to copy to, as the server
   // last reported it. Stored off the gallery load so a config.json edit is
   // noticed on the next tab visit, not the next page load.
-  sillyTavern: { available: false, dir: '' },
-  catalogue: '',
-  prefix: '',
+  sillyTavern: { available: false, dir: "" },
+  catalogue: "",
+  prefix: "",
   selected: null, // the rel the Animate panel is open on
   motion: null,
   renderTimer: null,
@@ -7927,52 +8893,60 @@ const backgroundsState = {
 };
 
 const elBackgrounds = {
-  unavailable: document.getElementById('bg-unavailable'),
-  catalogue: document.getElementById('bg-catalogue'),
-  entries: document.getElementById('bg-entries'),
-  variants: document.getElementById('bg-variants'),
-  width: document.getElementById('bg-width'),
-  height: document.getElementById('bg-height'),
-  rollSeed: document.getElementById('bg-roll-seed'),
-  seed: document.getElementById('bg-seed'),
-  animateWhenDone: document.getElementById('bg-animate-when-done'),
-  chainPingpong: document.getElementById('bg-chain-pingpong'),
-  renderBtn: document.getElementById('bg-render-btn'),
-  renderStatus: document.getElementById('bg-render-status'),
-  renderLog: document.getElementById('bg-render-log'),
-  gallery: document.getElementById('bg-gallery'),
-  panel: document.getElementById('bg-animate'),
-  panelTitle: document.getElementById('bg-animate-title'),
-  panelStill: document.getElementById('bg-animate-still'),
-  panelLoop: document.getElementById('bg-animate-loop'),
-  motionText: document.getElementById('bg-motion-text'),
-  motionReroll: document.getElementById('bg-motion-reroll'),
-  animateSeed: document.getElementById('bg-animate-seed'),
-  pingpong: document.getElementById('bg-pingpong'),
-  animateBtn: document.getElementById('bg-animate-btn'),
-  animateClose: document.getElementById('bg-animate-close'),
-  animateStatus: document.getElementById('bg-animate-status'),
-  animateLog: document.getElementById('bg-animate-log'),
-  stImportBtn: document.getElementById('bg-st-import-btn'),
-  stImportStatus: document.getElementById('bg-st-import-status'),
+  unavailable: document.getElementById("bg-unavailable"),
+  catalogue: document.getElementById("bg-catalogue"),
+  entries: document.getElementById("bg-entries"),
+  variants: document.getElementById("bg-variants"),
+  width: document.getElementById("bg-width"),
+  height: document.getElementById("bg-height"),
+  rollSeed: document.getElementById("bg-roll-seed"),
+  seed: document.getElementById("bg-seed"),
+  animateWhenDone: document.getElementById("bg-animate-when-done"),
+  chainPingpong: document.getElementById("bg-chain-pingpong"),
+  renderBtn: document.getElementById("bg-render-btn"),
+  renderStatus: document.getElementById("bg-render-status"),
+  renderLog: document.getElementById("bg-render-log"),
+  gallery: document.getElementById("bg-gallery"),
+  panel: document.getElementById("bg-animate"),
+  panelTitle: document.getElementById("bg-animate-title"),
+  panelStill: document.getElementById("bg-animate-still"),
+  panelLoop: document.getElementById("bg-animate-loop"),
+  motionText: document.getElementById("bg-motion-text"),
+  motionReroll: document.getElementById("bg-motion-reroll"),
+  animateSeed: document.getElementById("bg-animate-seed"),
+  pingpong: document.getElementById("bg-pingpong"),
+  animateBtn: document.getElementById("bg-animate-btn"),
+  animateClose: document.getElementById("bg-animate-close"),
+  animateStatus: document.getElementById("bg-animate-status"),
+  animateLog: document.getElementById("bg-animate-log"),
+  stImportBtn: document.getElementById("bg-st-import-btn"),
+  stImportStatus: document.getElementById("bg-st-import-status"),
 };
 
 async function loadBackgrounds() {
-  const data = await api('/api/backgrounds');
+  const data = await api("/api/backgrounds");
   backgroundsState.available = !!data.available;
   backgroundsState.missing = data.missing || [];
   backgroundsState.catalogues = data.catalogues || [];
   backgroundsState.motionPrompts = data.motionPrompts || [];
   backgroundsState.items = data.items || [];
-  backgroundsState.sillyTavern = data.sillyTavern || { available: false, dir: '' };
+  backgroundsState.sillyTavern = data.sillyTavern || {
+    available: false,
+    dir: "",
+  };
   backgroundsState.loaded = true;
   // Keep the chosen catalogue across a refresh when it is still there, and
   // fall to the first one when it is not - a catalogue can be added or
   // removed on disk between two visits to this tab.
-  if (!backgroundsState.catalogues.some((c) => c.file === backgroundsState.catalogue)) {
+  if (
+    !backgroundsState.catalogues.some(
+      (c) => c.file === backgroundsState.catalogue,
+    )
+  ) {
     backgroundsState.catalogue = backgroundsState.catalogues.length
-      ? backgroundsState.catalogues[0].file : '';
-    backgroundsState.prefix = '';
+      ? backgroundsState.catalogues[0].file
+      : "";
+    backgroundsState.prefix = "";
   }
   renderBackgroundsPanel();
   globalThis.DynamicBackgrounds?.onGallery(data);
@@ -7981,7 +8955,8 @@ async function loadBackgrounds() {
 function renderBackgroundsPanel() {
   elBackgrounds.unavailable.hidden = backgroundsState.available;
   elBackgrounds.unavailable.textContent = backgroundsState.available
-    ? '' : `The Create Background tab needs: ${backgroundsState.missing.join('; ')}.`;
+    ? ""
+    : `The Create Background tab needs: ${backgroundsState.missing.join("; ")}.`;
   elBackgrounds.renderBtn.disabled = !backgroundsState.available;
   renderBackgroundCatalogues();
   renderBackgroundEntries();
@@ -7989,9 +8964,9 @@ function renderBackgroundsPanel() {
 }
 
 function renderBackgroundCatalogues() {
-  elBackgrounds.catalogue.innerHTML = '';
+  elBackgrounds.catalogue.innerHTML = "";
   for (const catalogue of backgroundsState.catalogues) {
-    const opt = document.createElement('option');
+    const opt = document.createElement("option");
     opt.value = catalogue.file;
     opt.textContent = catalogue.label;
     opt.selected = catalogue.file === backgroundsState.catalogue;
@@ -8009,44 +8984,49 @@ function backgroundEntryLabel(entry) {
 }
 
 function renderBackgroundEntries() {
-  elBackgrounds.entries.innerHTML = '';
-  const catalogue = backgroundsState.catalogues.find((c) => c.file === backgroundsState.catalogue);
+  elBackgrounds.entries.innerHTML = "";
+  const catalogue = backgroundsState.catalogues.find(
+    (c) => c.file === backgroundsState.catalogue,
+  );
   const entries = catalogue ? catalogue.entries : [];
   if (!entries.length) {
     elBackgrounds.entries.textContent = backgroundsState.available
-      ? 'No entries in this catalogue.' : '';
+      ? "No entries in this catalogue."
+      : "";
     return;
   }
   if (!entries.some((e) => e.prefix === backgroundsState.prefix)) {
     backgroundsState.prefix = entries[0].prefix;
   }
   for (const entry of entries) {
-    const row = document.createElement('label');
-    row.className = 'bg-entry';
+    const row = document.createElement("label");
+    row.className = "bg-entry";
 
-    const radio = document.createElement('input');
-    radio.type = 'radio';
-    radio.name = 'bg-entry';
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "bg-entry";
     radio.value = entry.prefix;
     radio.checked = entry.prefix === backgroundsState.prefix;
-    radio.addEventListener('change', () => { backgroundsState.prefix = entry.prefix; });
+    radio.addEventListener("change", () => {
+      backgroundsState.prefix = entry.prefix;
+    });
     row.appendChild(radio);
 
-    const title = document.createElement('span');
-    title.className = 'bg-entry-title';
+    const title = document.createElement("span");
+    title.className = "bg-entry-title";
     title.textContent = backgroundEntryLabel(entry);
     row.appendChild(title);
 
     if (entry.role) {
-      const role = document.createElement('span');
-      role.className = 'bg-entry-role';
+      const role = document.createElement("span");
+      role.className = "bg-entry-role";
       role.textContent = entry.role;
       row.appendChild(role);
     }
 
-    const excerpt = document.createElement('span');
-    excerpt.className = 'bg-entry-excerpt';
-    excerpt.textContent = entry.excerpt || '';
+    const excerpt = document.createElement("span");
+    excerpt.className = "bg-entry-excerpt";
+    excerpt.textContent = entry.excerpt || "";
     row.appendChild(excerpt);
 
     elBackgrounds.entries.appendChild(row);
@@ -8059,14 +9039,22 @@ function renderBackgroundEntries() {
  * /api/create-status, drives a dry-run button this panel does not have, and
  * is lifted by name in two existing tests.
  */
-function pollBackgroundJob(jobId, { statusEl, logEl, button, running, onDone, onStop, isCurrent }) {
+function pollBackgroundJob(
+  jobId,
+  { statusEl, logEl, button, running, onDone, onStop, isCurrent },
+) {
   let ticks = 0;
   const timer = setInterval(async () => {
     ticks += 1;
     let job;
     try {
-      job = await api(`/api/backgrounds/status?jobId=${encodeURIComponent(jobId)}`);
-      if (isCurrent && !isCurrent()) { clearInterval(timer); return; }
+      job = await api(
+        `/api/backgrounds/status?jobId=${encodeURIComponent(jobId)}`,
+      );
+      if (isCurrent && !isCurrent()) {
+        clearInterval(timer);
+        return;
+      }
     } catch (err) {
       clearInterval(timer);
       if (isCurrent && !isCurrent()) return;
@@ -8076,8 +9064,8 @@ function pollBackgroundJob(jobId, { statusEl, logEl, button, running, onDone, on
       return;
     }
     logEl.hidden = !job.log;
-    logEl.textContent = job.log || '';
-    if (job.status === 'running') {
+    logEl.textContent = job.log || "";
+    if (job.status === "running") {
       statusEl.textContent = running;
       // The same 20-minute safety net the other pollers have, and the same
       // obligation to hand the button back when it fires - giving up on
@@ -8086,7 +9074,7 @@ function pollBackgroundJob(jobId, { statusEl, logEl, button, running, onDone, on
         clearInterval(timer);
         button.disabled = false;
         statusEl.textContent =
-          'Stopped watching this run after 20 minutes — it may still be going; reload to check.';
+          "Stopped watching this run after 20 minutes — it may still be going; reload to check.";
         onStop?.();
       }
       return;
@@ -8117,14 +9105,18 @@ function pollBackgroundJob(jobId, { statusEl, logEl, button, running, onDone, on
  */
 function watchBackgroundGalleryUntilSettled() {
   if (backgroundsState.galleryWatchTimer) return; // already watching
-  if (!backgroundsState.items.some((item) => item.status === 'running')) return;
+  if (!backgroundsState.items.some((item) => item.status === "running")) return;
   let ticks = 0;
   backgroundsState.galleryWatchTimer = setInterval(async () => {
     ticks += 1;
     try {
       await loadBackgrounds();
-    } catch { /* try again on the next tick */ }
-    const stillRunning = backgroundsState.items.some((item) => item.status === 'running');
+    } catch {
+      /* try again on the next tick */
+    }
+    const stillRunning = backgroundsState.items.some(
+      (item) => item.status === "running",
+    );
     // Same 20-minute bound pollBackgroundJob gives up after.
     if (!stillRunning || ticks > 600) {
       clearInterval(backgroundsState.galleryWatchTimer);
@@ -8135,13 +9127,13 @@ function watchBackgroundGalleryUntilSettled() {
 
 async function startBackgroundRender() {
   if (!backgroundsState.prefix) {
-    elBackgrounds.renderStatus.textContent = 'Choose a catalogue entry first.';
+    elBackgrounds.renderStatus.textContent = "Choose a catalogue entry first.";
     return;
   }
   elBackgrounds.renderBtn.disabled = true;
-  elBackgrounds.renderStatus.textContent = 'Starting…';
+  elBackgrounds.renderStatus.textContent = "Starting…";
   elBackgrounds.renderLog.hidden = true;
-  elBackgrounds.renderLog.textContent = '';
+  elBackgrounds.renderLog.textContent = "";
 
   const body = {
     catalogue: backgroundsState.catalogue,
@@ -8151,16 +9143,18 @@ async function startBackgroundRender() {
     height: Number(elBackgrounds.height.value) || 1080,
     // null is a mode, not a missing value: it omits --seed and lets the
     // script roll its own, which is the only other seed a render has.
-    seed: elBackgrounds.rollSeed.checked ? null : Number(elBackgrounds.seed.value),
+    seed: elBackgrounds.rollSeed.checked
+      ? null
+      : Number(elBackgrounds.seed.value),
     animateWhenDone: elBackgrounds.animateWhenDone.checked,
     pingpong: elBackgrounds.chainPingpong.checked,
   };
 
   let result;
   try {
-    result = await api('/api/backgrounds/render', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    result = await api("/api/backgrounds/render", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
   } catch (err) {
@@ -8173,20 +9167,23 @@ async function startBackgroundRender() {
     statusEl: elBackgrounds.renderStatus,
     logEl: elBackgrounds.renderLog,
     button: elBackgrounds.renderBtn,
-    running: 'Rendering… this takes minutes per image (ComfyUI must be running).',
+    running:
+      "Rendering… this takes minutes per image (ComfyUI must be running).",
     onDone: (job) => {
-      if (job.status === 'error') {
-        elBackgrounds.renderStatus.textContent = job.error || 'The render failed.';
+      if (job.status === "error") {
+        elBackgrounds.renderStatus.textContent =
+          job.error || "The render failed.";
       } else if (!job.produced) {
         // Exit code 0 only means the script did not crash. Say what happened
         // rather than claiming a still that is not there.
-        elBackgrounds.renderStatus.textContent = 'The run finished but produced no images.';
+        elBackgrounds.renderStatus.textContent =
+          "The run finished but produced no images.";
       } else {
         const loops = job.chain.length
-          ? ` ${job.chain.length} loop${job.chain.length === 1 ? '' : 's'} started.` : '';
-        const failed = job.chainError ? ` ${job.chainError}.` : '';
-        elBackgrounds.renderStatus.textContent =
-          `Rendered ${job.produced} image${job.produced === 1 ? '' : 's'}.${loops}${failed}`;
+          ? ` ${job.chain.length} loop${job.chain.length === 1 ? "" : "s"} started.`
+          : "";
+        const failed = job.chainError ? ` ${job.chainError}.` : "";
+        elBackgrounds.renderStatus.textContent = `Rendered ${job.produced} image${job.produced === 1 ? "" : "s"}.${loops}${failed}`;
         // The same banner an NPC or ship run raises, since the status line
         // above is inside this tab and a render that finishes while the user
         // is on another one would otherwise say nothing anywhere. The zero
@@ -8196,23 +9193,25 @@ async function startBackgroundRender() {
       }
       loadBackgrounds()
         .then(() => watchBackgroundGalleryUntilSettled())
-        .catch(() => { /* the gallery refreshes on the next visit */ });
+        .catch(() => {
+          /* the gallery refreshes on the next visit */
+        });
     },
   });
 }
 
-elBackgrounds.catalogue.addEventListener('change', () => {
+elBackgrounds.catalogue.addEventListener("change", () => {
   backgroundsState.catalogue = elBackgrounds.catalogue.value;
-  backgroundsState.prefix = '';
+  backgroundsState.prefix = "";
   renderBackgroundEntries();
 });
 
-elBackgrounds.rollSeed.addEventListener('change', () => {
+elBackgrounds.rollSeed.addEventListener("change", () => {
   elBackgrounds.seed.disabled = elBackgrounds.rollSeed.checked;
-  if (elBackgrounds.rollSeed.checked) elBackgrounds.seed.value = '';
+  if (elBackgrounds.rollSeed.checked) elBackgrounds.seed.value = "";
 });
 
-elBackgrounds.renderBtn.addEventListener('click', () => {
+elBackgrounds.renderBtn.addEventListener("click", () => {
   startBackgroundRender().catch((err) => {
     elBackgrounds.renderBtn.disabled = false;
     elBackgrounds.renderStatus.textContent = `Couldn't start: ${err.message}`;
@@ -8226,60 +9225,65 @@ elBackgrounds.renderBtn.addEventListener('click', () => {
  */
 function backgroundPills(item) {
   const pills = [];
-  if (item.scene) pills.push('Dynamic');
-  if (item.battlemaps?.length) pills.push('Battlemap');
-  if (item.battlemapJob?.status === 'running') pills.push('Mapping…');
-  if (item.status === 'running') pills.push('Animating…');
-  if (item.error) pills.push('Failed');
-  if (item.animation) pills.push('Animated');
-  if (item.animation && item.animation.stale) pills.push('Stale');
+  if (item.scene) pills.push("Dynamic");
+  if (item.battlemaps?.length) pills.push("Battlemap");
+  if (item.battlemapJob?.status === "running") pills.push("Mapping…");
+  if (item.status === "running") pills.push("Animating…");
+  if (item.error) pills.push("Failed");
+  if (item.animation) pills.push("Animated");
+  if (item.animation && item.animation.stale) pills.push("Stale");
   // Read off SillyTavern's folder by the server, so a background deleted
   // from inside SillyTavern loses the pill on the next load.
-  if (item.sillyTavern && item.sillyTavern.imported) pills.push('In SillyTavern');
+  if (item.sillyTavern && item.sillyTavern.imported)
+    pills.push("In SillyTavern");
   return pills;
 }
 
 function renderBackgroundGallery() {
-  elBackgrounds.gallery.innerHTML = '';
+  elBackgrounds.gallery.innerHTML = "";
   if (!backgroundsState.items.length) {
     elBackgrounds.gallery.textContent = backgroundsState.available
-      ? 'No backgrounds rendered yet.' : '';
+      ? "No backgrounds rendered yet."
+      : "";
     return;
   }
   for (const item of backgroundsState.items) {
-    const card = document.createElement('button');
-    card.type = 'button';
-    card.className = 'bg-card';
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "bg-card";
     card.dataset.rel = item.rel;
 
-    const img = document.createElement('img');
+    const img = document.createElement("img");
     img.src = item.url;
     img.alt = item.name;
-    img.loading = 'lazy';
+    img.loading = "lazy";
     card.appendChild(img);
 
-    const name = document.createElement('div');
-    name.className = 'bg-card-name';
+    const name = document.createElement("div");
+    name.className = "bg-card-name";
     name.textContent = item.name;
     card.appendChild(name);
 
-    const pills = document.createElement('div');
-    pills.className = 'bg-card-pills';
+    const pills = document.createElement("div");
+    pills.className = "bg-card-pills";
     for (const text of backgroundPills(item)) {
-      const pill = document.createElement('span');
-      pill.className = 'bg-pill';
+      const pill = document.createElement("span");
+      pill.className = "bg-pill";
       pill.textContent = text;
       pills.appendChild(pill);
     }
     card.appendChild(pills);
 
-    card.addEventListener('click', () => openBackgroundAnimate(item.rel));
+    card.addEventListener("click", () => openBackgroundAnimate(item.rel));
     elBackgrounds.gallery.appendChild(card);
   }
 }
 
 function selectedBackground() {
-  return backgroundsState.items.find((i) => i.rel === backgroundsState.selected) || null;
+  return (
+    backgroundsState.items.find((i) => i.rel === backgroundsState.selected) ||
+    null
+  );
 }
 
 /**
@@ -8310,27 +9314,30 @@ function openBackgroundAnimate(rel) {
   globalThis.DynamicBackgrounds?.onSelect(item);
   // What the last loop used when there is one, else a fresh draw - the panel's
   // first state should simply be usable.
-  backgroundsState.motion = (item.animation && item.animation.description)
-    || item.scene?.motionPrompt
-    || pickBackgroundMotion(null);
+  backgroundsState.motion =
+    (item.animation && item.animation.description) ||
+    item.scene?.motionPrompt ||
+    pickBackgroundMotion(null);
   elBackgrounds.panel.hidden = false;
   elBackgrounds.panelTitle.textContent = item.name;
   elBackgrounds.panelStill.src = item.url;
   elBackgrounds.panelStill.alt = item.name;
   elBackgrounds.panelLoop.hidden = !item.animation;
-  elBackgrounds.panelLoop.src = item.animation ? item.animation.url : '';
-  elBackgrounds.motionText.value = backgroundsState.motion || '';
-  elBackgrounds.animateSeed.value = (item.animation && item.animation.seed !== null)
-    ? item.animation.seed : '';
-  elBackgrounds.animateStatus.textContent = '';
+  elBackgrounds.panelLoop.src = item.animation ? item.animation.url : "";
+  elBackgrounds.motionText.value = backgroundsState.motion || "";
+  elBackgrounds.animateSeed.value =
+    item.animation && item.animation.seed !== null ? item.animation.seed : "";
+  elBackgrounds.animateStatus.textContent = "";
   elBackgrounds.animateLog.hidden = true;
-  elBackgrounds.animateLog.textContent = '';
+  elBackgrounds.animateLog.textContent = "";
   // Off entirely when there is no folder to copy to: a button that can only
   // fail is worse than none, and the server's error names the config key.
   elBackgrounds.stImportBtn.hidden = !backgroundsState.sillyTavern.available;
   elBackgrounds.stImportBtn.disabled = false;
-  elBackgrounds.stImportStatus.textContent = item.sillyTavern && item.sillyTavern.imported
-    ? `In SillyTavern as "${item.sillyTavern.still}".` : '';
+  elBackgrounds.stImportStatus.textContent =
+    item.sillyTavern && item.sillyTavern.imported
+      ? `In SillyTavern as "${item.sillyTavern.still}".`
+      : "";
 }
 
 /**
@@ -8340,14 +9347,17 @@ function openBackgroundAnimate(rel) {
  * rather than from an optimistic flip here. Shared by the Animate panel's
  * button and the Import tab sheet's, which differ only in where they report.
  */
-async function importBackgroundToSillyTavern(rel, { statusEl, button, reload }) {
+async function importBackgroundToSillyTavern(
+  rel,
+  { statusEl, button, reload },
+) {
   button.disabled = true;
-  statusEl.textContent = 'Copying…';
+  statusEl.textContent = "Copying…";
   let result;
   try {
-    result = await api('/api/backgrounds/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    result = await api("/api/backgrounds/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rel }),
     });
   } catch (err) {
@@ -8356,11 +9366,14 @@ async function importBackgroundToSillyTavern(rel, { statusEl, button, reload }) 
     return;
   }
   button.disabled = false;
-  statusEl.textContent = `Copied ${result.copied.map((n) => `"${n}"`).join(' and ')} into ${result.dir}.`
-    + ' Open the Backgrounds panel in SillyTavern to pick it.';
+  statusEl.textContent =
+    `Copied ${result.copied.map((n) => `"${n}"`).join(" and ")} into ${result.dir}.` +
+    " Open the Backgrounds panel in SillyTavern to pick it.";
   try {
     await reload();
-  } catch { /* the list refreshes on its next visit */ }
+  } catch {
+    /* the list refreshes on its next visit */
+  }
 }
 
 function closeBackgroundAnimate() {
@@ -8382,14 +9395,15 @@ function closeBackgroundAnimate() {
 
 function backgroundSeedMode() {
   const checked = document.querySelector('input[name="bg-seed-mode"]:checked');
-  return checked ? checked.value : 'same';
+  return checked ? checked.value : "same";
 }
 
 async function startBackgroundAnimate() {
   const item = selectedBackground();
   if (!item) return;
   if (!elBackgrounds.motionText.value.trim()) {
-    elBackgrounds.animateStatus.textContent = 'Give it something to animate first.';
+    elBackgrounds.animateStatus.textContent =
+      "Give it something to animate first.";
     return;
   }
   // Guard against a second Animate click leaking the first poll's timer -
@@ -8401,15 +9415,15 @@ async function startBackgroundAnimate() {
     backgroundsState.animateTimer = null;
   }
   elBackgrounds.animateBtn.disabled = true;
-  elBackgrounds.animateStatus.textContent = 'Starting…';
+  elBackgrounds.animateStatus.textContent = "Starting…";
   elBackgrounds.animateLog.hidden = true;
-  elBackgrounds.animateLog.textContent = '';
+  elBackgrounds.animateLog.textContent = "";
 
   let result;
   try {
-    result = await api('/api/backgrounds/animate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    result = await api("/api/backgrounds/animate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         rel: item.rel,
         description: elBackgrounds.motionText.value.trim(),
@@ -8438,27 +9452,31 @@ async function startBackgroundAnimate() {
     statusEl: elBackgrounds.animateStatus,
     logEl: elBackgrounds.animateLog,
     button: elBackgrounds.animateBtn,
-    running: 'Animating… a Wan render takes a few minutes (ComfyUI must be running).',
+    running:
+      "Animating… a Wan render takes a few minutes (ComfyUI must be running).",
     onDone: async (job) => {
       if (backgroundsState.animateJobId !== result.jobId) return;
       backgroundsState.animateTimer = null;
       elBackgrounds.animateStatus.textContent =
-        job.status === 'error' ? (job.error || 'The animation failed.') : 'Done.';
+        job.status === "error" ? job.error || "The animation failed." : "Done.";
       try {
         await loadBackgrounds();
-      } catch { /* the gallery refreshes on the next visit */ }
+      } catch {
+        /* the gallery refreshes on the next visit */
+      }
       // Re-open on the same still so the new loop is the one showing, and
       // only while the panel is still on it.
-      if (backgroundsState.selected === item.rel) openBackgroundAnimate(item.rel);
+      if (backgroundsState.selected === item.rel)
+        openBackgroundAnimate(item.rel);
     },
   });
 }
 
-elBackgrounds.motionReroll.addEventListener('click', () => {
+elBackgrounds.motionReroll.addEventListener("click", () => {
   const next = pickBackgroundMotion(elBackgrounds.motionText.value.trim());
   if (next === null) {
     elBackgrounds.animateStatus.textContent =
-      'No enabled Background Animation bullets to draw from — check the Tables tab.';
+      "No enabled Background Animation bullets to draw from — check the Tables tab.";
     return;
   }
   backgroundsState.motion = next;
@@ -8466,21 +9484,21 @@ elBackgrounds.motionReroll.addEventListener('click', () => {
 });
 
 for (const radio of document.querySelectorAll('input[name="bg-seed-mode"]')) {
-  radio.addEventListener('change', () => {
-    elBackgrounds.animateSeed.disabled = backgroundSeedMode() !== 'specific';
+  radio.addEventListener("change", () => {
+    elBackgrounds.animateSeed.disabled = backgroundSeedMode() !== "specific";
   });
 }
 
-elBackgrounds.animateBtn.addEventListener('click', () => {
+elBackgrounds.animateBtn.addEventListener("click", () => {
   startBackgroundAnimate().catch((err) => {
     elBackgrounds.animateBtn.disabled = false;
     elBackgrounds.animateStatus.textContent = `Couldn't start: ${err.message}`;
   });
 });
 
-elBackgrounds.animateClose.addEventListener('click', closeBackgroundAnimate);
+elBackgrounds.animateClose.addEventListener("click", closeBackgroundAnimate);
 
-elBackgrounds.stImportBtn.addEventListener('click', () => {
+elBackgrounds.stImportBtn.addEventListener("click", () => {
   const item = selectedBackground();
   if (!item) return;
   importBackgroundToSillyTavern(item.rel, {
@@ -8501,25 +9519,28 @@ elBackgrounds.stImportBtn.addEventListener('click', () => {
    save ends with a restart notice rather than a reload. */
 
 const elSettings = {
-  open: document.getElementById('settings-open'),
-  overlay: document.getElementById('settings-overlay'),
-  form: document.getElementById('settings-form'),
-  groups: document.getElementById('settings-groups'),
-  restart: document.getElementById('settings-restart'),
-  locked: document.getElementById('settings-locked'),
-  keyRow: document.getElementById('settings-key-row'),
-  key: document.getElementById('settings-key'),
-  error: document.getElementById('settings-error'),
-  status: document.getElementById('settings-status'),
-  cancel: document.getElementById('settings-cancel'),
-  save: document.getElementById('settings-save'),
+  open: document.getElementById("settings-open"),
+  overlay: document.getElementById("settings-overlay"),
+  form: document.getElementById("settings-form"),
+  groups: document.getElementById("settings-groups"),
+  restart: document.getElementById("settings-restart"),
+  locked: document.getElementById("settings-locked"),
+  keyRow: document.getElementById("settings-key-row"),
+  key: document.getElementById("settings-key"),
+  error: document.getElementById("settings-error"),
+  status: document.getElementById("settings-status"),
+  cancel: document.getElementById("settings-cancel"),
+  save: document.getElementById("settings-save"),
 };
 
 const settingsState = { view: null, dirty: false };
 
 function closeSettings() {
-  if (settingsState.dirty
-      && !window.confirm('Discard your unsaved settings changes?')) return;
+  if (
+    settingsState.dirty &&
+    !window.confirm("Discard your unsaved settings changes?")
+  )
+    return;
   elSettings.overlay.hidden = true;
   settingsState.dirty = false;
 }
@@ -8527,12 +9548,12 @@ function closeSettings() {
 async function openSettings() {
   elSettings.overlay.hidden = false;
   elSettings.error.hidden = true;
-  elSettings.status.textContent = '';
+  elSettings.status.textContent = "";
   elSettings.groups.innerHTML = '<p class="hint">Loading…</p>';
   elSettings.save.disabled = true;
   settingsState.dirty = false;
   try {
-    renderSettings(await api('/api/settings'));
+    renderSettings(await api("/api/settings"));
   } catch (err) {
     elSettings.groups.textContent = `Could not load settings: ${err.message}`;
   }
@@ -8548,80 +9569,86 @@ function renderSettings(view) {
   elSettings.keyRow.hidden = view.canSave || !view.authEnabled;
   elSettings.locked.hidden = view.canSave;
   elSettings.locked.textContent = view.authEnabled
-    ? 'You are not on the machine running the server. Enter the shared secret below to save.'
-    : 'Settings can only be saved from the machine running the server, because no shared secret is set. You can still view them here.';
+    ? "You are not on the machine running the server. Enter the shared secret below to save."
+    : "Settings can only be saved from the machine running the server, because no shared secret is set. You can still view them here.";
   elSettings.save.disabled = !view.canSave && !view.authEnabled;
 
-  elSettings.groups.innerHTML = '';
+  elSettings.groups.innerHTML = "";
   for (const group of view.groups) {
-    const fieldset = document.createElement('fieldset');
-    fieldset.className = 'settings-group';
-    const legend = document.createElement('legend');
+    const fieldset = document.createElement("fieldset");
+    fieldset.className = "settings-group";
+    const legend = document.createElement("legend");
     legend.textContent = group.label;
     fieldset.appendChild(legend);
 
     for (const field of group.fields) {
-      const label = document.createElement('label');
-      label.className = 'form-field settings-field';
-      label.appendChild(document.createTextNode(field.label + (field.required ? ' *' : '')));
+      const label = document.createElement("label");
+      label.className = "form-field settings-field";
+      label.appendChild(
+        document.createTextNode(field.label + (field.required ? " *" : "")),
+      );
 
       const hints = [];
       if (field.help) hints.push(field.help);
       if (view.envOverrides && view.envOverrides[field.key]) {
-        hints.push(`Overridden by the ${view.envOverrides[field.key]} environment variable.`);
+        hints.push(
+          `Overridden by the ${view.envOverrides[field.key]} environment variable.`,
+        );
       }
-      if (field.type === 'secret') {
-        hints.push(view.secretSet
-          ? 'A secret is set. Leave blank to keep it.'
-          : 'No secret is set, so Foundry requests are not authenticated.');
+      if (field.type === "secret") {
+        hints.push(
+          view.secretSet
+            ? "A secret is set. Leave blank to keep it."
+            : "No secret is set, so Foundry requests are not authenticated.",
+        );
       }
       if (hints.length) {
-        const hint = document.createElement('span');
-        hint.className = 'hint';
-        hint.textContent = hints.join(' ');
+        const hint = document.createElement("span");
+        hint.className = "hint";
+        hint.textContent = hints.join(" ");
         label.appendChild(hint);
       }
 
-      const input = document.createElement('input');
+      const input = document.createElement("input");
       input.name = field.key;
       input.dataset.settingsKey = field.key;
       input.spellcheck = false;
-      if (field.type === 'number') {
-        input.type = 'number';
+      if (field.type === "number") {
+        input.type = "number";
         input.min = field.min;
         input.max = field.max;
         input.step = 1;
-      } else if (field.type === 'secret') {
-        input.type = 'password';
-        input.autocomplete = 'new-password';
+      } else if (field.type === "secret") {
+        input.type = "password";
+        input.autocomplete = "new-password";
       } else {
-        input.type = 'text';
+        input.type = "text";
       }
-      if (field.type !== 'secret') input.value = view.values[field.key] ?? '';
+      if (field.type !== "secret") input.value = view.values[field.key] ?? "";
       const placeholder = view.placeholders[field.key];
       if (placeholder) input.placeholder = placeholder;
       label.appendChild(input);
 
-      if (field.type === 'secret' && view.secretSet) {
-        const clear = document.createElement('span');
-        clear.className = 'settings-inline-check';
-        const box = document.createElement('input');
-        box.type = 'checkbox';
-        box.id = 'settings-secret-clear';
-        const boxLabel = document.createElement('label');
+      if (field.type === "secret" && view.secretSet) {
+        const clear = document.createElement("span");
+        clear.className = "settings-inline-check";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.id = "settings-secret-clear";
+        const boxLabel = document.createElement("label");
         boxLabel.htmlFor = box.id;
-        boxLabel.textContent = 'Remove the secret';
+        boxLabel.textContent = "Remove the secret";
         clear.append(box, boxLabel);
         label.appendChild(clear);
       }
 
-      const note = document.createElement('span');
-      note.className = 'settings-field-note';
+      const note = document.createElement("span");
+      note.className = "settings-field-note";
       note.dataset.noteFor = field.key;
       const warning = view.warnings && view.warnings[field.key];
       if (warning) {
         note.textContent = warning;
-        note.classList.add('is-warning');
+        note.classList.add("is-warning");
       }
       label.appendChild(note);
 
@@ -8634,34 +9661,41 @@ function renderSettings(view) {
 function settingsPayload() {
   const values = {};
   let secret;
-  for (const input of elSettings.groups.querySelectorAll('input[data-settings-key]')) {
-    if (input.type === 'password') {
+  for (const input of elSettings.groups.querySelectorAll(
+    "input[data-settings-key]",
+  )) {
+    if (input.type === "password") {
       if (input.value) secret = input.value;
       continue;
     }
     values[input.dataset.settingsKey] = input.value;
   }
-  if (secret === undefined && document.getElementById('settings-secret-clear')?.checked) {
-    secret = '';
+  if (
+    secret === undefined &&
+    document.getElementById("settings-secret-clear")?.checked
+  ) {
+    secret = "";
   }
   return secret === undefined ? { values } : { values, secret };
 }
 
 async function saveSettings() {
   elSettings.error.hidden = true;
-  elSettings.status.textContent = 'Saving…';
+  elSettings.status.textContent = "Saving…";
   elSettings.save.disabled = true;
-  for (const note of elSettings.groups.querySelectorAll('.settings-field-note.is-error')) {
-    note.textContent = '';
-    note.classList.remove('is-error');
+  for (const note of elSettings.groups.querySelectorAll(
+    ".settings-field-note.is-error",
+  )) {
+    note.textContent = "";
+    note.classList.remove("is-error");
   }
 
-  const headers = { 'Content-Type': 'application/json' };
-  if (elSettings.key.value) headers['X-Import-Gui-Key'] = elSettings.key.value;
+  const headers = { "Content-Type": "application/json" };
+  if (elSettings.key.value) headers["X-Import-Gui-Key"] = elSettings.key.value;
 
   try {
-    const res = await fetch('/api/settings', {
-      method: 'POST',
+    const res = await fetch("/api/settings", {
+      method: "POST",
       headers,
       body: JSON.stringify(settingsPayload()),
     });
@@ -8669,15 +9703,20 @@ async function saveSettings() {
     if (!res.ok) {
       if (body.fieldErrors) {
         for (const [key, message] of Object.entries(body.fieldErrors)) {
-          const note = elSettings.groups.querySelector(`[data-note-for="${CSS.escape(key)}"]`);
+          const note = elSettings.groups.querySelector(
+            `[data-note-for="${CSS.escape(key)}"]`,
+          );
           if (note) {
             note.textContent = message;
-            note.classList.remove('is-warning');
-            note.classList.add('is-error');
+            note.classList.remove("is-warning");
+            note.classList.add("is-error");
           }
         }
-        elSettings.groups.querySelector('.settings-field-note.is-error')
-          ?.closest('.settings-field')?.querySelector('input')?.focus();
+        elSettings.groups
+          .querySelector(".settings-field-note.is-error")
+          ?.closest(".settings-field")
+          ?.querySelector("input")
+          ?.focus();
       }
       throw new Error(body.error || `HTTP ${res.status}`);
     }
@@ -8686,10 +9725,10 @@ async function saveSettings() {
     // keeps it for the next save.
     renderSettings(body);
     elSettings.status.textContent = body.restartRequired
-      ? 'Saved. Restart the server to apply.'
-      : 'Saved. Nothing changed.';
+      ? "Saved. Restart the server to apply."
+      : "Saved. Nothing changed.";
   } catch (err) {
-    elSettings.status.textContent = '';
+    elSettings.status.textContent = "";
     elSettings.error.textContent = `Not saved: ${err.message}`;
     elSettings.error.hidden = false;
   } finally {
@@ -8698,13 +9737,15 @@ async function saveSettings() {
   }
 }
 
-elSettings.open.addEventListener('click', () => { openSettings(); });
-elSettings.cancel.addEventListener('click', closeSettings);
-elSettings.form.addEventListener('input', () => {
-  settingsState.dirty = true;
-  elSettings.status.textContent = '';
+elSettings.open.addEventListener("click", () => {
+  openSettings();
 });
-elSettings.form.addEventListener('submit', (e) => {
+elSettings.cancel.addEventListener("click", closeSettings);
+elSettings.form.addEventListener("input", () => {
+  settingsState.dirty = true;
+  elSettings.status.textContent = "";
+});
+elSettings.form.addEventListener("submit", (e) => {
   e.preventDefault();
   saveSettings();
 });

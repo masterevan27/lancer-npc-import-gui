@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>NHP Uplink — Import Generated Content</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon" />
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -300,7 +301,7 @@
       <label><input type="checkbox" id="bg-roll-seed" checked /> Roll a seed</label>
       <label>Seed <input type="number" id="bg-seed" min="0" disabled /></label>
       <label><input type="checkbox" id="bg-animate-when-done" /> Animate each still when it lands</label>
-      <label><input type="checkbox" id="bg-chain-pingpong" checked /> Ping-pong those loops</label>
+      <label><input type="checkbox" id="bg-chain-pingpong" /> Ping-pong those loops</label>
     </div>
     <button type="button" id="bg-render-btn">Render</button>
     <p class="regen-status" id="bg-render-status"></p>
@@ -338,7 +339,7 @@
         <input type="number" id="bg-animate-seed" min="0" disabled />
       </label>
       <label><input type="radio" name="bg-seed-mode" value="random" /> Roll one</label>
-      <label><input type="checkbox" id="bg-pingpong" checked /> Ping-pong</label>
+      <label><input type="checkbox" id="bg-pingpong" /> Ping-pong</label>
     </div>
     <img class="bg-animate-loop" id="bg-animate-loop" alt="" hidden />
     <button type="button" id="bg-animate-btn">Animate</button>

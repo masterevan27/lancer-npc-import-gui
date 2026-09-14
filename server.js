@@ -3750,7 +3750,9 @@ function itemView(item) {
 /* ---- routing ---- */
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const STATIC_TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+const STATIC_TYPES = {
+    '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.ico': 'image/x-icon',
+};
 
 function serveStatic(req, res, pathname) {
     const rel = pathname === '/' ? 'index.html' : pathname.slice(1);
@@ -3759,7 +3761,7 @@ function serveStatic(req, res, pathname) {
     const file = path.join(PUBLIC_DIR, rel);
     const type = STATIC_TYPES[path.extname(file)];
     if (!type || !fs.existsSync(file)) return sendJson(res, 404, { error: 'not found' });
-    res.writeHead(200, { 'Content-Type': `${type}; charset=utf-8` });
+    res.writeHead(200, { 'Content-Type': type.startsWith('text/') ? `${type}; charset=utf-8` : type });
     fs.createReadStream(file).pipe(res);
 }
 
