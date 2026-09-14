@@ -57,9 +57,11 @@ function liftStatusFilter(js, { traitState, elTraits }) {
     }
     assert.notEqual(end, -1, 'could not find the end of renderTraitStatusFilter');
     // eslint-disable-next-line no-new-func
-    return new Function('traitState', 'elTraits', `${js.slice(start, end)}
+    // candidateKey is passed in rather than lifted: Selected's predicate keys
+    // into the selection with it, and it lives above the map.
+    return new Function('traitState', 'elTraits', 'candidateKey', `${js.slice(start, end)}
         return { TRAIT_STATUS_TESTS, traitMatchesStatus, traitMatchesOtherFilters,
-                 traitMatchesFilters, renderTraitStatusFilter };`)(traitState, elTraits);
+                 traitMatchesFilters, renderTraitStatusFilter };`)(traitState, elTraits, (c) => `${c.file}::${c.id}`);
 }
 
 /** A candidate as /api/trait-candidates hands one over, with test overrides. */
@@ -98,7 +100,7 @@ test('the Filter by dropdown is in the Trait Imports bar', async (t) => {
     const bar = html.slice(html.indexOf('id="trait-filters"'), html.indexOf('id="trait-list"'));
     assert.match(bar, /id="trait-status-filter"/, 'the Filter by select ships in the trait filter bar');
     assert.match(bar, /Filter by/, 'and is labelled');
-    for (const value of ['', 'pending', 'imported', 'with-image', 'without-image']) {
+    for (const value of ['', 'pending', 'imported', 'with-image', 'without-image', 'selected']) {
         assert.match(bar, new RegExp(`<option value="${value}"`), `option ${value || '(any)'} ships`);
     }
     // Any status is what an untouched page shows: a filter that hid rows before
@@ -136,6 +138,16 @@ test('each status keeps the candidates it names', async (t) => {
     // left holding a stale value should show the list, not empty it.
     assert.equal(traitMatchesStatus(done, ''), true);
     assert.equal(traitMatchesStatus(done, 'no-such-status'), true);
+});
+
+test('Selected keeps exactly the candidates in the selection', async (t) => {
+    const { js } = await setup(t);
+    const traitState = { selected: new Set(['run.json::b']) };
+    const { traitMatchesStatus } = liftStatusFilter(js, { traitState, elTraits: {} });
+    assert.equal(traitMatchesStatus(candidate({ id: 'b' }), 'selected'), true);
+    assert.equal(traitMatchesStatus(candidate({ id: 'a' }), 'selected'), false);
+    // The same id in another run is another candidate.
+    assert.equal(traitMatchesStatus(candidate({ id: 'b', file: 'other.json' }), 'selected'), false);
 });
 
 test('the status filter narrows the table and search filters rather than replacing them', async (t) => {

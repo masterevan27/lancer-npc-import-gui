@@ -1552,6 +1552,7 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   font-size: var(--fs-sm);
 }
 .trait-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+.trait-list[hidden] { display: none; }
 .trait-row {
   display: flex;
   align-items: center;
@@ -1676,6 +1677,201 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   cursor: zoom-in;
 }
 .trait-detail-image[hidden] { display: none; }
+
+/* Import Selected had no rule and painted native grey; it takes the Import
+   tab's accent button. The secondary buttons are #add-filter's values. */
+#trait-import-btn {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--text-on-accent);
+  height: var(--control-h);
+  padding: 0 1.1rem;
+  border-radius: var(--r-md);
+  font-weight: 600;
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+#trait-import-btn:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+#trait-import-btn:disabled { background: #2c2f38; border-color: #2c2f38; color: var(--text-disabled); cursor: default; }
+.trait-btn,
+.trait-view-toggle button {
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  height: var(--control-h);
+  padding: 0 0.8rem;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  font-size: var(--fs-md);
+  white-space: nowrap;
+}
+.trait-btn:hover:not(:disabled),
+.trait-view-toggle button:hover { background: var(--surface-3); border-color: var(--line-hover); }
+.trait-btn:disabled { opacity: 0.5; cursor: default; }
+.trait-btn.is-on { border-color: var(--accent-border); color: var(--accent-text); }
+.trait-btn-primary { background: var(--accent-muted); border-color: var(--accent-muted); color: var(--text-on-accent); }
+.trait-btn-primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+
+/* A segmented pair: one border, the pressed half filled. */
+.trait-view-toggle { display: inline-flex; }
+.trait-view-toggle button { border-radius: 0; }
+.trait-view-toggle button:first-child { border-radius: var(--r-md) 0 0 var(--r-md); }
+.trait-view-toggle button:last-child { border-radius: 0 var(--r-md) var(--r-md) 0; border-left: none; }
+.trait-view-toggle button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+.trait-shortcuts {
+  margin: calc(-1 * var(--sp-2)) 0 var(--sp-3);
+  font-size: 0.72rem;
+  color: var(--text-4);
+  letter-spacing: 0.02em;
+}
+
+/* Selected rows carry the selection colour so a long list shows at a scroll
+   what is ticked; the keyboard row gets the accent edge on top of it. */
+.trait-row.selected { background: var(--selected-bg); border-color: var(--accent-muted); }
+.trait-row.cursor { border-color: var(--accent-text); box-shadow: inset 3px 0 0 var(--accent-text); }
+
+.trait-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--sp-3);
+}
+.trait-tiles[hidden] { display: none; }
+.trait-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  cursor: pointer;
+  color: var(--text);
+  text-align: left;
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.trait-tile:hover { border-color: var(--line-hover); box-shadow: var(--shadow-card); }
+/* Screenshots are wide; 16:10 shows most of one without letterboxing. */
+.trait-tile img,
+.trait-tile-noimage {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  display: block;
+  background: var(--bg-sunken);
+}
+.trait-tile-noimage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-4);
+  font-size: var(--fs-sm);
+}
+.trait-tile-caption {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trait-tile-count {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  background: var(--neutral-badge);
+}
+.trait-tile.has-selection { border-color: var(--accent-border); }
+.trait-tile.has-selection .trait-tile-count { background: var(--accent); }
+.trait-tile.all-imported .trait-tile-count { background: var(--ok); }
+.trait-tile.all-imported img { opacity: 0.55; }
+.trait-tile.cursor { border-color: var(--accent-text); box-shadow: 0 0 0 2px var(--accent-text); }
+.trait-tiles-more { display: block; margin: var(--sp-4) auto 0; }
+.trait-tiles-more[hidden] { display: none; }
+
+/* Previous / position / Next on the left, the selection buttons on the right. */
+.trait-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-3) 0;
+}
+.trait-nav-position { font-size: var(--fs-sm); color: var(--text-3); min-width: 6rem; text-align: center; }
+.trait-nav-spacer { flex: 1; }
+#trait-detail-overlay .detail { width: min(900px, 90vw); }
+
+.trait-image-sheet { width: min(1400px, 94vw); }
+.trait-image-body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr);
+  gap: var(--sp-4);
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .trait-image-body { grid-template-columns: 1fr; }
+}
+.trait-image-img {
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--bg-sunken);
+}
+.trait-image-img[hidden],
+.trait-image-missing[hidden] { display: none; }
+.trait-detail-info .trait-image-missing { color: var(--text-4); }
+.trait-image-candidates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-height: 70vh;
+  overflow: auto;
+}
+.trait-image-candidate {
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--sp-2) var(--sp-3);
+}
+.trait-image-candidate.selected { background: var(--selected-bg); border-color: var(--accent-border); }
+.trait-image-candidate label { display: block; cursor: pointer; }
+.trait-image-candidate.imported label { cursor: default; }
+.trait-image-candidate-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-1); }
+.trait-image-candidate-head .badge { position: static; }
+.trait-image-candidate-head .table-badge {
+  background: var(--surface-2);
+  color: #98a6bd;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.trait-image-candidate kbd {
+  font-family: inherit;
+  font-size: var(--fs-2xs);
+  min-width: 1.2rem;
+  text-align: center;
+  padding: 0 0.3rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+}
+.trait-image-candidate kbd[hidden] { display: none; }
+.trait-image-bullet { display: block; font-size: var(--fs-sm); line-height: 1.5; color: var(--text); }
+.trait-image-candidate.imported .trait-image-bullet { color: var(--text-3); }
+.trait-image-candidate details { margin-top: var(--sp-1); font-size: var(--fs-xs); color: var(--text-3); }
+.trait-image-candidate summary { cursor: pointer; }
+.trait-detail-info .trait-image-candidate details p { font-size: var(--fs-xs); color: var(--text-2); margin: var(--sp-1) 0 0; }
 
 /* The kind switch above the Tables layout, styled like .sort-by's own label
    + select pairing rather than invented fresh. */

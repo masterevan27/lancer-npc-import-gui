@@ -2833,7 +2833,8 @@ function topmostOverlay() {
   if (!el.imageZoom.hidden) return { close: () => { el.imageZoom.hidden = true; } };
   if (!elDeleteConfirm.overlay.hidden) return { close: () => cancelDeleteConfirm() };
   if (!elRerollConfirm.overlay.hidden) return { close: () => cancelRerollConfirm() };
-  if (!elTraits.overlay.hidden) return { close: () => { elTraits.overlay.hidden = true; } };
+  if (!elTraits.overlay.hidden) return { close: () => closeTraitDetail() };
+  if (!elTraits.imageOverlay.hidden) return { close: () => closeTraitImage() };
   if (!elTables.preview.hidden) return { close: () => cancelPresetPreview() };
   return null;
 }
@@ -5180,6 +5181,22 @@ elShipCreate.presetImport.addEventListener('change', async () => {
 /* Trait imports                                                         */
 /* ==================================================================== */
 
+// How many picture tiles are built at a time. A staged run is hundreds of
+// full-size screenshots, and building every <img> at once has the browser
+// decode a gigabyte of PNG to show the first screenful.
+const TRAIT_TILE_BATCH = 60;
+
+// Where the List/Pictures choice is remembered, per browser.
+const TRAIT_VIEW_STORAGE_KEY = 'traitImports.view';
+
+function readTraitView() {
+  try {
+    return localStorage.getItem(TRAIT_VIEW_STORAGE_KEY) === 'pictures' ? 'pictures' : 'list';
+  } catch {
+    return 'list';
+  }
+}
+
 const traitState = {
   candidates: [],
   visible: [],
@@ -5194,13 +5211,30 @@ const traitState = {
   tables: [],
   // The candidate the detail sheet is showing, so a save can repaint it.
   detail: null,
+  // 'list' - one row per candidate - or 'pictures' - one tile per reference image.
+  view: readTraitView(),
+  // The keyboard-highlighted list row, by candidateKey.
+  cursor: null,
+  // The candidate open in the detail sheet, by candidateKey.
+  detailKey: null,
+  // The visible candidates gathered by reference image, for the Pictures view.
+  groups: [],
+  // The keyboard-highlighted tile, and the image open in the image sheet, by group key.
+  tileCursor: null,
+  imageKey: null,
+  tileLimit: TRAIT_TILE_BATCH,
 };
 
 const elTraits = {
   list: document.getElementById('trait-list'),
+  tiles: document.getElementById('trait-tiles'),
+  tilesMore: document.getElementById('trait-tiles-more'),
   empty: document.getElementById('trait-empty'),
   status: document.getElementById('trait-status'),
+  shortcuts: document.getElementById('trait-shortcuts'),
+  viewButtons: [...document.querySelectorAll('[data-trait-view]')],
   importBtn: document.getElementById('trait-import-btn'),
+  clearBtn: document.getElementById('trait-clear-btn'),
   selectAll: document.getElementById('trait-select-all'),
   search: document.getElementById('trait-search'),
   tableFilter: document.getElementById('trait-table-filter'),
@@ -5208,6 +5242,11 @@ const elTraits = {
   sortSelect: document.getElementById('trait-sort-select'),
   overlay: document.getElementById('trait-detail-overlay'),
   detailClose: document.getElementById('trait-detail-close'),
+  detailPrev: document.getElementById('trait-detail-prev'),
+  detailNext: document.getElementById('trait-detail-next'),
+  detailPosition: document.getElementById('trait-detail-position'),
+  detailSelect: document.getElementById('trait-detail-select'),
+  detailSelectNext: document.getElementById('trait-detail-select-next'),
   detailTable: document.getElementById('trait-detail-table'),
   detailSource: document.getElementById('trait-detail-source'),
   detailBullet: document.getElementById('trait-detail-bullet'),
@@ -5222,6 +5261,17 @@ const elTraits = {
   editSave: document.getElementById('trait-edit-save'),
   editReset: document.getElementById('trait-edit-reset'),
   editStatus: document.getElementById('trait-edit-status'),
+  imageOverlay: document.getElementById('trait-image-overlay'),
+  imageClose: document.getElementById('trait-image-close'),
+  imageTitle: document.getElementById('trait-image-title'),
+  imagePrev: document.getElementById('trait-image-prev'),
+  imageNext: document.getElementById('trait-image-next'),
+  imagePosition: document.getElementById('trait-image-position'),
+  imageSelectAll: document.getElementById('trait-image-select-all'),
+  imageSelectNext: document.getElementById('trait-image-select-next'),
+  imageImg: document.getElementById('trait-image-img'),
+  imageMissing: document.getElementById('trait-image-missing'),
+  imageCandidates: document.getElementById('trait-image-candidates'),
 };
 
 // The same hover-to-full-size the generated-art detail sheet uses. A reference
@@ -5244,6 +5294,14 @@ function candidateKey(c) {
   return `${c.file}::${c.id}`;
 }
 
+function traitCandidateByKey(key) {
+  return traitState.candidates.find((c) => candidateKey(c) === key) || null;
+}
+
+function traitImageUrl(c) {
+  return `/api/trait-image?file=${encodeURIComponent(c.file)}&id=${encodeURIComponent(c.id)}`;
+}
+
 function renderTraitTableFilter() {
   const tables = [...new Set(traitState.candidates.map((c) => c.table))].sort();
   const current = elTraits.tableFilter.value;
@@ -5261,18 +5319,19 @@ function renderTraitTableFilter() {
  * (see traitMatchesStatus) rather than silently hiding everything, which is
  * what a stale option left behind in the markup would otherwise do.
  *
- * Deliberately one axis' worth of mutually exclusive answers. Import status is
- * the pair anyone actually reaches for - "what have I not dealt with yet" - and
- * the reference-image pair is here because a candidate with no picture is one
- * you cannot check against the frame, which is the other reason to want a
- * subset of this list. Anything finer belongs in the search box, which already
- * reads the bullet, the source image and the notes.
+ * Import status is the pair anyone actually reaches for - "what have I not
+ * dealt with yet" - and the reference-image pair is here because a candidate
+ * with no picture is one you cannot check against the frame. Selected is the
+ * review step before Import: what is about to be appended, all in one place.
+ * Anything finer belongs in the search box, which already reads the bullet,
+ * the source image and the notes.
  */
 const TRAIT_STATUS_TESTS = {
   pending: (c) => !c.imported,
   imported: (c) => !!c.imported,
   'with-image': (c) => !!c.hasSourceImage,
   'without-image': (c) => !c.hasSourceImage,
+  selected: (c) => traitState.selected.has(candidateKey(c)),
 };
 
 /** Whether one candidate passes a "Filter by" key. '' - Any status - passes all. */
@@ -5332,31 +5391,155 @@ function compareTraitCandidates(a, b) {
   return (b.generatedAt || '').localeCompare(a.generatedAt || ''); // when-desc, the default
 }
 
+/**
+ * The candidates gathered by the reference image they were read from, for the
+ * Pictures view.
+ *
+ * Keyed by run file as well as filename: two runs can both have read a
+ * screenshot called "image.png", and each run's copy lives in its own refs/
+ * folder. Groups keep the order their first candidate had in the list passed
+ * in, so the tiles follow whatever the sort dropdown says. A candidate that
+ * names no source image joins the other nameless ones from its run.
+ *
+ * `imageCandidate` is the one whose id asks /api/trait-image for the picture:
+ * that route resolves images by candidate, and any candidate of the group
+ * with a staged copy names the same file.
+ */
+function groupTraitCandidatesByImage(candidates) {
+  const groups = new Map();
+  for (const c of candidates) {
+    const key = `${c.file}::${c.sourceImage || ''}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, file: c.file, sourceImage: c.sourceImage || '', imageCandidate: null, candidates: [] };
+      groups.set(key, group);
+    }
+    group.candidates.push(c);
+    if (c.hasSourceImage && !group.imageCandidate) group.imageCandidate = c;
+  }
+  return [...groups.values()];
+}
+
+/**
+ * The key `offset` places from `current` in `keys`, clamped at both ends.
+ *
+ * Clamped, not wrapping, for stepDetail's reason: arrowing off the end of a
+ * filtered list and landing back at the start reads as a bug. With no current
+ * key - nothing highlighted yet - the first press lands on the first entry.
+ */
+function stepTraitKey(keys, current, offset) {
+  if (!keys.length) return null;
+  const index = keys.indexOf(current);
+  if (index === -1) return keys[0];
+  return keys[Math.min(keys.length - 1, Math.max(0, index + offset))];
+}
+
+/**
+ * Keyboard shortcuts, one map per place a key can land. Letters are matched
+ * lower-case, so Caps Lock and Shift do not switch them off. Digits in the
+ * image sheet are handled beside the map rather than in it - there are nine.
+ */
+const TRAIT_KEYS = {
+  list: {
+    j: 'next', ArrowDown: 'next', k: 'prev', ArrowUp: 'prev',
+    ' ': 'toggle', x: 'toggle', Enter: 'open', o: 'open',
+    a: 'selectAll', u: 'clear', '/': 'search', v: 'view',
+  },
+  pictures: {
+    l: 'next', ArrowRight: 'next', h: 'prev', ArrowLeft: 'prev',
+    j: 'down', ArrowDown: 'down', k: 'up', ArrowUp: 'up',
+    ' ': 'toggle', x: 'toggle', Enter: 'open', o: 'open',
+    a: 'selectAll', u: 'clear', '/': 'search', v: 'view',
+  },
+  detail: {
+    ArrowRight: 'next', l: 'next', ArrowLeft: 'prev', h: 'prev',
+    ' ': 'toggle', x: 'toggle', Enter: 'selectNext',
+  },
+  image: {
+    ArrowRight: 'next', l: 'next', ArrowLeft: 'prev', h: 'prev',
+    a: 'toggleAll', x: 'toggleAll', Enter: 'selectNext',
+  },
+};
+
+const TRAIT_SHORTCUT_HINTS = {
+  list: 'J/K or ↑↓ move · Space select · Enter open · A select all shown · U clear selection · / search · V pictures',
+  pictures: 'Arrows move · Space select the image’s traits · Enter open · A select all shown · U clear selection · / search · V list',
+};
+
+/** The action a key press means in one context, or null. */
+function traitKeyAction(context, key) {
+  const map = TRAIT_KEYS[context];
+  if (!map) return null;
+  const normalised = key.length === 1 ? key.toLowerCase() : key;
+  if (context === 'image' && /^[1-9]$/.test(normalised)) return `pick:${Number(normalised) - 1}`;
+  return map[normalised] || null;
+}
+
+/** Select or deselect one candidate. Imported candidates cannot be selected. */
+function setTraitSelected(c, on) {
+  if (!c || c.imported) return;
+  const key = candidateKey(c);
+  if (on) traitState.selected.add(key);
+  else traitState.selected.delete(key);
+}
+
+/**
+ * Select every not-yet-imported candidate in `candidates`, or - when all of
+ * them already are - deselect them. The one toggle the Select-all checkbox,
+ * the A key, an image tile's Space and the image sheet's Select all share.
+ */
+function toggleTraitSelectedAll(candidates) {
+  const pending = candidates.filter((c) => !c.imported);
+  const allOn = pending.length > 0 && pending.every((c) => traitState.selected.has(candidateKey(c)));
+  for (const c of pending) setTraitSelected(c, !allOn);
+}
+
 function renderTraits() {
   // Ahead of the list, so the counts in the dropdown and the rows underneath
   // always describe the same filtered set in the same frame.
   renderTraitStatusFilter();
-  elTraits.list.innerHTML = '';
   traitState.visible = traitState.candidates.filter(traitMatchesFilters).sort(compareTraitCandidates);
+  traitState.groups = groupTraitCandidatesByImage(traitState.visible);
+  const pictures = traitState.view === 'pictures';
+
+  for (const button of elTraits.viewButtons) {
+    button.setAttribute('aria-pressed', String(button.dataset.traitView === traitState.view));
+  }
+  elTraits.shortcuts.textContent = TRAIT_SHORTCUT_HINTS[traitState.view];
   elTraits.empty.hidden = traitState.visible.length > 0;
   elTraits.empty.textContent = traitState.candidates.length
     ? 'No candidates match the current filters.'
     : 'No staged trait candidates yet — run the npc-trait-import skill, then reload.';
 
+  // Only the view on screen is built: the other is rebuilt from state the
+  // moment it is switched to, and 800 hidden rows or tiles are wasted work.
+  elTraits.list.hidden = pictures;
+  elTraits.tiles.hidden = !pictures;
+  elTraits.list.innerHTML = '';
+  elTraits.tiles.innerHTML = '';
+  elTraits.tilesMore.hidden = true;
+  if (pictures) renderTraitTiles();
+  else renderTraitRows();
+
+  updateTraitToolbar();
+}
+
+function renderTraitRows() {
   for (const c of traitState.visible) {
     const key = candidateKey(c);
     const row = document.createElement('div');
     row.className = 'trait-row' + (c.imported ? ' imported' : '');
+    row.dataset.key = key;
 
     const check = document.createElement('input');
     check.type = 'checkbox';
-    check.checked = traitState.selected.has(key);
     check.disabled = c.imported;
     check.addEventListener('click', (e) => e.stopPropagation());
     check.addEventListener('change', () => {
-      if (check.checked) traitState.selected.add(key);
-      else traitState.selected.delete(key);
-      updateTraitToolbar();
+      setTraitSelected(c, check.checked);
+      // The highlight follows the tick, so Space next acts on this row.
+      setTraitCursor(key, false);
+      refreshTraitSelection();
     });
     row.appendChild(check);
 
@@ -5398,22 +5581,159 @@ function renderTraits() {
       }
     }
 
-    row.addEventListener('click', () => openTraitDetail(c));
+    row.addEventListener('click', () => {
+      setTraitCursor(key, false);
+      openTraitDetail(c);
+    });
+    paintTraitRow(row, c);
     elTraits.list.appendChild(row);
   }
+}
 
+function paintTraitRow(row, c) {
+  const on = traitState.selected.has(candidateKey(c));
+  row.classList.toggle('selected', on);
+  row.classList.toggle('cursor', row.dataset.key === traitState.cursor);
+  row.querySelector('input[type="checkbox"]').checked = on;
+}
+
+function renderTraitTiles() {
+  appendTraitTiles(traitState.tileLimit);
+}
+
+/**
+ * Build tiles up to `limit`, keeping the ones already there. Appending rather
+ * than rebuilding is what keeps "Show more" and arrowing past the last built
+ * tile from throwing away every image already decoded above it.
+ */
+function appendTraitTiles(limit) {
+  traitState.tileLimit = Math.max(traitState.tileLimit, limit);
+  const groups = traitState.groups;
+  const target = Math.min(groups.length, traitState.tileLimit);
+  for (let i = elTraits.tiles.children.length; i < target; i += 1) {
+    elTraits.tiles.appendChild(buildTraitTile(groups[i]));
+  }
+  const remaining = groups.length - target;
+  elTraits.tilesMore.hidden = remaining <= 0;
+  elTraits.tilesMore.textContent = `Show more (${remaining} more image${remaining === 1 ? '' : 's'})`;
+}
+
+function buildTraitTile(group) {
+  const tile = document.createElement('button');
+  tile.type = 'button';
+  tile.className = 'trait-tile';
+  tile.dataset.key = group.key;
+  tile.title = group.sourceImage || 'No source image named';
+
+  if (group.imageCandidate) {
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.alt = group.sourceImage;
+    img.src = traitImageUrl(group.imageCandidate);
+    tile.appendChild(img);
+  } else {
+    const missing = document.createElement('div');
+    missing.className = 'trait-tile-noimage';
+    missing.textContent = group.sourceImage ? 'No staged copy' : 'No source image';
+    tile.appendChild(missing);
+  }
+
+  const count = document.createElement('span');
+  count.className = 'badge trait-tile-count';
+  tile.appendChild(count);
+
+  const caption = document.createElement('span');
+  caption.className = 'trait-tile-caption';
+  caption.textContent = [...new Set(group.candidates.map((c) => c.table))].join(' · ');
+  tile.appendChild(caption);
+
+  tile.addEventListener('click', () => {
+    setTileCursor(group.key, false);
+    openTraitImage(group.key);
+  });
+  paintTraitTile(tile, group);
+  return tile;
+}
+
+function paintTraitTile(tile, group) {
+  const pending = group.candidates.filter((c) => !c.imported);
+  const picked = pending.filter((c) => traitState.selected.has(candidateKey(c))).length;
+  const count = tile.querySelector('.trait-tile-count');
+  const total = group.candidates.length;
+  count.textContent = `${total} trait${total === 1 ? '' : 's'}`
+    + (picked ? ` · ${picked} selected` : '')
+    + (pending.length === 0 ? ' · imported' : '');
+  tile.classList.toggle('has-selection', picked > 0);
+  tile.classList.toggle('all-imported', pending.length === 0);
+  tile.classList.toggle('cursor', group.key === traitState.tileCursor);
+}
+
+/**
+ * Bring every on-screen mark of the selection up to date, without refiltering.
+ *
+ * A selection change repaints in place rather than calling renderTraits: the
+ * tiles would otherwise be rebuilt, and every one of their images with them,
+ * on each key press. It also means that with "Selected" as the filter, a
+ * candidate deselected mid-review stays where it is until the filters next
+ * change - so the cursor, and the sheet's Previous and Next, do not jump.
+ */
+function refreshTraitSelection() {
+  renderTraitStatusFilter();
+  for (const row of elTraits.list.children) {
+    const c = traitCandidateByKey(row.dataset.key);
+    if (c) paintTraitRow(row, c);
+  }
+  const groupsByKey = new Map(traitState.groups.map((g) => [g.key, g]));
+  for (const tile of elTraits.tiles.children) {
+    const group = groupsByKey.get(tile.dataset.key);
+    if (group) paintTraitTile(tile, group);
+  }
+  if (!elTraits.overlay.hidden) renderTraitDetailNav();
+  if (!elTraits.imageOverlay.hidden) paintTraitImageSheet();
   updateTraitToolbar();
 }
 
 function updateTraitToolbar() {
   elTraits.importBtn.textContent = `Import Selected (${traitState.selected.size})`;
   elTraits.importBtn.disabled = traitState.selected.size === 0;
+  elTraits.clearBtn.disabled = traitState.selected.size === 0;
   const notImported = traitState.visible.filter((c) => !c.imported);
   elTraits.selectAll.checked = notImported.length > 0
     && notImported.every((c) => traitState.selected.has(candidateKey(c)));
 }
 
+/** Move the list's keyboard highlight, scrolling the row into view if asked. */
+function setTraitCursor(key, scroll = true) {
+  traitState.cursor = key;
+  for (const row of elTraits.list.querySelectorAll('.trait-row.cursor')) row.classList.remove('cursor');
+  if (!key) return;
+  const row = elTraits.list.querySelector(`[data-key="${CSS.escape(key)}"]`);
+  if (!row) return;
+  row.classList.add('cursor');
+  if (scroll) row.scrollIntoView({ block: 'nearest' });
+}
+
+/** Move the Pictures view's keyboard highlight, building tiles up to it first. */
+function setTileCursor(key, scroll = true) {
+  traitState.tileCursor = key;
+  for (const tile of elTraits.tiles.querySelectorAll('.trait-tile.cursor')) tile.classList.remove('cursor');
+  const index = traitState.groups.findIndex((g) => g.key === key);
+  if (index === -1) return;
+  if (index >= elTraits.tiles.children.length) appendTraitTiles(index + TRAIT_TILE_BATCH);
+  const tile = elTraits.tiles.children[index];
+  tile.classList.add('cursor');
+  if (scroll) tile.scrollIntoView({ block: 'nearest' });
+}
+
+/** How many tiles sit in one row of the grid right now, for ↑ and ↓. */
+function traitTileColumns() {
+  const columns = getComputedStyle(elTraits.tiles).gridTemplateColumns.split(' ').filter(Boolean).length;
+  return Math.max(1, columns);
+}
+
 function openTraitDetail(c) {
+  traitState.detailKey = candidateKey(c);
   elTraits.detailTable.textContent = c.table;
   elTraits.detailSource.textContent = c.sourceImage ? `From: ${c.sourceImage}` : '';
   // hasSourceImage is the server's answer about refs/, not a guess from the
@@ -5421,8 +5741,7 @@ function openTraitDetail(c) {
   // copies have since been cleaned out, still names its source but has nothing
   // to show, and falls back to the line above on its own.
   if (c.hasSourceImage) {
-    elTraits.detailImage.src = `/api/trait-image?file=${encodeURIComponent(c.file)}`
-      + `&id=${encodeURIComponent(c.id)}`;
+    elTraits.detailImage.src = traitImageUrl(c);
     elTraits.detailImage.alt = `Reference image ${c.sourceImage}`;
     elTraits.detailImage.hidden = false;
   } else {
@@ -5439,6 +5758,7 @@ function openTraitDetail(c) {
   traitState.detail = c;
   elTraits.editStatus.textContent = '';
   renderTraitEditForm(c);
+  renderTraitDetailNav();
   elTraits.overlay.hidden = false;
 }
 
@@ -5533,32 +5853,328 @@ elTraits.editForm.addEventListener('submit', (e) => {
 });
 elTraits.editReset.addEventListener('click', () => submitTraitEdit({ reset: true }));
 
-elTraits.detailClose.addEventListener('click', () => { elTraits.overlay.hidden = true; });
-elTraits.overlay.addEventListener('click', (e) => {
-  if (e.target === elTraits.overlay) elTraits.overlay.hidden = true;
+function renderTraitDetailNav() {
+  const index = traitState.visible.findIndex((c) => candidateKey(c) === traitState.detailKey);
+  const c = traitState.visible[index] || traitCandidateByKey(traitState.detailKey);
+  const hasNext = index !== -1 && index < traitState.visible.length - 1;
+  elTraits.detailPosition.textContent = index === -1 ? '' : `${index + 1} of ${traitState.visible.length}`;
+  elTraits.detailPrev.disabled = index <= 0;
+  elTraits.detailNext.disabled = !hasNext;
+  const on = !!c && traitState.selected.has(candidateKey(c));
+  elTraits.detailSelect.disabled = !c || c.imported;
+  elTraits.detailSelect.textContent = c?.imported ? 'Imported' : on ? 'Selected ✓' : 'Select';
+  elTraits.detailSelect.classList.toggle('is-on', on);
+  elTraits.detailSelectNext.disabled = !c || (c.imported && !hasNext);
+}
+
+/** Open the candidate `offset` places along the list, keeping the list's highlight with it. */
+function stepTraitDetail(offset) {
+  const keys = traitState.visible.map(candidateKey);
+  if (!keys.includes(traitState.detailKey)) return;
+  const key = stepTraitKey(keys, traitState.detailKey, offset);
+  if (key === traitState.detailKey) return;
+  setTraitCursor(key);
+  openTraitDetail(traitCandidateByKey(key));
+}
+
+function closeTraitDetail() {
+  elTraits.overlay.hidden = true;
+  traitState.detailKey = null;
+}
+
+function openTraitImage(key) {
+  const group = traitState.groups.find((g) => g.key === key);
+  if (!group) return;
+  const changed = traitState.imageKey !== key;
+  traitState.imageKey = key;
+  elTraits.imageTitle.textContent = group.sourceImage || 'No source image named';
+  if (group.imageCandidate) {
+    // Only reassigned when the image really changes, so a repaint after a
+    // selection does not flash the picture.
+    const src = traitImageUrl(group.imageCandidate);
+    if (elTraits.imageImg.getAttribute('src') !== src) elTraits.imageImg.src = src;
+    elTraits.imageImg.alt = `Reference image ${group.sourceImage}`;
+    elTraits.imageImg.hidden = false;
+    elTraits.imageMissing.hidden = true;
+  } else {
+    elTraits.imageImg.removeAttribute('src');
+    elTraits.imageImg.alt = '';
+    elTraits.imageImg.hidden = true;
+    elTraits.imageMissing.hidden = false;
+  }
+  if (changed) renderTraitImageCandidates(group);
+  paintTraitImageSheet();
+  elTraits.imageOverlay.hidden = false;
+}
+
+function renderTraitImageCandidates(group) {
+  elTraits.imageCandidates.innerHTML = '';
+  group.candidates.forEach((c, i) => {
+    const item = document.createElement('li');
+    item.className = 'trait-image-candidate' + (c.imported ? ' imported' : '');
+    item.dataset.key = candidateKey(c);
+
+    const label = document.createElement('label');
+    const head = document.createElement('span');
+    head.className = 'trait-image-candidate-head';
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.disabled = c.imported;
+    check.addEventListener('change', () => {
+      setTraitSelected(c, check.checked);
+      refreshTraitSelection();
+    });
+    head.appendChild(check);
+    const number = document.createElement('kbd');
+    number.textContent = i < 9 ? String(i + 1) : '';
+    number.hidden = i >= 9;
+    head.appendChild(number);
+    const table = document.createElement('span');
+    table.className = 'badge table-badge';
+    table.textContent = c.table;
+    head.appendChild(table);
+    if (c.imported) {
+      const importedBadge = document.createElement('span');
+      importedBadge.className = 'badge';
+      importedBadge.textContent = 'Imported';
+      head.appendChild(importedBadge);
+    }
+    label.appendChild(head);
+    const bullet = document.createElement('span');
+    bullet.className = 'trait-image-bullet';
+    bullet.textContent = c.bullet;
+    label.appendChild(bullet);
+    item.appendChild(label);
+
+    const extras = [
+      ['Placement hint', c.placementHint],
+      ['Bookkeeping note', c.bookkeepingNote],
+      ['Notes', c.notes],
+    ].filter(([, text]) => text);
+    if (extras.length) {
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = extras.map(([name]) => name).join(', ');
+      details.appendChild(summary);
+      for (const [name, text] of extras) {
+        const p = document.createElement('p');
+        const strong = document.createElement('strong');
+        strong.textContent = `${name}: `;
+        p.append(strong, text);
+        details.appendChild(p);
+      }
+      item.appendChild(details);
+    }
+    elTraits.imageCandidates.appendChild(item);
+  });
+}
+
+/** Checkboxes, position and buttons of the open image sheet, from state. */
+function paintTraitImageSheet() {
+  const index = traitState.groups.findIndex((g) => g.key === traitState.imageKey);
+  const group = traitState.groups[index];
+  if (!group) return;
+  for (const item of elTraits.imageCandidates.children) {
+    const on = traitState.selected.has(item.dataset.key);
+    item.classList.toggle('selected', on);
+    item.querySelector('input[type="checkbox"]').checked = on;
+  }
+  const hasNext = index < traitState.groups.length - 1;
+  elTraits.imagePosition.textContent = `Image ${index + 1} of ${traitState.groups.length}`;
+  elTraits.imagePrev.disabled = index <= 0;
+  elTraits.imageNext.disabled = !hasNext;
+  const pending = group.candidates.filter((c) => !c.imported);
+  const allOn = pending.length > 0 && pending.every((c) => traitState.selected.has(candidateKey(c)));
+  elTraits.imageSelectAll.disabled = pending.length === 0;
+  elTraits.imageSelectAll.textContent = allOn ? 'Deselect all' : 'Select all';
+  elTraits.imageSelectNext.disabled = pending.length === 0 && !hasNext;
+}
+
+function stepTraitImage(offset) {
+  const keys = traitState.groups.map((g) => g.key);
+  if (!keys.includes(traitState.imageKey)) return;
+  const key = stepTraitKey(keys, traitState.imageKey, offset);
+  if (key === traitState.imageKey) return;
+  setTileCursor(key);
+  openTraitImage(key);
+}
+
+function closeTraitImage() {
+  elTraits.imageOverlay.hidden = true;
+  traitState.imageKey = null;
+}
+
+function traitImageGroup() {
+  return traitState.groups.find((g) => g.key === traitState.imageKey) || null;
+}
+
+function setTraitView(view) {
+  if (view === traitState.view) return;
+  traitState.view = view;
+  try {
+    localStorage.setItem(TRAIT_VIEW_STORAGE_KEY, view);
+  } catch { /* private mode: the choice just lasts until reload */ }
+  renderTraits();
+  if (view === 'pictures' && traitState.tileCursor) setTileCursor(traitState.tileCursor);
+  if (view === 'list' && traitState.cursor) setTraitCursor(traitState.cursor);
+}
+
+/**
+ * Where a key press on this tab should go: 'list' or 'pictures' for the page,
+ * 'detail' or 'image' for a sheet, or null when something else has the keys -
+ * another tab, or a dialog stacked over everything. The image zoom is not in
+ * that list: it only shows while the pointer rests on a picture, and pressing
+ * → with the mouse on the image should still move on.
+ */
+function traitKeyContext() {
+  if (!elSettings.overlay.hidden || !elDeleteConfirm.overlay.hidden
+      || !elRerollConfirm.overlay.hidden || !elSetTrait.overlay.hidden) return null;
+  if (!elTraits.imageOverlay.hidden) return 'image';
+  if (!elTraits.overlay.hidden) return 'detail';
+  if (tabState.current !== 'traits' || !el.overlay.hidden) return null;
+  return traitState.view;
+}
+
+function runTraitAction(context, action) {
+  if (context === 'list') {
+    const keys = traitState.visible.map(candidateKey);
+    if (action === 'next' || action === 'prev') {
+      setTraitCursor(stepTraitKey(keys, traitState.cursor, action === 'next' ? 1 : -1));
+    } else if (action === 'toggle' || action === 'open') {
+      const c = keys.includes(traitState.cursor) ? traitCandidateByKey(traitState.cursor) : null;
+      if (!c) return setTraitCursor(keys[0] || null);
+      if (action === 'open') return openTraitDetail(c);
+      setTraitSelected(c, !traitState.selected.has(candidateKey(c)));
+      refreshTraitSelection();
+    }
+  } else if (context === 'pictures') {
+    const keys = traitState.groups.map((g) => g.key);
+    const steps = { next: 1, prev: -1, down: traitTileColumns(), up: -traitTileColumns() };
+    if (action in steps) {
+      setTileCursor(stepTraitKey(keys, traitState.tileCursor, steps[action]));
+    } else if (action === 'toggle' || action === 'open') {
+      const group = traitState.groups.find((g) => g.key === traitState.tileCursor);
+      if (!group) return setTileCursor(keys[0] || null);
+      if (action === 'open') return openTraitImage(group.key);
+      toggleTraitSelectedAll(group.candidates);
+      refreshTraitSelection();
+    }
+  } else if (context === 'detail') {
+    const c = traitCandidateByKey(traitState.detailKey);
+    if (action === 'next' || action === 'prev') return stepTraitDetail(action === 'next' ? 1 : -1);
+    if (!c) return;
+    if (action === 'toggle') setTraitSelected(c, !traitState.selected.has(candidateKey(c)));
+    if (action === 'selectNext') setTraitSelected(c, true);
+    refreshTraitSelection();
+    if (action === 'selectNext') stepTraitDetail(1);
+  } else if (context === 'image') {
+    const group = traitImageGroup();
+    if (action === 'next' || action === 'prev') return stepTraitImage(action === 'next' ? 1 : -1);
+    if (!group) return;
+    if (action.startsWith('pick:')) {
+      const c = group.candidates[Number(action.slice(5))];
+      if (!c) return;
+      setTraitSelected(c, !traitState.selected.has(candidateKey(c)));
+    } else if (action === 'toggleAll') {
+      toggleTraitSelectedAll(group.candidates);
+    } else if (action === 'selectNext') {
+      group.candidates.forEach((c) => setTraitSelected(c, true));
+    }
+    refreshTraitSelection();
+    if (action === 'selectNext') stepTraitImage(1);
+  }
+
+  if (action === 'selectAll') {
+    toggleTraitSelectedAll(traitState.visible);
+    refreshTraitSelection();
+  } else if (action === 'clear') {
+    traitState.selected.clear();
+    refreshTraitSelection();
+  } else if (action === 'search') {
+    elTraits.search.focus();
+    elTraits.search.select();
+  } else if (action === 'view') {
+    setTraitView(traitState.view === 'list' ? 'pictures' : 'list');
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  // Esc is the shared handler's, through topmostOverlay().
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.key === 'Escape') return;
+  // isTypingTarget counts a checkbox as a field, and a checkbox is exactly what
+  // has focus right after a row is ticked with the mouse - which would switch
+  // the shortcuts off at the moment someone reaches for them.
+  const active = document.activeElement;
+  const toggle = active?.tagName === 'INPUT' && ['checkbox', 'radio'].includes(active.type);
+  if (isTypingTarget(active) && !toggle) return;
+  const context = traitKeyContext();
+  const action = context && traitKeyAction(context, e.key);
+  if (!action) return;
+  // Prevented before acting, so Space does not also scroll the page or click
+  // whichever button kept focus, and Enter does not activate it a second time.
+  e.preventDefault();
+  runTraitAction(context, action);
 });
+
+elTraits.detailClose.addEventListener('click', closeTraitDetail);
+elTraits.overlay.addEventListener('click', (e) => {
+  if (e.target === elTraits.overlay) closeTraitDetail();
+});
+elTraits.detailPrev.addEventListener('click', () => runTraitAction('detail', 'prev'));
+elTraits.detailNext.addEventListener('click', () => runTraitAction('detail', 'next'));
+elTraits.detailSelect.addEventListener('click', () => runTraitAction('detail', 'toggle'));
+elTraits.detailSelectNext.addEventListener('click', () => runTraitAction('detail', 'selectNext'));
+
+elTraits.imageClose.addEventListener('click', closeTraitImage);
+elTraits.imageOverlay.addEventListener('click', (e) => {
+  if (e.target === elTraits.imageOverlay) closeTraitImage();
+});
+elTraits.imagePrev.addEventListener('click', () => runTraitAction('image', 'prev'));
+elTraits.imageNext.addEventListener('click', () => runTraitAction('image', 'next'));
+elTraits.imageSelectAll.addEventListener('click', () => runTraitAction('image', 'toggleAll'));
+elTraits.imageSelectNext.addEventListener('click', () => runTraitAction('image', 'selectNext'));
+
+for (const button of elTraits.viewButtons) {
+  button.addEventListener('click', () => setTraitView(button.dataset.traitView));
+}
+elTraits.clearBtn.addEventListener('click', () => runTraitAction(traitState.view, 'clear'));
+elTraits.tilesMore.addEventListener('click', () => appendTraitTiles(traitState.tileLimit + TRAIT_TILE_BATCH));
+// Scrolling to the bottom builds the next batch by itself; the button stays
+// for anyone whose browser has no IntersectionObserver.
+if ('IntersectionObserver' in window) {
+  new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting) && !elTraits.tilesMore.hidden) {
+      appendTraitTiles(traitState.tileLimit + TRAIT_TILE_BATCH);
+    }
+  }, { rootMargin: '400px' }).observe(elTraits.tilesMore);
+}
+
+/** A filter or sort changed: start the tiles from the first batch again. */
+function renderTraitsFromTop() {
+  traitState.tileLimit = TRAIT_TILE_BATCH;
+  renderTraits();
+}
 
 elTraits.search.addEventListener('input', () => {
   traitState.search = elTraits.search.value;
-  renderTraits();
+  renderTraitsFromTop();
 });
 elTraits.tableFilter.addEventListener('change', () => {
   traitState.tableFilter = elTraits.tableFilter.value;
-  renderTraits();
+  renderTraitsFromTop();
 });
 elTraits.statusFilter.addEventListener('change', () => {
   traitState.status = elTraits.statusFilter.value;
-  renderTraits();
+  renderTraitsFromTop();
 });
 elTraits.sortSelect.addEventListener('change', () => {
   traitState.sort = elTraits.sortSelect.value;
-  renderTraits();
+  renderTraitsFromTop();
 });
 elTraits.selectAll.addEventListener('change', () => {
   const notImported = traitState.visible.filter((c) => !c.imported);
-  if (elTraits.selectAll.checked) notImported.forEach((c) => traitState.selected.add(candidateKey(c)));
-  else notImported.forEach((c) => traitState.selected.delete(candidateKey(c)));
-  renderTraits();
+  notImported.forEach((c) => setTraitSelected(c, elTraits.selectAll.checked));
+  refreshTraitSelection();
 });
 
 elTraits.importBtn.addEventListener('click', async () => {
