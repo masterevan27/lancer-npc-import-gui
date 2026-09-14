@@ -1613,6 +1613,53 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 }
 .trait-detail-info p { margin: 0; font-size: var(--fs-md); color: var(--text); }
 
+/* Correcting a not-yet-imported candidate's table or wording in place. */
+.trait-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  /* The sheet sizes to its content, which left the textarea a few words wide. */
+  width: min(420px, 75vw);
+}
+.trait-edit[hidden] { display: none; }
+.trait-edit label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+/* #trait-table-filter's control look, copied rather than invented. */
+.trait-edit select,
+.trait-edit textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+}
+.trait-edit select { height: var(--control-h); padding: 0 0.5rem; }
+.trait-edit textarea { resize: vertical; line-height: 1.5; font-family: inherit; padding: 0.4rem 0.5rem; }
+.trait-detail-info .trait-edit-original { font-size: var(--fs-xs); color: var(--text-3); }
+.trait-edit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.trait-edit-actions .regen-status { margin: 0; }
+/* #expressions-import's primary button, and a quiet outline for the undo. */
+#trait-edit-save,
+#trait-edit-reset {
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--r-md);
+  font-weight: 600;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+}
+#trait-edit-save { background: var(--accent); border: none; color: white; }
+#trait-edit-save:hover:not(:disabled) { background: var(--accent-hover); }
+#trait-edit-save:disabled { background: #2c2f38; color: var(--text-disabled); cursor: default; }
+#trait-edit-reset { background: var(--surface-2); border: 1px solid var(--line-strong); color: var(--text); }
+#trait-edit-reset[hidden] { display: none; }
+
 /* The reference image the candidate was read from. Capped by height rather
    than width because these are wide hero crops: bounding the width would let
    a 3:1 banner sit two lines tall and an upright portrait fill the sheet, and

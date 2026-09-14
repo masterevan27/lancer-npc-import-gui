@@ -5189,6 +5189,11 @@ const traitState = {
   // The "Filter by" dropdown's key, '' for Any status. See TRAIT_STATUS_TESTS.
   status: '',
   sort: 'table',
+  // Every heading in the tables file, from /api/trait-candidates - the
+  // choices the detail sheet offers when correcting a candidate's table.
+  tables: [],
+  // The candidate the detail sheet is showing, so a save can repaint it.
+  detail: null,
 };
 
 const elTraits = {
@@ -5210,6 +5215,13 @@ const elTraits = {
   detailBookkeeping: document.getElementById('trait-detail-bookkeeping'),
   detailNotes: document.getElementById('trait-detail-notes'),
   detailImage: document.getElementById('trait-detail-image'),
+  editForm: document.getElementById('trait-edit-form'),
+  editTable: document.getElementById('trait-edit-table'),
+  editBullet: document.getElementById('trait-edit-bullet'),
+  editOriginal: document.getElementById('trait-edit-original'),
+  editSave: document.getElementById('trait-edit-save'),
+  editReset: document.getElementById('trait-edit-reset'),
+  editStatus: document.getElementById('trait-edit-status'),
 };
 
 // The same hover-to-full-size the generated-art detail sheet uses. A reference
@@ -5218,8 +5230,9 @@ const elTraits = {
 attachImageZoom(elTraits.detailImage);
 
 async function refreshTraitCandidates() {
-  const { candidates } = await api('/api/trait-candidates');
+  const { candidates, tables } = await api('/api/trait-candidates');
   traitState.candidates = candidates;
+  traitState.tables = tables || [];
   for (const id of [...traitState.selected]) {
     if (!candidates.some((c) => candidateKey(c) === id && !c.imported)) traitState.selected.delete(id);
   }
@@ -5357,6 +5370,14 @@ function renderTraits() {
     bullet.textContent = c.bullet.length > 160 ? `${c.bullet.slice(0, 160)}…` : c.bullet;
     row.appendChild(bullet);
 
+    if (c.edited) {
+      const editedBadge = document.createElement('span');
+      editedBadge.className = 'badge';
+      editedBadge.textContent = 'Edited';
+      editedBadge.title = `Staged as: ${c.originalTable ?? c.table} — ${c.originalBullet ?? c.bullet}`;
+      row.appendChild(editedBadge);
+    }
+
     if (c.generatedAt) {
       const generatedBadge = document.createElement('span');
       generatedBadge.className = 'badge date-badge';
@@ -5415,8 +5436,102 @@ function openTraitDetail(c) {
   elTraits.detailPlacement.textContent = c.placementHint || '—';
   elTraits.detailBookkeeping.textContent = c.bookkeepingNote || '—';
   elTraits.detailNotes.textContent = c.notes || '—';
+  traitState.detail = c;
+  elTraits.editStatus.textContent = '';
+  renderTraitEditForm(c);
   elTraits.overlay.hidden = false;
 }
+
+/** A heading's base table name: 'Hair (she) +' -> 'Hair'. Same rule as lib/tableGroups.js. */
+function traitTableBase(name) {
+  const paren = name.indexOf(' (');
+  return paren === -1 ? name : name.slice(0, paren);
+}
+
+/**
+ * The table <select>'s options for one candidate: the staged table's own
+ * family first ('Build', 'Build (she)' for a 'Build (she)' candidate), since a
+ * pronoun swap is the correction this exists for, then every other heading.
+ *
+ * The candidate's current and staged tables are always offered, even when the
+ * tables file no longer has them, so opening the sheet never silently selects
+ * a different table than the one the entry names.
+ */
+function traitEditTableGroups(c, tables) {
+  const all = [...new Set([...tables, c.table, c.originalTable].filter(Boolean))];
+  const bases = new Set([traitTableBase(c.table), traitTableBase(c.originalTable || c.table)]);
+  const family = all.filter((t) => bases.has(traitTableBase(t)));
+  const rest = all.filter((t) => !bases.has(traitTableBase(t)));
+  return { family, rest };
+}
+
+/**
+ * The editable half of the detail sheet. An imported candidate is already in
+ * the tables file, so it keeps the read-only <pre> - changing it there is the
+ * Tables tab's job.
+ */
+function renderTraitEditForm(c) {
+  const editable = !c.imported;
+  elTraits.editForm.hidden = !editable;
+  elTraits.detailBullet.hidden = editable;
+  if (!editable) return;
+
+  const { family, rest } = traitEditTableGroups(c, traitState.tables);
+  const options = (names) => names
+    .map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+  elTraits.editTable.innerHTML = (family.length
+    ? `<optgroup label="Same table">${options(family)}</optgroup>` : '')
+    + (rest.length ? `<optgroup label="Other tables">${options(rest)}</optgroup>` : '');
+  elTraits.editTable.value = c.table;
+  elTraits.editBullet.value = c.bullet;
+
+  elTraits.editOriginal.hidden = !c.edited;
+  elTraits.editOriginal.textContent = c.edited
+    ? `Staged as: ${c.originalTable ?? c.table} — ${c.originalBullet ?? c.bullet}`
+    : '';
+  elTraits.editReset.hidden = !c.edited;
+  updateTraitEditSave();
+}
+
+/** Save is only live when the form differs from what the entry already says. */
+function updateTraitEditSave() {
+  const c = traitState.detail;
+  elTraits.editSave.disabled = !c
+    || (elTraits.editTable.value === c.table && elTraits.editBullet.value.trim() === c.bullet)
+    || !elTraits.editBullet.value.trim();
+}
+
+async function submitTraitEdit(body) {
+  const c = traitState.detail;
+  if (!c) return;
+  elTraits.editSave.disabled = true;
+  elTraits.editReset.disabled = true;
+  elTraits.editStatus.textContent = 'Saving…';
+  try {
+    const { candidate } = await api('/api/trait-candidates/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file: c.file, id: c.id, ...body }),
+    });
+    await refreshTraitCandidates();
+    const fresh = traitState.candidates.find((x) => candidateKey(x) === candidateKey(candidate)) || candidate;
+    openTraitDetail(fresh);
+    elTraits.editStatus.textContent = body.reset ? 'Reverted to the staged table and text.' : 'Saved.';
+  } catch (err) {
+    elTraits.editStatus.textContent = `Could not save: ${err.message}`;
+    updateTraitEditSave();
+  } finally {
+    elTraits.editReset.disabled = false;
+  }
+}
+
+elTraits.editTable.addEventListener('change', updateTraitEditSave);
+elTraits.editBullet.addEventListener('input', updateTraitEditSave);
+elTraits.editForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  submitTraitEdit({ table: elTraits.editTable.value, bullet: elTraits.editBullet.value });
+});
+elTraits.editReset.addEventListener('click', () => submitTraitEdit({ reset: true }));
 
 elTraits.detailClose.addEventListener('click', () => { elTraits.overlay.hidden = true; });
 elTraits.overlay.addEventListener('click', (e) => {

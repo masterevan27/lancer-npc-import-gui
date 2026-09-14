@@ -549,6 +549,14 @@ and open <http://127.0.0.1:5089>.
   `prompts/staged-imports/refs/<run>/` as it stages a run, and the sheet asks
   for it from there; a run staged before it did that, or one whose copies have
   since been deleted, still names its source and simply shows no preview.
+  When the skill got a candidate wrong — a build staged under `Build (she)`
+  that suits a man better, a cut staged as `Hair (she) +` that reads as
+  `Hair (he) +` — correct it on the same sheet before importing: pick another
+  table (the staged table's own pronoun variants are listed first) and/or
+  reword the bullet, then **Save correction**. The fix is written into the
+  staged run, the row gets an **Edited** badge, the sheet shows what was
+  originally staged, and **Revert to staged** undoes it. Already-imported
+  candidates are read-only here; change those on the **Tables** tab.
 - **Tables** — shows every bullet in every roll table of
   `npc-generator-tables.md`, with a selector at the top to switch the whole tab
   to `spaceship-generator-tables.md` or the expression tables instead. The

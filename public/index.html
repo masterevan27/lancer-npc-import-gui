@@ -636,6 +636,25 @@
       <img id="trait-detail-image" class="trait-detail-image" alt="" hidden />
       <h3>Bullet</h3>
       <pre id="trait-detail-bullet"></pre>
+      <!-- Shown instead of the <pre> while a candidate is not yet imported:
+           the skill's table or wording can be corrected before it is written
+           to the tables file (e.g. 'Build (she)' -> 'Build'). -->
+      <form class="trait-edit" id="trait-edit-form" hidden>
+        <label>
+          Import into table
+          <select id="trait-edit-table"></select>
+        </label>
+        <label>
+          Bullet text
+          <textarea id="trait-edit-bullet" rows="3" spellcheck="true"></textarea>
+        </label>
+        <p class="trait-edit-original" id="trait-edit-original" hidden></p>
+        <div class="trait-edit-actions">
+          <button type="submit" id="trait-edit-save" disabled>Save correction</button>
+          <button type="button" id="trait-edit-reset" hidden>Revert to staged</button>
+          <span class="regen-status" id="trait-edit-status"></span>
+        </div>
+      </form>
       <h3>Placement hint</h3>
       <p id="trait-detail-placement"></p>
       <h3>Bookkeeping note</h3>

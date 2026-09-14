@@ -52,6 +52,7 @@ const { spawn } = require('node:child_process');
 const tableBullets = require('./lib/tableBullets');
 const tableGroups = require('./lib/tableGroups');
 const tableFlags = require('./lib/tableFlags');
+const traitCandidateEdit = require('./lib/traitCandidateEdit');
 const presets = require('./lib/presets');
 const createPresets = require('./lib/createPresets');
 const { derivePaths } = require('./lib/paths');
@@ -3056,6 +3057,12 @@ function allTraitCandidates(kind) {
                 placementHint: entry.placement_hint,
                 bookkeepingNote: entry.bookkeeping_note,
                 notes: entry.notes,
+                // What the skill staged, when the reviewer has since corrected
+                // the table or the bullet (lib/traitCandidateEdit.js). Null on
+                // an entry nobody has touched.
+                originalTable: entry.original_table ?? null,
+                originalBullet: entry.original_bullet ?? null,
+                edited: entry.original_table !== undefined || entry.original_bullet !== undefined,
                 imported: !!entry.imported,
                 importedAt: entry.imported_at || null,
                 generatedAt: data.generated_at || null,
@@ -3063,6 +3070,23 @@ function allTraitCandidates(kind) {
         }
     }
     return out;
+}
+
+/**
+ * The headings in one kind's tables file a candidate can be moved to, in file
+ * order. Every heading rather than readTables' roll tables only - an empty
+ * group table has no bullets yet but is still somewhere a bullet can go -
+ * less the generator's documentation sections, which no bullet belongs in.
+ * An unreadable tables file answers [] so the listing still loads.
+ */
+function candidateTableNames(kind) {
+    try {
+        return tableBullets.parseTableFile(fs.readFileSync(kind.tables, 'utf8'))
+            .map((t) => t.name)
+            .filter((name) => !tableBullets.NON_TABLE_SECTIONS.includes(name));
+    } catch {
+        return [];
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -5269,7 +5293,51 @@ async function handleApi(req, res, url) {
         // candidate's table name is only meaningful paired with the file it
         // came from - '## Backdrop' exists in both tables files - so a merged
         // listing would be a list the GUI could not act on.
-        return sendJson(res, 200, { candidates: allTraitCandidates(kind) });
+        return sendJson(res, 200, { candidates: allTraitCandidates(kind), tables: candidateTableNames(kind) });
+    }
+
+    /*
+     * POST /api/trait-candidates/edit - correct a not-yet-imported candidate's
+     * table and/or bullet in its staged run, or `reset: true` to restore what
+     * the skill staged. Body: { kind?, file, id, table?, bullet?, reset? }.
+     * The import route then writes the corrected entry as it would any other.
+     */
+    if (url.pathname === '/api/trait-candidates/edit' && req.method === 'POST') {
+        const raw = await readBody(req);
+        let body;
+        try {
+            body = JSON.parse(raw || '{}');
+        } catch (err) {
+            return sendJson(res, 400, { error: err.message });
+        }
+        const kind = resolveKind(url, body);
+        if (!kind) {
+            return sendJson(res, 400, {
+                error: `unknown kind "${body.kind ?? url.searchParams.get('kind')}"`,
+            });
+        }
+        if (!kind.supports.traitCandidates) return sendJson(res, 400, { error: `${kind.label} have no trait candidates` });
+        const { file, id } = body;
+        // A run is a bare *.json in the staging directory, the same literal
+        // rule refImagePath applies - this route writes, so it is not the
+        // place to find out what path.join does with '..'.
+        if (typeof file !== 'string' || path.basename(file) !== file || !file.endsWith('.json')
+            || !listStagedFiles(kind).includes(file)) {
+            return sendJson(res, 404, { error: 'unknown staged run' });
+        }
+        let data;
+        try {
+            data = loadStagedFile(kind, file);
+        } catch (err) {
+            return sendJson(res, 500, { error: `couldn't read ${file}: ${err.message}` });
+        }
+        const entry = (data.entries || []).find((e) => e.id === id);
+        if (!entry) return sendJson(res, 404, { error: 'no such candidate' });
+        const result = traitCandidateEdit.applyCandidateEdit(entry, body, candidateTableNames(kind));
+        if (!result.ok) return sendJson(res, result.status, { error: result.error });
+        if (result.changed || body.reset) saveStagedFile(kind, file, data);
+        const candidate = allTraitCandidates(kind).find((c) => c.file === file && c.id === id);
+        return sendJson(res, 200, { candidate });
     }
 
     if (url.pathname === '/api/trait-image' && req.method === 'GET') {
