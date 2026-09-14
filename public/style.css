@@ -2523,6 +2523,10 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 }
 .bg-render > p,
 .bg-animate > p { color: var(--text-2); }
+/* Scene settings have six fixed-width fields.  Unlike filter chips, they must
+   move as intact labelled controls when a panel gets narrower. */
+.bg-render .filter-row,
+.bg-animate .filter-row { flex-wrap: wrap; }
 #tab-backgrounds button {
   background: var(--surface-2);
   border: 1px solid var(--line-strong);
