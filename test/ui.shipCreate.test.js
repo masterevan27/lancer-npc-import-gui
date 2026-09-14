@@ -145,15 +145,15 @@ test('/api/categories omits spaceship when there is no ship generator script', a
     assert.deepEqual(body.kinds, ['npc']);
 });
 
-test('index.html marks both ship affordances and exactly one Tables-only expression option', async (t) => {
+test('index.html marks ship affordances and Tables-only expression and background options', async (t) => {
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());
 
     const html = await fetchText(server, '/index.html');
     // Attributes only, not the explanatory comments beside them.
     const marked = [...html.matchAll(/<(button|option)\b[^>]*\bdata-kind="([\w-]+)"/g)];
-    assert.equal(marked.length, 3, 'only two ship affordances and the Expressions Tables option carry data-kind');
-    assert.deepEqual(marked.map((m) => m[2]), ['spaceship', 'spaceship', 'expression']);
+    assert.equal(marked.length, 4, 'two ship affordances and the Expressions and Backgrounds Tables options carry data-kind');
+    assert.deepEqual(marked.map((m) => m[2]), ['spaceship', 'spaceship', 'expression', 'background']);
     assert.match(html, /data-tab="shipcreate" data-kind="spaceship"/,
         'the Create Spaceship tab button is no longer gated on kind availability');
     assert.match(html, /<option value="spaceship" data-kind="spaceship">/,

@@ -7975,6 +7975,7 @@ async function loadBackgrounds() {
     backgroundsState.prefix = '';
   }
   renderBackgroundsPanel();
+  globalThis.DynamicBackgrounds?.onGallery(data);
 }
 
 function renderBackgroundsPanel() {
@@ -8058,17 +8059,20 @@ function renderBackgroundEntries() {
  * /api/create-status, drives a dry-run button this panel does not have, and
  * is lifted by name in two existing tests.
  */
-function pollBackgroundJob(jobId, { statusEl, logEl, button, running, onDone }) {
+function pollBackgroundJob(jobId, { statusEl, logEl, button, running, onDone, onStop, isCurrent }) {
   let ticks = 0;
   const timer = setInterval(async () => {
     ticks += 1;
     let job;
     try {
       job = await api(`/api/backgrounds/status?jobId=${encodeURIComponent(jobId)}`);
+      if (isCurrent && !isCurrent()) { clearInterval(timer); return; }
     } catch (err) {
       clearInterval(timer);
+      if (isCurrent && !isCurrent()) return;
       button.disabled = false;
       statusEl.textContent = `Lost track of the job: ${err.message}`;
+      onStop?.();
       return;
     }
     logEl.hidden = !job.log;
@@ -8083,6 +8087,7 @@ function pollBackgroundJob(jobId, { statusEl, logEl, button, running, onDone }) 
         button.disabled = false;
         statusEl.textContent =
           'Stopped watching this run after 20 minutes — it may still be going; reload to check.';
+        onStop?.();
       }
       return;
     }
@@ -8221,6 +8226,9 @@ elBackgrounds.renderBtn.addEventListener('click', () => {
  */
 function backgroundPills(item) {
   const pills = [];
+  if (item.scene) pills.push('Dynamic');
+  if (item.battlemaps?.length) pills.push('Battlemap');
+  if (item.battlemapJob?.status === 'running') pills.push('Mapping…');
   if (item.status === 'running') pills.push('Animating…');
   if (item.error) pills.push('Failed');
   if (item.animation) pills.push('Animated');
@@ -8299,9 +8307,11 @@ function openBackgroundAnimate(rel) {
   backgroundsState.selected = rel;
   const item = selectedBackground();
   if (!item) return;
+  globalThis.DynamicBackgrounds?.onSelect(item);
   // What the last loop used when there is one, else a fresh draw - the panel's
   // first state should simply be usable.
   backgroundsState.motion = (item.animation && item.animation.description)
+    || item.scene?.motionPrompt
     || pickBackgroundMotion(null);
   elBackgrounds.panel.hidden = false;
   elBackgrounds.panelTitle.textContent = item.name;

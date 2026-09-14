@@ -72,6 +72,7 @@ const traitChoices = require('./lib/traitChoices');
 const applyTrait = require('./lib/applyTrait');
 const animate = require('./lib/animate');
 const backgrounds = require('./lib/backgrounds');
+const dynamicBackgrounds = require('./lib/dynamicBackgrounds');
 const settings = require('./lib/settings');
 
 const PLUGIN_ID = 'import-gui-server';
@@ -2026,6 +2027,25 @@ const backgroundJobs = new Map();
 /** Which job is animating each still, so a second click on one is a 409. */
 const backgroundAnimateByRel = new Map();
 
+const dynamicScenes = dynamicBackgrounds.createService({
+    script: DERIVED_PATHS.generateBackgroundScript,
+    tables: DERIVED_PATHS.dynamicBackgroundTablesPath,
+    root: BACKGROUNDS_DIR, executable: config.pythonExecutable, jobs: backgroundJobs,
+    onProduced(job, options) {
+        if (job.kind !== 'dynamic') return;
+        forgetSeen(job.producedIds);
+        if (!options.animateWhenDone) return;
+        for (const output of job.outputs) {
+            const description = dynamicScenes.metadata(output.rel)?.motionPrompt;
+            if (!description) continue;
+            const started = startBackgroundAnimateJob({ rel: output.rel, description,
+                seedMode: 'random', pingpong: options.pingpong !== false });
+            if (started.ok) job.chain.push({ rel: output.rel, jobId: started.jobId });
+            else job.chainError = started.error;
+        }
+    },
+});
+
 function backgroundCatalogueFiles() {
     try {
         return fs.readdirSync(BACKGROUND_PROMPTS_DIR)
@@ -2057,7 +2077,7 @@ function backgroundsMissing() {
 }
 
 function backgroundsAvailable() {
-    return backgroundsMissing().length === 0;
+    return backgroundsMissing().length === 0 || dynamicScenes.available();
 }
 
 /**
@@ -2224,6 +2244,7 @@ function walkBackgrounds(dir = BACKGROUNDS_DIR, rel = '', depth = 0, out = []) {
         }
         if (!backgrounds.IMAGE_EXTENSIONS.includes(path.extname(entry.name).toLowerCase())) continue;
         if (backgrounds.isAnimationFile(entry.name)) continue;
+        if (dynamicScenes.metadata(childRel)?.kind === 'battlemap') continue;
         out.push(childRel);
     }
     return out;
@@ -2246,7 +2267,7 @@ function readBackgroundSidecar(sidecarRel) {
  * this server's own job is doing to it. Both urls carry the file's mtime as
  * the cache-buster /api/animation-image's does.
  */
-function backgroundItemView(rel) {
+function backgroundItemView(rel, mapCache) {
     const mtime = fileVersion(backgroundAbs(rel));
     if (mtime === null) return null; // deleted between the walk and here
     const files = backgrounds.animationFilesFor(rel);
@@ -2257,6 +2278,9 @@ function backgroundItemView(rel) {
     return {
         rel,
         name: backgrounds.displayName(path.basename(rel)),
+        scene: dynamicScenes.metadata(rel),
+        battlemaps: dynamicScenes.mapsFor(rel, mapCache),
+        battlemapJob: dynamicScenes.mapJob(rel),
         mtime,
         url: `/api/backgrounds/image?rel=${encodeURIComponent(rel)}&v=${mtime}`,
         // Only ever present with a loop on disk - a stale nothing is nothing.
@@ -2295,8 +2319,8 @@ const BACKGROUND_LABEL = 'Backgrounds';
  * grid looks for a thumbnail and an "Animating…" badge. The gallery view
  * rides along under `background` for the sheet's own line about the loop.
  */
-function backgroundGridItem(rel) {
-    const view = backgroundItemView(rel);
+function backgroundGridItem(rel, mapCache) {
+    const view = backgroundItemView(rel, mapCache);
     if (!view) return null;
     const id = backgrounds.idFor(rel);
     const files = backgrounds.animationFilesFor(rel);
@@ -2332,7 +2356,12 @@ function backgroundGridItem(rel) {
  */
 function deleteBackground(rel, still) {
     const files = backgrounds.animationFilesFor(rel);
-    for (const target of [still, backgroundAbs(files.webp), backgroundAbs(files.sidecar)]) {
+    if (dynamicScenes.mapJob(rel)?.status === 'running') throw new Error('wait for this background’s battlemap job to finish before deleting it');
+    const maps = dynamicScenes.mapsFor(rel).flatMap((map) => {
+        const file = dynamicScenes.insideFile(map.rel);
+        return file ? [file, dynamicBackgrounds.metadataPath(file)] : [];
+    });
+    for (const target of [still, backgroundAbs(files.webp), backgroundAbs(files.sidecar), dynamicBackgrounds.metadataPath(still), ...maps]) {
         try {
             fs.rmSync(target, { force: true });
         } catch (err) {
@@ -3877,7 +3906,8 @@ async function handleApi(req, res, url) {
         const category = url.searchParams.get('category');
         if (!category) return sendJson(res, 400, { error: 'category is required' });
         if (category === BACKGROUND_KIND) {
-            const items = walkBackgrounds().map(backgroundGridItem).filter(Boolean)
+            const mapCache = new Map();
+            const items = walkBackgrounds().map((rel) => backgroundGridItem(rel, mapCache)).filter(Boolean)
                 .sort((a, b) => a.name.localeCompare(b.name));
             return sendJson(res, 200, { items });
         }
@@ -4260,9 +4290,25 @@ async function handleApi(req, res, url) {
         return;
     }
 
+    if (url.pathname === '/api/backgrounds/dynamic/catalogue' && req.method === 'GET') {
+        try { return sendJson(res, 200, await dynamicScenes.catalogue()); }
+        catch (err) { return sendJson(res, 400, { error: err.message }); }
+    }
+
+    if (['/api/backgrounds/dynamic/preview', '/api/backgrounds/dynamic/render', '/api/backgrounds/battlemap'].includes(url.pathname) && req.method === 'POST') {
+        try {
+            const body = JSON.parse((await readBody(req, 256 * 1024)) || '{}');
+            if (url.pathname === '/api/backgrounds/battlemap') return sendJson(res, 202, dynamicScenes.battlemap(body));
+            const { animateWhenDone, pingpong, ...request } = body;
+            const plan = await dynamicScenes.preview(request);
+            if (url.pathname.endsWith('/preview')) return sendJson(res, 200, plan);
+            return sendJson(res, 202, dynamicScenes.render(plan, { animateWhenDone, pingpong }));
+        } catch (err) { return sendJson(res, /already/.test(err.message) ? 409 : 400, { error: err.message }); }
+    }
+
     if (url.pathname === '/api/backgrounds' && req.method === 'GET') {
         const missing = backgroundsMissing();
-        if (missing.length) {
+        if (missing.length && !dynamicScenes.available()) {
             // Answered rather than 404'd, so the client can say which piece is
             // missing instead of showing an empty tab with no explanation.
             return sendJson(res, 200, {
@@ -4273,8 +4319,11 @@ async function handleApi(req, res, url) {
         }
         const files = backgroundCatalogueFiles();
         const entries = await Promise.all(files.map((file) => readCatalogueEntries(file)));
+        const mapCache = new Map();
         return sendJson(res, 200, {
             available: true,
+            dynamicAvailable: dynamicScenes.available(),
+            bespokeAvailable: missing.length === 0,
             missing: [],
             dir: BACKGROUNDS_DIR,
             // Whether "Import into SillyTavern" has somewhere to copy to.
@@ -4286,7 +4335,7 @@ async function handleApi(req, res, url) {
             })),
             motionPrompts: backgroundMotionPrompts(),
             items: walkBackgrounds()
-                .map((rel) => backgroundItemView(rel))
+                .map((rel) => backgroundItemView(rel, mapCache))
                 .filter(Boolean)
                 .sort((a, b) => b.mtime - a.mtime),
         });
@@ -4436,6 +4485,7 @@ async function handleApi(req, res, url) {
             produced: job.produced ?? null,
             // The Import tab ids of those stills, null on the same terms.
             producedIds: job.producedIds ?? null,
+            outputs: job.outputs ?? [],
             // The animate jobs this render started, each watched separately so
             // a failed loop is visible as itself rather than retroactively
             // failing a render that did produce a still.

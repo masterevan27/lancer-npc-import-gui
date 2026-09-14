@@ -253,7 +253,41 @@
 <section class="tab-panel" id="tab-backgrounds" hidden>
   <p class="regen-status" id="bg-unavailable" hidden></p>
 
-  <div class="bg-render">
+  <div class="filter-row">
+    <label>Generation <select id="bg-mode"><option value="dynamic">Dynamic traits</option><option value="bespoke">Bespoke catalogue</option></select></label>
+  </div>
+  <div id="bg-dynamic" class="bg-render" hidden>
+    <h2>Create a scene</h2>
+    <p>Roll a setting, keep the details you like, and generate a new combination. Scenes use the whole image.</p>
+    <div class="filter-row">
+      <label>Environment <select id="bg-dynamic-environment"><option value="outdoor">Outdoors</option><option value="indoor">Indoors</option><option value="space">Space</option></select></label>
+      <label>View <select id="bg-dynamic-view"><option value="perspective">Immersive scene</option><option value="topdown">Top-down battlemap</option></select></label>
+      <label>Scenes <input id="bg-dynamic-count" type="number" min="1" max="8" value="1" /></label>
+      <label>Width <input id="bg-dynamic-width" type="number" min="64" max="8192" value="1920" /></label>
+      <label>Height <input id="bg-dynamic-height" type="number" min="64" max="8192" value="1080" /></label>
+      <label>Seed <input id="bg-dynamic-seed" type="number" min="0" max="4294967295" placeholder="Random" /></label>
+    </div>
+    <label class="bg-notes">Additional scene / layout notes<textarea id="bg-dynamic-notes" rows="2" maxlength="4000" placeholder="Optional: a damaged bridge divides the district; multiple routes between cover"></textarea></label>
+    <div class="filter-row">
+      <button type="button" id="bg-dynamic-roll">Randomize unlocked</button>
+      <button type="button" id="bg-dynamic-refresh">Refresh pools</button>
+      <button type="button" id="bg-dynamic-lock-all">Lock all</button>
+      <button type="button" id="bg-dynamic-unlock-all">Unlock all</button>
+    </div>
+    <p>Locks keep traits across rolls and additional scenes in a batch. The first scene uses the preview; later scenes reroll unlocked traits.</p>
+    <div id="bg-dynamic-traits" class="bg-traits"></div>
+    <details open><summary>Prompt preview</summary><pre id="bg-dynamic-preview" class="bg-prompt">Choose Randomize unlocked to preview a scene.</pre></details>
+    <div class="filter-row">
+      <button type="button" id="bg-dynamic-preview-btn">Update preview</button>
+      <label><input type="checkbox" id="bg-dynamic-animate" /> Animate generated scenes</label>
+      <label><input type="checkbox" id="bg-dynamic-pingpong" checked /> Ping-pong loops</label>
+      <button type="button" id="bg-dynamic-render">Render scenes</button>
+    </div>
+    <p id="bg-dynamic-status" class="regen-status" role="status"></p>
+    <pre id="bg-dynamic-log" class="job-log" hidden></pre>
+  </div>
+
+  <div class="bg-render" id="bg-bespoke">
     <h2>Render a background</h2>
     <div class="filter-row">
       <label>Catalogue <select id="bg-catalogue"></select></label>
@@ -278,6 +312,22 @@
   <div class="bg-animate" id="bg-animate" hidden>
     <h2 id="bg-animate-title"></h2>
     <img class="bg-animate-still" id="bg-animate-still" alt="" />
+    <div class="filter-row"><button type="button" id="bg-load-scene" hidden>Load saved traits</button><span id="bg-saved-scene-info"></span></div>
+    <details class="bg-battlemap" open>
+      <summary>Create battlemap</summary>
+      <p>Reimagine this background directly from above, with no baked-in grid. The original stays intact; unseen geometry is interpreted.</p>
+      <div class="filter-row">
+        <label>Width <input id="bg-map-width" type="number" min="64" max="8192" value="1536" /></label>
+        <label>Height <input id="bg-map-height" type="number" min="64" max="8192" value="1536" /></label>
+        <label>Seed <input id="bg-map-seed" type="number" min="0" max="4294967295" placeholder="Random" /></label>
+      </div>
+      <label class="bg-notes">Layout notes<textarea id="bg-map-notes" rows="2" maxlength="4000" placeholder="Optional: open the roof, add connected rooms and clear routes"></textarea></label>
+      <button type="button" id="bg-map-btn">Create battlemap</button>
+      <p id="bg-map-status" class="regen-status" role="status"></p>
+      <pre id="bg-map-log" class="job-log" hidden></pre>
+      <div id="bg-map-results"></div>
+    </details>
+    <h3>Animate background</h3>
     <div class="bg-motion">
       <textarea id="bg-motion-text" rows="3"></textarea>
       <button type="button" id="bg-motion-reroll">Re-roll</button>
@@ -371,6 +421,7 @@
            server's capability-aware availability list for both. -->
       <option value="spaceship" data-kind="spaceship">Spaceships</option>
       <option value="expression" data-kind="expression">Expressions</option>
+      <option value="background" data-kind="background">Backgrounds</option>
     </select>
   </label>
   <!-- Narrows the heading list to tables with a matching name or bullet, and
@@ -835,5 +886,6 @@
 </div>
 
 <script src="/app.js"></script>
+<script src="/dynamic-backgrounds.js"></script>
 </body>
 </html>

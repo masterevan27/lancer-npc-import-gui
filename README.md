@@ -833,6 +833,9 @@ to `REQUIRED_TABLES`, `TRAIT_DEPENDENTS` or the filter blocks in `roll_npc`.
 
 ## License
 
+For the Create Background trait roller, saved scenes and reference-based
+orthographic maps, see [Dynamic backgrounds and battlemaps](docs/dynamic-backgrounds.md).
+
 GPL-3.0-or-later — see [LICENSE](LICENSE).
 
 LANCER is a trademark of Massif Press. This is an unofficial community tool with
