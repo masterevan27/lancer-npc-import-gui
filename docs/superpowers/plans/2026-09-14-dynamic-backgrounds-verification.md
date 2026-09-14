@@ -1,7 +1,11 @@
 # Dynamic backgrounds verification
 
-Implemented in both existing checkouts on `feature/dynamic-backgrounds`; changes
-remain uncommitted. Existing NPC tables and local Claude settings were preserved.
+> **Status, 2026-09-14: merged and pushed.** Both repos' `feature/dynamic-backgrounds`
+> fast-forwarded into `main` (generator `3e21670`, GUI `0402281`) and the branch was
+> deleted. The notes below are the pre-merge verification record.
+
+Implemented in both existing checkouts on `feature/dynamic-backgrounds`. Existing
+NPC tables and local Claude settings were preserved.
 
 - GUI: `node --test --test-concurrency=4 --test-timeout=120000 "test/*.test.js"`
   passed all 963 tests on the final code.

@@ -518,6 +518,12 @@ and open <http://127.0.0.1:5089>.
   what it can select. A still is rendered, never regenerated in place, so the
   seed is either one you pin or one the script rolls.
 
+  **Dynamic traits** is the other render mode: roll a scene from the
+  generator's `background-generator-tables.md` with per-trait locks and
+  rerolls, preview its prompt before ComfyUI starts, reload a saved scene's
+  traits, and turn any still into a gridless top-down battlemap. See
+  [Dynamic backgrounds and battlemaps](docs/dynamic-backgrounds.md).
+
   **Animate each still when it lands** chains an animation onto every image a
   render produces. With more than one variant each still gets its own motion
   prompt and its own seed, rather than all sharing the one the panel was
@@ -832,9 +838,6 @@ things that make a claim in it wrong — read that before trusting it after a ch
 to `REQUIRED_TABLES`, `TRAIT_DEPENDENTS` or the filter blocks in `roll_npc`.
 
 ## License
-
-For the Create Background trait roller, saved scenes and reference-based
-orthographic maps, see [Dynamic backgrounds and battlemaps](docs/dynamic-backgrounds.md).
 
 GPL-3.0-or-later — see [LICENSE](LICENSE).
 
