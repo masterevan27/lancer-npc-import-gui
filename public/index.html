@@ -373,6 +373,13 @@
       <option value="expression" data-kind="expression">Expressions</option>
     </select>
   </label>
+  <!-- Narrows the heading list to tables with a matching name or bullet, and
+       the open table to its matching bullets. Kept across a Kind switch. -->
+  <div class="tables-search-row">
+    <input type="search" id="tables-search" placeholder="Search table names, bullet text, flags…"
+           aria-label="Search tables" autocomplete="off" />
+    <span class="tables-search-note" id="tables-search-note" hidden></span>
+  </div>
   <div class="tables-layout">
     <div class="table-heading-list" id="table-heading-list"></div>
     <div class="table-bullet-panel">

@@ -349,7 +349,8 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   margin-bottom: var(--sp-4);
 }
 #filter-search,
-#trait-search {
+#trait-search,
+#tables-search {
   background: var(--surface);
   border: 1px solid var(--line-strong);
   color: var(--text);
@@ -360,7 +361,8 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   min-width: 240px;
 }
 #filter-search::placeholder,
-#trait-search::placeholder { color: var(--text-4); }
+#trait-search::placeholder,
+#tables-search::placeholder { color: var(--text-4); }
 .filter-rows { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .filter-row {
   display: flex;
@@ -1892,6 +1894,14 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   font-size: var(--fs-sm);
 }
 
+.tables-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: var(--sp-4);
+}
+.tables-search-note { font-size: var(--fs-sm); color: var(--text-4); }
 .tables-layout {
   display: flex;
   gap: 1rem;
@@ -1968,6 +1978,11 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 /* A divided list on the panel's own ground rather than a box per bullet: at
    117 rows plus a flag strip under each, the boxes were the loudest thing
    on the tab. The hover fill gives the row back when the pointer is on it. */
+/* The Tables search hides rows rather than dropping them, so renderChances
+   still pairs its cells with table.bullets by index; the author display on
+   these would otherwise beat [hidden]. */
+.table-bullet-row[hidden],
+.table-bullet-flags[hidden] { display: none; }
 .table-bullet-row {
   display: flex;
   align-items: center;

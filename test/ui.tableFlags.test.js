@@ -152,7 +152,7 @@ test('the flag strip is rendered outside the bullet row label', async (t) => {
     // checkbox nested inside it would toggle the enable box instead of
     // itself, which is why the strip is appended as a sibling.
     assert.match(js, /const flags = renderBulletFlags\(table, bullet\);/);
-    assert.match(js, /if \(flags\) elTables\.bulletList\.appendChild\(flags\);/);
+    assert.match(js, /if \(flags\) \{[^}]*elTables\.bulletList\.appendChild\(flags\);/);
 });
 
 test('a flag write stores the new text the server returns', async (t) => {

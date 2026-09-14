@@ -603,6 +603,16 @@ reads this file` and `Prompt templates` — read like tables (they use `- `
   preset, hand it to another GM, and they can import it, preview exactly what
   it would change, and apply it.
 
+  The **search box** above the tables narrows the heading list to tables whose
+  name or bullets match, and the open table to its matching bullets — the same
+  plain substring match as the Trait Imports search. Flags are part of the
+  text, so `updo` finds every bullet flagged with it, and a table-name match
+  keeps all of that table's bullets. The note beside the box says how many
+  tables matched and how many of the open table's values are showing, since
+  the heading badges still count every bullet. A value added with **Add
+  value** that the search would hide clears the search rather than vanishing,
+  and so does a **group ›** jump to a group the search has hidden.
+
   Below the selected table's bullets, **Add value** appends a custom bullet of
   your own — for NPCs, Spaceships and Expressions alike, written into that
   kind's own tables file just after the table's last bullet, enabled, with the

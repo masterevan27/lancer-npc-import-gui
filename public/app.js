@@ -6359,6 +6359,7 @@ const tablesState = {
   groups: [],
   capabilities: { chances: true, odds: true },
   selectedTable: null,
+  search: '',          // the search box's text; survives a Kind switch
   presets: [],
   pendingPreset: null, // the parsed preset object currently shown in the preview, or null
   flags: {},           // { [table]: { [flag]: gloss } } - the vocabulary the server sends
@@ -6375,6 +6376,8 @@ const tablesState = {
 const elTables = {
   kindSelect: document.getElementById('tables-kind'),
   headingList: document.getElementById('table-heading-list'),
+  search: document.getElementById('tables-search'),
+  searchNote: document.getElementById('tables-search-note'),
   bulletHeading: document.getElementById('table-bullet-heading'),
   bulletList: document.getElementById('table-bullet-list'),
   empty: document.getElementById('tables-empty'),
@@ -6491,15 +6494,47 @@ async function loadTables() {
   return true;
 }
 
+/**
+ * The Tables tab's search, as the Trait Imports search reads it: a plain
+ * case-insensitive substring over the bullet's whole text (flags included, so
+ * `updo` finds every bullet flagged with it) and its table's name, so typing a
+ * table name keeps all of that table's bullets.
+ */
+function tableSearchQuery() {
+  return tablesState.search.trim().toLowerCase();
+}
+
+function tableBulletMatchesSearch(table, bullet, query = tableSearchQuery()) {
+  if (!query) return true;
+  return `${table.name}\n${bullet.text}`.toLowerCase().includes(query);
+}
+
+function tableMatchesSearch(table, query = tableSearchQuery()) {
+  if (!query) return true;
+  return table.name.toLowerCase().includes(query)
+    || table.bullets.some((b) => b.text.toLowerCase().includes(query));
+}
+
 function renderTableHeadingList() {
   elTables.headingList.innerHTML = '';
+  const query = tableSearchQuery();
+  const matching = tablesState.tables.filter((t) => tableMatchesSearch(t, query));
+  // A search that hides the open table moves to the first table it keeps, so
+  // the bullet panel never shows a table the list on its left has dropped.
+  if (matching.length && !matching.some((t) => t.name === tablesState.selectedTable)) {
+    resetAddForm();
+    tablesState.selectedTable = matching[0].name;
+  }
+  renderTableSearchNote(query, matching.length);
   for (const { group, rows } of tablesState.groups) {
+    if (!rows.some((r) => tableMatchesSearch(r.table, query))) continue;
     const header = document.createElement('div');
     header.className = 'table-group-header';
     header.textContent = group;
     elTables.headingList.appendChild(header);
 
     for (const { table, isVariant, isGroup } of rows) {
+      if (!tableMatchesSearch(table, query)) continue;
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'table-heading-row'
@@ -6519,6 +6554,41 @@ function renderTableHeadingList() {
   }
 }
 
+/**
+ * Says what the search kept: how many tables, and how many of the open
+ * table's values - the heading badges still count every bullet, so without
+ * this a table narrowed to 3 of its 117 rows reads as "Outfit (117)".
+ */
+function renderTableSearchNote(query, tableCount) {
+  const note = elTables.searchNote;
+  if (!query) {
+    note.hidden = true;
+    note.textContent = '';
+    return;
+  }
+  note.hidden = false;
+  if (!tableCount) {
+    note.textContent = 'No tables or values match';
+    return;
+  }
+  const table = tablesState.tables.find((t) => t.name === tablesState.selectedTable);
+  const shown = table ? table.bullets.filter((b) => tableBulletMatchesSearch(table, b, query)).length : 0;
+  note.textContent = `${tableCount} ${tableCount === 1 ? 'table matches' : 'tables match'}`
+    + (table ? ` · showing ${shown} of ${table.bullets.length} values in ${table.name}` : '');
+}
+
+/** Sets the search text in both the state and the box, without re-rendering. */
+function setTablesSearch(text) {
+  tablesState.search = text;
+  elTables.search.value = text;
+}
+
+elTables.search.addEventListener('input', () => {
+  tablesState.search = elTables.search.value;
+  renderTableHeadingList();
+  renderTableBullets();
+});
+
 /** The row's label, including its disabled-count badge. */
 function headingLabel(table) {
   const disabledCount = table.bullets.filter((b) => !b.enabled).length;
@@ -6528,14 +6598,24 @@ function headingLabel(table) {
 }
 
 function renderTableBullets() {
-  const table = tablesState.tables.find((t) => t.name === tablesState.selectedTable);
-  elTables.bulletHeading.textContent = table ? table.name : 'Select a table';
+  const query = tableSearchQuery();
+  const found = tablesState.tables.find((t) => t.name === tablesState.selectedTable);
+  // Nothing in the kind matches: renderTableHeadingList has left the list
+  // empty and the selection where it was, and that table is not shown either.
+  const table = found && tableMatchesSearch(found, query) ? found : null;
+  elTables.bulletHeading.textContent = table
+    ? table.name
+    : (found ? 'No tables match that search' : 'Select a table');
   elTables.bulletList.innerHTML = '';
   elTables.addForm.hidden = !table;
   if (!table) return;
   for (const bullet of table.bullets) {
+    // Hidden, not skipped: renderChances pairs .chance-cell elements with
+    // table.bullets by index.
+    const matches = tableBulletMatchesSearch(table, bullet, query);
     const row = document.createElement('label');
     row.className = 'table-bullet-row';
+    row.hidden = !matches;
     const check = document.createElement('input');
     check.type = 'checkbox';
     check.checked = bullet.enabled;
@@ -6588,7 +6668,11 @@ function renderTableBullets() {
       jump.title = `One slot that rolls from the ${target} table`;
       jump.addEventListener('click', (e) => {
         e.preventDefault();
-        if (!tablesState.tables.some((t) => t.name === target)) return;
+        const targetTable = tablesState.tables.find((t) => t.name === target);
+        if (!targetTable) return;
+        // A search that hides the group would bounce the jump straight back
+        // to the first match, so following a reference clears it.
+        if (!tableMatchesSearch(targetTable)) setTablesSearch('');
         tablesState.selectedTable = target;
         renderTableHeadingList();
         renderTableBullets();
@@ -6598,7 +6682,10 @@ function renderTableBullets() {
     elTables.bulletList.appendChild(row);
 
     const flags = renderBulletFlags(table, bullet);
-    if (flags) elTables.bulletList.appendChild(flags);
+    if (flags) {
+      flags.hidden = !matches;
+      elTables.bulletList.appendChild(flags);
+    }
   }
   renderChances();
 }
@@ -7147,6 +7234,9 @@ async function addCustomBullet() {
     if (row) row.textContent = headingLabel(table);
     resetAddForm();
     if (tablesState.selectedTable === tableName) {
+      // A value the search would hide looks like it was never added.
+      if (!tableBulletMatchesSearch(table, bullet)) setTablesSearch('');
+      renderTableHeadingList();
       renderTableBullets();
       elTables.addForm.scrollIntoView({ block: 'nearest' });
     }
