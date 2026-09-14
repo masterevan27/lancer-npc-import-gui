@@ -172,3 +172,28 @@ test('a reference whose group the preset never saw is left alone rather than dis
     assert.deepEqual(diffPresetAgainstTables(knowing, parsed).willDisable,
         [{ table: 'Outfit', text: '=> Flight suits' }]);
 });
+
+test('members of a group referenced from Backdrop are keyed on shot and scene, not the shot alone', () => {
+    // Backdrop bullets are 'shot || scene || flags'. A group table referenced
+    // from Backdrop has Backdrop's shape, and nearly every member opens with
+    // the same shot phrase - keyed as a two-segment table, they would all
+    // collapse into one key and all but the first would drop out of the diff.
+    const parsed = [
+        { name: 'Backdrop', references: ['Rooftops'], bullets: [
+            { text: 'A portrait || a bar || weather', weight: 1, enabled: true },
+            { text: '=> Rooftops', weight: 1, enabled: true },
+        ] },
+        { name: 'Rooftops', references: [], bullets: [
+            { text: 'A portrait || a rooftop at night || weather', weight: 1, enabled: true },
+            { text: 'A portrait || a rooftop at dawn', weight: 1, enabled: false },
+        ] },
+    ];
+    const preset = {
+        Backdrop: [{ text: 'A portrait || a bar', weight: 1 }, { text: '=> Rooftops', weight: 1 }],
+        Rooftops: [{ text: 'A portrait || a rooftop at dawn', weight: 2 }],
+    };
+    const diff = diffPresetAgainstTables(preset, parsed);
+    assert.deepEqual(diff.notFound, []);
+    assert.deepEqual(diff.willDisable, [{ table: 'Rooftops', text: 'A portrait || a rooftop at night || weather' }]);
+    assert.deepEqual(diff.willEnable, [{ table: 'Rooftops', text: 'A portrait || a rooftop at dawn', weight: 2 }]);
+});
