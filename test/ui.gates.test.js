@@ -79,6 +79,29 @@ test('a gate row offers every category and every Role, with a Role implied by it
     assert.match(row, /removeGate\(key, flag\)/);
 });
 
+test('a gate row lists an admitted name the Role table lacks, ticked, so it can be dropped', async (t) => {
+    // The checkbox grid is built from the live Roles and categories, so a
+    // stale name (a reworded Role) would otherwise be admitted invisibly:
+    // in the summary text but in no box the user could untick.
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    const row = extractSource(js, 'renderGateRow');
+    assert.match(row, /const stale = admitted\.filter\(/);
+    assert.match(row, /Not in the Role table/);
+});
+
+test('a gate row that was open stays open across the reload a write causes', async (t) => {
+    // Every write reloads the tab and rebuilds the panel; without this the
+    // row the user is ticking boxes in would snap shut after each tick.
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    const row = extractSource(js, 'renderGateRow');
+    assert.match(row, /row\.open = tablesState\.openGates\.has\(`\$\{key\}:\$\{flag\}`\)/);
+    assert.match(row, /row\.addEventListener\('toggle'/);
+});
+
 test('every gate edit is written whole to /api/gates and the tab reloads', async (t) => {
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());

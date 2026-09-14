@@ -151,6 +151,60 @@ test('POST /api/gates refuses a name that admits nobody, and writes nothing', as
     assert.ok(!fs.existsSync(sidecarOf(server)), 'a refused write must leave no sidecar');
 });
 
+test('a stale name in a map the edit did not touch does not block the edit', async (t) => {
+    // The generator's own defaults can name a Role the tables have since
+    // reworded (its test_backdrop_role.py exists to catch that). Validating
+    // the whole file would then refuse every edit to every other map, with a
+    // message about a table the user never opened. Only what changed is
+    // checked; the stale map is written through as it was.
+    const STALE_SOURCE = GENERATOR_SOURCE.replace(
+        '    "cockpit": ("Pilots",),',
+        '    "cockpit": ("Pilots",),\n    "clergy": ("a scavenger-priest",),',
+    );
+    const server = await startTestServer({
+        tablesText: TABLES_FIXTURE, port: PORT, generatorSource: STALE_SOURCE,
+    });
+    t.after(() => server.stop());
+
+    const before = await getGates(server);
+    assert.deepEqual(before.maps.backdropRoles.clergy, ['a scavenger-priest']);
+    const res = await postGates(server, {
+        kind: 'npc',
+        gates: { ...before.maps, roleLocks: { admin: ['Officials'] } },
+    });
+    assert.equal(res.status, 200, JSON.stringify(await res.clone().json()));
+    const after = await getGates(server);
+    assert.deepEqual(after.maps.roleLocks, { admin: ['Officials'] });
+    assert.deepEqual(after.maps.backdropRoles.clergy, ['a scavenger-priest'], 'passed through untouched');
+
+    // Another gate in the SAME map as the stale one can be edited too: the
+    // check is per entry, not per map, or Backdrop's fourteen other gates
+    // would be frozen by one reworded Role.
+    const sibling = await postGates(server, {
+        kind: 'npc',
+        gates: { ...after.maps, backdropRoles: { ...after.maps.backdropRoles, cockpit: ['Pilots', 'Laborers'] } },
+    });
+    assert.equal(sibling.status, 200, JSON.stringify(await sibling.clone().json()));
+
+    // Even the stale entry itself can be added to: only the names an edit
+    // ADDS are checked, so the priest rides along until someone unticks it,
+    // and the user is never told off for a name they did not type.
+    const stale = await postGates(server, {
+        kind: 'npc',
+        gates: { ...after.maps, backdropRoles: { ...after.maps.backdropRoles, clergy: ['a scavenger-priest', 'Pilots'] } },
+    });
+    assert.equal(stale.status, 200, JSON.stringify(await stale.clone().json()));
+    assert.deepEqual((await getGates(server)).maps.backdropRoles.clergy, ['a scavenger-priest', 'Pilots']);
+
+    // A bad name that IS newly written is still refused.
+    const touched = await postGates(server, {
+        kind: 'npc',
+        gates: { ...after.maps, backdropRoles: { ...after.maps.backdropRoles, cockpit: ['Pilotz'] } },
+    });
+    assert.equal(touched.status, 400);
+    assert.match((await touched.json()).error, /Pilotz/);
+});
+
 test('POST /api/gates refuses a malformed body', async (t) => {
     const server = await startTestServer({
         tablesText: TABLES_FIXTURE, port: PORT, generatorSource: GENERATOR_SOURCE,

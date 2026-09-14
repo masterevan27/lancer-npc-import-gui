@@ -6364,6 +6364,7 @@ const tablesState = {
   pendingPreset: null, // the parsed preset object currently shown in the preview, or null
   flags: {},           // { [table]: { [flag]: gloss } } - the vocabulary the server sends
   gates: null,         // { maps, overridden, roles, buckets, tables, error? } - who each gate admits, or null for a kind without gates
+  openGates: new Set(), // 'map:flag' of the gate rows the user has expanded, kept across the reload a write causes
   parents: {},         // { [table]: parentBaseName } - which table's bullet enters a group
   odds: null,          // the last settled /api/table-odds report, or null
   oddsStale: false,    // an edit has landed that the settled odds predate
@@ -6969,6 +6970,14 @@ function renderGateRow(key, flag, admitted, carrying) {
   const row = document.createElement('details');
   row.className = 'gate-row';
   row.dataset.flag = flag;
+  // Every write reloads the tab and rebuilds this panel, so which rows are
+  // open is remembered in state, or the row being edited would snap shut
+  // after each tick.
+  row.open = tablesState.openGates.has(`${key}:${flag}`);
+  row.addEventListener('toggle', () => {
+    if (row.open) tablesState.openGates.add(`${key}:${flag}`);
+    else tablesState.openGates.delete(`${key}:${flag}`);
+  });
 
   const summary = document.createElement('summary');
   const name = document.createElement('code');
@@ -7015,6 +7024,30 @@ function renderGateRow(key, flag, admitted, carrying) {
       const implied = bucketOn && categories[role] === bucket;
       list.appendChild(gateToggle(role, implied || admittedSet.has(role), implied,
         implied ? `Admitted through ${bucket}` : 'This one Role', (on) => setGateMember(key, flag, role, on)));
+    }
+    group.appendChild(list);
+    members.appendChild(group);
+  }
+  // A name the gate admits that is neither a live Role nor a category - a
+  // Role reworded since the gate was written. It would admit nobody and, with
+  // no box in the grid above, could not be unticked; it is listed here ticked
+  // so it can be dropped on purpose.
+  const { roles, buckets } = tablesState.gates;
+  const known = new Set([...roles, ...buckets]);
+  const stale = admitted.filter((name) => !known.has(name));
+  if (stale.length) {
+    const group = document.createElement('div');
+    group.className = 'gate-bucket-group';
+    const heading = document.createElement('span');
+    heading.className = 'gate-toggle';
+    heading.textContent = 'Not in the Role table';
+    heading.title = 'These names admit nobody until a Role bullet matches them again. Untick to drop one.';
+    group.appendChild(heading);
+    const list = document.createElement('div');
+    list.className = 'gate-bucket-roles';
+    for (const name of stale) {
+      list.appendChild(gateToggle(name, true, false, 'No Role bullet has this exact text',
+        (on) => setGateMember(key, flag, name, on)));
     }
     group.appendChild(list);
     members.appendChild(group);
@@ -7108,11 +7141,9 @@ async function addGate() {
   }
   maps[key] = { ...(maps[key] || {}), [flag]: [] };
   elTables.gateAddBtn.disabled = true;
-  if (await writeGates(maps)) {
-    // Open the new gate's row so the next click is on who it admits.
-    const row = elTables.gateList.querySelector(`.gate-row[data-flag="${CSS.escape(flag)}"]`);
-    if (row) row.open = true;
-  }
+  // Open the new gate's row so the next click is on who it admits.
+  tablesState.openGates.add(`${key}:${flag}`);
+  await writeGates(maps);
 }
 
 elTables.gateAddName.addEventListener('input', () => {

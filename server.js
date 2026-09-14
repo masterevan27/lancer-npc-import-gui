@@ -5035,7 +5035,46 @@ async function handleApi(req, res, url) {
         const categories = maps.roleCategories && typeof maps.roleCategories === 'object'
             ? maps.roleCategories : current.gates.roleCategories;
         const buckets = [...new Set(Object.values(categories || {}))];
-        const errors = gatesLib.validateGates(maps, { roles: gateRolesOf(tables), buckets });
+        // Only what this edit ADDS is checked: a name newly admitted by a
+        // gate, a Role newly given a category, a name newly in
+        // unaffiliatedRoles, and any new or reshaped entry whole. The
+        // generator's own defaults can name a Role the tables have since
+        // reworded (its test_backdrop_role.py exists to catch exactly that),
+        // and checking what was already there would refuse the user's edit
+        // with a message about a name they never typed - in the worst case
+        // every edit to Backdrop's fifteen gates, for one stale entry. A
+        // name the server itself served a moment ago is written through as
+        // it was; the panel lists stale ones so they can be dropped on
+        // purpose, and a lock on nobody is harmless to the roll.
+        const changed = {};
+        for (const [key, value] of Object.entries(maps)) {
+            const before = current.gates[key];
+            if (!gatesLib.GATE_KEYS.includes(key) || before == null || !value || typeof value !== 'object'
+                || Array.isArray(value) !== Array.isArray(before)) {
+                changed[key] = value; // a new, malformed or unknown map: checked whole
+                continue;
+            }
+            if (Array.isArray(value)) {
+                const had = new Set(before);
+                const added = value.filter((name) => !had.has(name));
+                if (added.length) changed[key] = added;
+                continue;
+            }
+            const diff = {};
+            for (const [entry, admitted] of Object.entries(value)) {
+                const had = before[entry];
+                if (key === 'roleCategories') {
+                    if (admitted !== had) diff[entry] = admitted;
+                } else if (!Array.isArray(admitted) || !Array.isArray(had)) {
+                    diff[entry] = admitted;
+                } else {
+                    const added = admitted.filter((name) => !had.includes(name));
+                    if (added.length) diff[entry] = added;
+                }
+            }
+            if (Object.keys(diff).length) changed[key] = diff;
+        }
+        const errors = gatesLib.validateGates(changed, { roles: gateRolesOf(tables), buckets });
         if (errors.length) return sendJson(res, 400, { error: errors.join('; '), errors });
         // kind.tables, as every tables writer above: the sidecar sits beside
         // the file whose gates it redefines, and the generator finds it there.
