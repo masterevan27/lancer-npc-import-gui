@@ -242,10 +242,10 @@ and open <http://127.0.0.1:5089>.
   figure who holds still. The loop appears as a third image beside the
   portrait and token, and **Re-animate portrait** redoes just that one, with
   the same three seed choices Regenerate offers and a **Ping-pong the loop**
-  checkbox, on by default, that plays the loop forward then back rather than
-  cutting from its last frame to its first (off passes `--no-pingpong`, and the
-  choice is recorded with the loop so the checkbox follows it the next time the
-  sheet opens); a portrait re-rendered after its loop was made gets an amber
+  checkbox, off by default, that plays the loop forward then back rather than
+  cutting from its last frame to its first (left off, the GUI passes
+  `--no-pingpong`; the choice is recorded with the loop so the checkbox follows
+  it the next time the sheet opens); a portrait re-rendered after its loop was made gets an amber
   notice and an amber button. The motion the
   script is asked for is the **Animation** row of the trait table, drawn from
   the `## Animation` table in `npc-generator-tables.md` (the Tables tab edits
@@ -529,12 +529,15 @@ and open <http://127.0.0.1:5089>.
   prompt and its own seed, rather than all sharing the one the panel was
   showing. The render reports done once the render finished; the loops are
   watched separately, so a failed animation does not retroactively fail a render
-  that did produce a still.
+  that did produce a still. Its **Ping-pong those loops** box, like Dynamic
+  traits' **Ping-pong loops**, starts unchecked, so chained loops play one way
+  unless you tick it.
 
   **Animate.** Click a card. The motion prompt comes from the enabled bullets of
   the `## Background Animation` table in `backgroundTablesPath`; Re-roll draws
-  another, and you can type your own. Ping-pong and the three seed modes work as
-  they do for an NPC's animated portrait. A card shows **Animated** when a loop
+  another, and you can type your own. The three seed modes work as they do for
+  an NPC's animated portrait, and **Ping-pong** starts unchecked here too; unlike
+  the NPC sheet, it does not follow the choice recorded with an existing loop. A card shows **Animated** when a loop
   exists and **Stale** when the still has been re-rendered since.
 
   **Import into SillyTavern.** With `sillyTavernBackgroundsDir` pointed at
