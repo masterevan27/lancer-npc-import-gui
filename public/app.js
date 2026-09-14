@@ -131,6 +131,8 @@ const el = {
   detailClose: document.getElementById('detail-close'),
   detailOpenBackground: document.getElementById('detail-open-background'),
   detailImportSillyTavern: document.getElementById('detail-import-sillytavern'),
+  detailSavePreset: document.getElementById('detail-save-preset'),
+  detailPresetStatus: document.getElementById('detail-preset-status'),
   detailPortrait: document.getElementById('detail-portrait'),
   detailToken: document.getElementById('detail-token'),
   detailAnimated: document.getElementById('detail-animated'),
@@ -1508,6 +1510,10 @@ function openDetail(item) {
   el.detailOpenBackground.hidden = !isBackground;
   el.detailImportSillyTavern.hidden = !isBackground || !item.background?.sillyTavern?.available;
   el.detailImportSillyTavern.disabled = false;
+  // A background has no traits, seed or Create tab to save a preset into.
+  el.detailSavePreset.hidden = isBackground;
+  el.detailSavePreset.disabled = false;
+  setDetailPresetStatus('');
   if (isBackground) {
     openBackgroundDetail(item);
     return;
@@ -3014,6 +3020,61 @@ el.detailImportSillyTavern.addEventListener('click', () => {
     el.detailImportSillyTavern.disabled = false;
     el.detailGenerated.textContent = `Couldn't import: ${err.message}`;
   });
+});
+
+/** The sheet's own line for Save as Create preset - hidden when blank, so an
+ * untouched sheet keeps its shape. Its own element rather than
+ * el.detailGenerated, which the SillyTavern import above already borrows for
+ * a background and renderDetailHeader repaints on every poll tick. */
+function setDetailPresetStatus(text, isError) {
+  el.detailPresetStatus.textContent = text || '';
+  el.detailPresetStatus.hidden = !text;
+  el.detailPresetStatus.classList.toggle('is-error', !!isError);
+}
+
+/**
+ * What the sheet says once a preset is saved. Pure, so the test can check the
+ * sentence names the tab the preset went to - a ship's lands on the Create
+ * Spaceship tab, and telling its owner to look on Create NPC would send them
+ * to a dropdown it is not in.
+ */
+function presetSavedMessage(name, overrideCount, kind) {
+  const tab = kind === 'spaceship' ? 'Create Spaceship' : 'Create NPC';
+  const n = Number(overrideCount) || 0;
+  return `Saved “${name}” with ${n} override${n === 1 ? '' : 's'}. `
+    + `Load it from the ${tab} tab's Presets.`;
+}
+
+// "Save as Create preset…": this entry's seed, pronouns and rolled traits as
+// a preset the Create tab of its kind lists. The conversion is the server's
+// (/api/create-presets/from-item) because the values a preset needs are the
+// manifest's raw bullets, which this page is never sent. The prompt defaults
+// to the NPC's name only as a label - the preset itself carries no name, so
+// loading "Vela Ostrom" rolls someone like her, not a second Vela.
+el.detailSavePreset.addEventListener('click', async () => {
+  const item = state.items.find((i) => i.id === state.detailItemId);
+  if (!item || item.kind === BACKGROUND_KIND) return;
+  const name = window.prompt('Name this preset', item.name || '');
+  if (name === null) return;
+  el.detailSavePreset.disabled = true;
+  setDetailPresetStatus('Saving…');
+  try {
+    const { slug, overrideCount } = await api('/api/create-presets/from-item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: item.id, name }),
+    });
+    // The tab's dropdown is filled once at load, so refresh it now - with the
+    // new preset selected - rather than leaving it to appear on the next
+    // page load. A failure here is reported on that tab's own status line.
+    if (item.kind === 'spaceship') await refreshShipCreatePresets(slug);
+    else await refreshCreatePresets(slug);
+    setDetailPresetStatus(presetSavedMessage(name.trim(), overrideCount, item.kind));
+  } catch (err) {
+    setDetailPresetStatus(`Couldn't save the preset: ${err.message}`, true);
+  } finally {
+    el.detailSavePreset.disabled = false;
+  }
 });
 
 el.detailDeleteBtn.addEventListener('click', async () => {

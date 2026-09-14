@@ -452,8 +452,14 @@
         <button id="detail-open-background" type="button" hidden>Open in Create Background</button>
         <!-- Backgrounds only, and only with a SillyTavern folder to copy to. -->
         <button id="detail-import-sillytavern" type="button" hidden>Import into SillyTavern</button>
+        <!-- NPCs and ships, not backgrounds: writes this entry's traits, seed
+             and pronouns as a preset the Create tab of its kind lists - see
+             /api/create-presets/from-item. -->
+        <button id="detail-save-preset" type="button"
+                title="Save this one's seed, pronouns and traits as a Create preset">Save as Create preset&hellip;</button>
         <button id="detail-delete-btn" class="danger" type="button">Delete…</button>
       </div>
+      <p class="detail-preset-status" id="detail-preset-status" hidden></p>
       <p class="detail-shortcuts">&larr; &rarr; navigate &middot; Esc close</p>
       <p id="detail-sub"></p>
       <p class="detail-generated" id="detail-generated"></p>
