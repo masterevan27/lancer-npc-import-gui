@@ -724,8 +724,13 @@ before changing any `/importer/*` route — the client ships inside a released
 ## Art styles and Secret mode
 
 NPC, spaceship, and background creation include an **Art style** selector. The
-generator's `art-styles.json` supplies the choices; **Default** remains available
-when the file is missing or empty. Selected styles appear on image cards and details.
+generator's `art-styles.json` supplies the custom choices. **Default** preserves
+the existing generator prompts. Choose **None (no art style)** to omit the house
+rendering style and the `Art style:` suffix; custom styles with blank or
+whitespace-only prompts behave the same way. Both built-in choices remain
+available when the file is missing or empty, including in regeneration selectors.
+Selected styles appear on image cards and details. Update the generator together
+with the GUI to use `none`.
 
 For private generation, configure a username, password hash, and separate image
 folder, then open **Settings → Secret**. Hidden styles only become available after

@@ -19,7 +19,7 @@ test('Secret authentication protects catalog, files, jobs, and settings', async 
         { id: 'hidden', name: 'Hidden name', prompt: 'private prompt', hidden: true },
     ] }));
     const server = await startTestServer({ tablesText: '## Gear\n- a tool\n', port: 5291,
-        generatorSource: 'console.log(process.argv.slice(2).join(" "));',
+        generatorSource: '/*\nREROLLABLE_TRAITS = ("Gear",)\n*/\nconsole.log(process.argv.slice(2).join(" "));',
         extraConfig: { artStylesPath: catalog, secretImagesDir: privateDir, sillyTavernBackgroundsDir: sharedBackgrounds, secretMode: { username: 'tester', passwordHash } } });
     t.after(() => server.stop());
     let cookie = '';
@@ -29,7 +29,7 @@ test('Secret authentication protects catalog, files, jobs, and settings', async 
     });
     assert.deepEqual(await (await call('/api/secret/session')).json(), { authenticated: false, configured: true });
     const publicCatalog = await (await call('/api/art-styles')).json();
-    assert.deepEqual(publicCatalog.styles.map(s => s.id), ['default', 'ink']);
+    assert.deepEqual(publicCatalog.styles.map(s => s.id), ['default', 'none', 'ink']);
     assert.equal(JSON.stringify(publicCatalog).includes('prompt'), false);
     for (const route of ['/items', '/image?id=x', '/create-status?jobId=x', '/settings', '/backgrounds']) {
         assert.equal((await call('/api/secret' + route)).status, 401, route);
@@ -42,15 +42,16 @@ test('Secret authentication protects catalog, files, jobs, and settings', async 
     assert.equal(login.status, 200);
     assert.match(login.headers.get('set-cookie'), /HttpOnly.*SameSite=Strict/);
     cookie = login.headers.get('set-cookie').split(';')[0];
-    assert.equal((await (await call('/api/art-styles', undefined, true)).json()).styles.length, 3);
+    assert.equal((await (await call('/api/art-styles', undefined, true)).json()).styles.length, 4);
     const folder = path.join(privateDir, 'npcs', 'Private'); fs.mkdirSync(folder, { recursive: true });
     fs.writeFileSync(path.join(folder, 'portrait.png'), 'private image');
-    const entry = { id: 'private-id', name: 'Private', kind: 'npc', portrait: 'portrait.png', secret: true, art_style: { id: 'hidden', name: 'Hidden name' } };
+    const entry = { id: 'private-id', name: 'Private', kind: 'npc', seed: 23, traits: { Gear: 'tool' }, portrait: 'portrait.png', secret: true, art_style: { id: 'hidden', name: 'Hidden name' } };
     fs.writeFileSync(path.join(privateDir, 'manifest.json'), JSON.stringify({ [folder]: entry }));
     const itemsRes = await call('/api/secret/items', undefined, true);
     assert.equal(itemsRes.headers.get('cache-control'), 'no-store');
     const items = (await itemsRes.json()).items;
     assert.equal(items[0].artStyle.id, 'hidden');
+    assert.deepEqual(items[0].rerollable, ['Gear']);
     assert.equal(await (await call(items[0].portraitUrl, undefined, true)).text(), 'private image');
     // Even a public manifest accidentally referencing private files is excluded.
     fs.writeFileSync(server.manifestPath, JSON.stringify({ [folder]: { ...entry, secret: false } }));
@@ -68,6 +69,7 @@ test('Secret authentication protects catalog, files, jobs, and settings', async 
     assert.equal(deletion.results[0].deleted, false);
     assert.ok(fs.existsSync(path.join(folder, 'portrait.png')));
     fs.writeFileSync(path.join(publicBackgrounds, 'Ordinary.png'), 'ordinary');
+    assert.equal(await (await call('/api/backgrounds/image?rel=Ordinary.png', undefined, true)).text(), 'ordinary');
     fs.symlinkSync(path.join(folder, 'portrait.png'), path.join(publicBackgrounds, 'Ordinary Animated.webp'), 'file');
     assert.equal((await call('/api/backgrounds/import', { rel: 'Ordinary.png' })).status, 404);
     assert.deepEqual(fs.readdirSync(sharedBackgrounds), []);
@@ -83,6 +85,21 @@ test('Secret authentication protects catalog, files, jobs, and settings', async 
     }
     assert.match(job.log, /--secret --secret-config/);
     assert.match(job.log, /--art-style hidden/);
+    assert.equal((await call('/api/secret/reroll-trait', { id: 'private-id', trait: 'Gear' })).status, 401);
+    assert.equal((await call('/api/secret/reroll-trait', { id: 'private-id', trait: 'Unknown' }, true)).status, 400);
+    const rerollResponse = await call('/api/secret/reroll-trait', { id: 'private-id', trait: 'Gear' }, true);
+    assert.equal(rerollResponse.status, 202);
+    const reroll = await rerollResponse.json();
+    for (let i = 0; i < 50; i++) {
+        job = await (await call('/api/secret/create-status?jobId=' + reroll.jobId, undefined, true)).json();
+        if (job.status !== 'running') break;
+        await new Promise(r => setTimeout(r, 40));
+    }
+    assert.match(job.log, /--reroll-trait Gear --apply-only/);
+    assert.ok(job.log.includes('--regen-manifest ' + path.join(privateDir, 'manifest.json')));
+    assert.match(job.log, /--art-style hidden/);
+    assert.match(job.log, /--secret --secret-config/);
+    assert.equal((await call('/api/secret/regenerate', { id: 'public-id' }, true)).status, 404);
     const autoPrivate = await (await call('/api/create', { dryRun: true }, true)).json();
     assert.equal(autoPrivate.secret, true);
     assert.equal((await call('/api/create-status?jobId=' + autoPrivate.jobId)).status, 404);
@@ -121,15 +138,18 @@ test('private dynamic generation keeps its style, files and logs in the protecte
         pythonExecutable: process.execPath, generateBackgroundScript: script, dynamicBackgroundTablesPath: tables,
         artStylesPath: catalog, secretImagesDir: privateDir, secretMode: { username: 'test', passwordHash: hashPassword('password') },
     } }); t.after(() => server.stop());
+    const workflowDir = path.join(server.dir, 'workflows', 'api', 'secret'); fs.mkdirSync(workflowDir, { recursive: true });
+    fs.writeFileSync(path.join(workflowDir, 'Scene.json'), JSON.stringify({ '1': { class_type: 'SaveImage', inputs: {} } }));
     let cookie;
     const call = (route, body) => fetch(server.baseUrl + route, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
     const login = await call('/api/secret/login', { username: 'test', password: 'password' }); cookie = login.headers.get('set-cookie').split(';')[0];
-    const response = await call('/api/secret/backgrounds/dynamic/render', { environment: 'indoor', artStyle: 'ink' });
+    const response = await call('/api/secret/backgrounds/dynamic/render', { environment: 'indoor', artStyle: 'ink', workflow: 'secret/Scene.json' });
     assert.equal(response.status, 202); const { jobId } = await response.json();
     let job;
     for (let i = 0; i < 50; i++) { job = await (await call('/api/secret/backgrounds/status?jobId=' + jobId)).json(); if (job.status !== 'running') break; await new Promise(r => setTimeout(r, 40)); }
     assert.equal(job.status, 'done'); assert.equal(job.produced, 1);
     assert.match(job.log, /--art-style ink/); assert.match(job.log, /--secret --secret-config/);
+    assert.ok(job.log.includes('--workflow ' + path.join(workflowDir, 'Scene.json')));
     const gallery = await (await call('/api/secret/items')).json();
     assert.equal(gallery.items[0].artStyle.id, 'ink');
     assert.equal(await (await call(gallery.items[0].portraitUrl)).text(), 'PRIVATE PNG');

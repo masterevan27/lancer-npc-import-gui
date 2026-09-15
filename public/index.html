@@ -43,6 +43,7 @@
   <span id="secret-mode-status" role="status"></span>
 </div>
 <p id="art-style-error" class="settings-error" role="status" hidden></p>
+<p id="workflow-error" class="settings-error" role="status" hidden></p>
 
 <!-- One shelf, two announcements, stacked rather than sharing a slot. A regen
      finishing during a generate run would otherwise replace the batch banner,
@@ -127,6 +128,8 @@
     <label class="form-field art-style-field">Art style
       <select id="create-art-style" data-art-style="npc" disabled><option value="default">Default</option></select>
     </label>
+    <label class="form-field">Workflow<select id="create-workflow" data-workflow="npc" disabled><option value="default">Default</option></select></label>
+    <p class="hint">UTIL_ workflows are reserved for utility operations. Files in workflows/api/secret are available only in Secret mode.</p>
     <div class="form-grid">
       <label class="form-field">
         Count
@@ -207,6 +210,7 @@
   <label class="form-field art-style-field">Art style
     <select id="create-ship-art-style" data-art-style="spaceship" disabled><option value="default">Default</option></select>
   </label>
+  <label class="form-field">Workflow<select id="create-ship-workflow" data-workflow="spaceship" disabled><option value="default">Default</option></select></label>
   <div class="create-form">
     <div class="form-grid">
       <label class="form-field">
@@ -285,6 +289,7 @@
   <label class="form-field art-style-field">Art style
     <select id="bg-art-style" data-art-style="background" disabled><option value="default">Default</option></select>
   </label>
+  <label class="form-field">Workflow<select id="bg-workflow" data-workflow="background" disabled><option value="default">Default</option></select></label>
   <p class="regen-status" id="bg-unavailable" hidden></p>
 
   <div class="filter-row">
@@ -629,6 +634,7 @@
           <label>Art style
             <select id="regen-art-style" data-art-style="npc" disabled><option value="default">Default</option></select>
           </label>
+          <label>Workflow<select id="regen-workflow" data-workflow="regen" disabled><option value="default">Default</option></select></label>
         </div>
         <div class="regen-row">
           <span id="regen-current-seed" class="regen-current-seed"></span>
@@ -967,11 +973,27 @@
 </div>
 <div class="detail-overlay" id="secret-detail-overlay" hidden>
   <div class="detail" role="dialog" aria-modal="true" aria-labelledby="secret-detail-name">
-    <button type="button" id="secret-detail-close" class="close" aria-label="Close secret image">×</button>
+    <button type="button" id="secret-detail-close" class="detail-close" aria-label="Close secret image">×</button>
     <h2 id="secret-detail-name"></h2>
     <p id="secret-detail-style" class="hint"></p>
+    <nav class="regen-row" aria-label="Secret image navigation"><button id="secret-detail-prev" type="button">← Previous</button><button id="secret-detail-next" type="button">Next →</button><span class="hint">← → cycle · Hover to expand · Esc close</span></nav>
     <div id="secret-detail-images" class="detail-images"></div>
-    <pre id="secret-detail-traits" class="secret-detail-text"></pre>
+    <table><tbody id="secret-detail-traits"></tbody></table>
+    <section id="secret-regen-panel" class="regen-panel">
+      <h3>Regenerate</h3>
+      <p class="hint">Re-roll updates traits and prompts. Regenerate applies them to the images.</p>
+      <div class="regen-row">
+        <label>Images<select id="secret-regen-which"><option value="both">Both</option><option value="portrait">Portrait</option><option value="token">Token</option></select></label>
+        <label>Seed<select id="secret-regen-seed-mode"><option value="same">Same seed</option><option value="random">Random seed</option><option value="specific">Specific seed</option></select></label>
+        <input id="secret-regen-seed" type="number" min="0" max="4294967295" aria-label="Specific seed" disabled>
+      </div>
+      <div class="regen-row">
+        <label>Art style<select id="secret-regen-art-style" data-art-style="secret-regen" disabled><option value="default">Default</option></select></label>
+        <label>Workflow<select id="secret-regen-workflow" data-workflow="secret-regen" disabled><option value="default">Default</option></select></label>
+        <button id="secret-regen-btn" type="button">Regenerate</button>
+      </div>
+    </section>
+    <p id="secret-detail-status" role="status"></p>
     <details><summary>Prompts</summary><pre id="secret-detail-prompts" class="secret-detail-text"></pre></details>
   </div>
 </div>

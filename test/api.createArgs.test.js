@@ -53,3 +53,20 @@ test('an unchecked box adds nothing', async (t) => {
     const log = await runCreate(server, { count: 1, dryRun: true });
     assert.doesNotMatch(log, /--unarmed/);
 });
+
+test('the browser can select None and creation forwards it to the generator', async (t) => {
+    const server = await startTestServer({
+        tablesText: TABLES_FIXTURE, port: 5193, generatorSource: STUB,
+    });
+    t.after(() => server.stop());
+    const ui = require('../public/secret-mode');
+    const catalog = await (await fetch(`${server.baseUrl}/api/art-styles`)).json();
+    assert.ok(ui.visibleStyles(catalog.styles, false).some(style => style.id === 'none'));
+    const request = ui.routeRequest('/api/create-npc', {
+        method: 'POST', body: JSON.stringify({ count: 1, dryRun: true }),
+    }, false, { npc: 'none' });
+    const log = await runCreate(server, JSON.parse(request.options.body));
+    assert.match(log, /--art-style none(?:\s|$)/);
+    const defaultLog = await runCreate(server, { count: 1, dryRun: true, artStyle: 'default' });
+    assert.match(defaultLog, /--art-style default(?:\s|$)/);
+});

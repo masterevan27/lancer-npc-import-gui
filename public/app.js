@@ -3054,6 +3054,7 @@ el.regenBtn.addEventListener("click", async () => {
     "same";
   const body = { id, which, seedMode };
   body.artStyle = el.regenArtStyle.value || "default";
+  body.workflow = document.getElementById("regen-workflow")?.value || "default";
   if (seedMode === "specific") {
     const seed = Number(el.regenSeedInput.value);
     if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295) {

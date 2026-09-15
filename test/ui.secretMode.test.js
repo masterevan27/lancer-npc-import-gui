@@ -60,7 +60,7 @@ async function page(authenticated, privateItems) {
     class Element {
         constructor() { this.children = []; this.value = ''; this.hidden = false; this.disabled = false; this.textContent = ''; this.listeners = {}; this.dataset = {}; this.classList = { add() {}, remove() {}, toggle() {} }; }
         addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
-        async dispatch(name) { for (const callback of this.listeners[name] || []) await callback({ preventDefault() {}, target: this }); }
+        async dispatch(name, extra = {}) { for (const callback of this.listeners[name] || []) await callback({ preventDefault() {}, target: this, ...extra }); }
         replaceChildren(...children) { this.children = children; }
         append(...children) { this.children.push(...children); }
         querySelectorAll() { return []; }
@@ -72,8 +72,9 @@ async function page(authenticated, privateItems) {
     const document = new Element(); document.body = new Element();
     document.getElementById = id => nodes[id] || null;
     document.createElement = () => new Element();
-    document.querySelectorAll = query => query === '[data-art-style]' ? selectors : [];
-    document.querySelector = query => selectors[['npc', 'spaceship', 'background'].findIndex(kind => query.includes(`"${kind}"`))] || null;
+    const workflows = ['create-workflow', 'create-ship-workflow', 'bg-workflow', 'regen-workflow', 'secret-regen-workflow'].map(id => nodes[id]);
+    document.querySelectorAll = query => query === '[data-art-style]' ? selectors : query === '[data-workflow]' ? workflows : [];
+    document.querySelector = query => (query.includes('data-workflow') ? workflows : selectors)[['npc', 'spaceship', 'background'].findIndex(kind => query.includes(`"${kind}"`))] || null;
     const requests = [], navigations = [];
     const window = new Element();
     window.location = { replace: path => navigations.push(path) };
@@ -85,17 +86,34 @@ async function page(authenticated, privateItems) {
         if (path === '/api/art-styles') body = { styles: [
             { id: 'ink', name: 'Ink' }, { id: 'private-ink', name: 'Private Ink', hidden: true }
         ] };
+        if (path === '/api/workflows') body = { workflows: [{ id: 'Public.json', name: 'Public' }, { id: 'secret/Private.json', name: 'Private', hidden: true }] };
         if (path === '/api/secret/items') body = { items: privateItems || [{ id: 'one', kind: 'npc', name: 'Private NPC',
             portraitUrl: '/api/secret/image?rel=one.png', portraitPrompt: 'Private portrait prompt', artStyle: { name: 'Private Ink' } }] };
         return new Response(JSON.stringify(body), { status: 200 });
     };
     function Option(text, value) { this.textContent = text; this.value = value; }
+    const app = fs.readFileSync(require.resolve('../public/app.js'), 'utf8');
+    const zoomCode = app.slice(app.indexOf('function attachImageZoom('), app.indexOf('attachImageZoom(el.detailPortrait)'));
+    const attachImageZoom = new Function('el', zoomCode + '; return attachImageZoom;')({ imageZoom: nodes['image-zoom'], imageZoomImg: nodes['image-zoom-img'] });
     vm.runInNewContext(fs.readFileSync(require.resolve('../public/secret-mode'), 'utf8'),
-        { window, document, Option, Response, console, setTimeout, Date });
+        { window, document, Option, Response, console, setTimeout, Date, attachImageZoom });
     await document.dispatch('DOMContentLoaded');
     await new Promise(resolve => setImmediate(resolve));
-    return { nodes, window, requests, navigations };
+    return { nodes, window, document, requests, navigations };
 }
+
+test('private detail cycles through filtered items and offers per-trait rerolls', async () => {
+    const { nodes, document } = await page(true, [
+        { id: 'a', name: 'Alpha', kind: 'npc', traits: { Gear: 'tool', Pronouns: 'she' }, rerollable: ['Gear'] },
+        { id: 'b', name: 'Beta', kind: 'npc', traits: {}, rerollable: [] },
+    ]);
+    await nodes['secret-grid'].children[0].dispatch('click');
+    assert.equal(nodes['secret-detail-traits'].children[0].children[0].children[0].textContent, 'Re-roll');
+    await document.dispatch('keydown', { key: 'ArrowRight' });
+    assert.equal(nodes['secret-detail-name'].textContent, 'Beta');
+    await document.dispatch('keydown', { key: 'ArrowLeft' });
+    assert.equal(nodes['secret-detail-name'].textContent, 'Alpha');
+});
 
 test('logged-out page populates all selectors without hidden names', async () => {
     const { nodes } = await page(false);
@@ -116,11 +134,19 @@ test('authenticated page displays private controls, sends chosen style, and rend
     assert.equal(nodes['secret-grid'].children.length, 1);
     await nodes['secret-grid'].children[0].dispatch('click');
     assert.match(nodes['secret-detail-prompts'].textContent, /Private portrait prompt/);
+    const portrait = nodes['secret-detail-images'].children[0].children[0];
+    await portrait.dispatch('mouseenter');
+    assert.equal(nodes['image-zoom'].hidden, false);
+    assert.equal(nodes['image-zoom-img'].src, '/api/secret/image?rel=one.png');
+    await portrait.dispatch('mouseleave');
+    assert.equal(nodes['image-zoom'].hidden, true);
     nodes['create-art-style'].value = 'private-ink';
+    nodes['create-workflow'].value = 'secret/Private.json';
     await window.SecretMode.fetch('/api/create-npc', { method: 'POST', body: '{}' });
     const sent = requests.at(-1);
     assert.equal(sent.path, '/api/secret/create');
     assert.equal(JSON.parse(sent.options.body).artStyle, 'private-ink');
+    assert.equal(JSON.parse(sent.options.body).workflow, 'secret/Private.json');
 });
 
 test('Leave Secret invalidates the session and removes private DOM before navigation', async () => {
@@ -139,7 +165,7 @@ test('private background details display saved scene prompts and traits', async 
         background: { scene: { prompt: 'Private scene prompt', traits: { Location: 'a station' } } } }]);
     await nodes['secret-grid'].children[0].dispatch('click');
     assert.match(nodes['secret-detail-prompts'].textContent, /Private scene prompt/);
-    assert.match(nodes['secret-detail-traits'].textContent, /a station/);
+    assert.equal(nodes['secret-detail-traits'].children[0].children[2].textContent, 'a station');
 });
 
 test('private catalogue completion refreshes without requiring an animation chain or public announcement', async () => {

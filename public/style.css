@@ -114,6 +114,9 @@ body {
 .secret-detail-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: var(--fs-sm); }
 .detail-images img.secret-image-expanded { max-height: none; max-width: min(85vw, 1100px); }
 #secret-detail-images { flex-wrap: wrap; }
+#secret-detail-traits td { padding: var(--sp-2); vertical-align: top; overflow-wrap: anywhere; }
+#secret-detail-traits td:first-child { width: 5rem; }
+#secret-detail-traits td:nth-child(2) { min-width: 7rem; color: var(--text-3); }
 #secret-login-form .form-field { margin-bottom: var(--sp-4); }
 #secret-open { margin-bottom: var(--sp-4); }
 #secret-grid .card:focus-visible { box-shadow: var(--focus-ring); }

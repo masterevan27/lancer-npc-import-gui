@@ -18,6 +18,7 @@
       const body = JSON.parse(next.body);
       const kind = background ? 'background' : pathname === '/api/create-npc' ? 'npc' : body.kind || 'npc';
       body.artStyle = selections[kind] || 'default';
+      if (selections.workflows) body.workflow = selections.workflows[kind] || 'default';
       if (create && authenticated) body.kind = kind;
       next.body = JSON.stringify(body);
     }
@@ -57,14 +58,17 @@
     return;
   }
   const get = id => document.getElementById(id);
-  const selections = () => Object.fromEntries(['npc', 'spaceship', 'background'].map(kind =>
-    [kind, document.querySelector(`[data-art-style="${kind}"]`)?.value || 'default']));
+  const selections = () => ({ ...Object.fromEntries(['npc', 'spaceship', 'background'].map(kind =>
+    [kind, document.querySelector(`[data-art-style="${kind}"]`)?.value || 'default'])),
+    workflows: Object.fromEntries(['npc', 'spaceship', 'background'].map(kind =>
+      [kind, document.querySelector(`[data-workflow="${kind}"]`)?.value || 'default'])) });
   const transport = createTransport(root.fetch.bind(root), expire, selections);
   const ready = root.fetch('/api/secret/session', { cache: 'no-store', credentials: 'same-origin' })
     .then(res => res.ok ? res.json() : { authenticated: false, configured: false })
     .then(session => { transport.setAuthenticated(session.authenticated); return session; })
     .catch(() => ({ authenticated: false, configured: false }));
   let galleryItems = [], galleryRequest = 0, lastFocus = 0;
+  let visibleItems = [], detailId = null, detailBusy = false;
   const sessionChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('lancer-secret-session');
 
   root.SecretMode = {
@@ -87,7 +91,7 @@
   const post = (path, body) => json(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
   function clearPrivateView() {
-    galleryItems = []; galleryRequest += 1;
+    galleryItems = []; visibleItems = []; detailId = null; galleryRequest += 1;
     for (const id of ['secret-grid', 'secret-detail-images', 'secret-detail-prompts', 'secret-detail-traits']) get(id)?.replaceChildren();
     for (const id of ['secret-detail-name', 'secret-detail-style', 'secret-storage-path']) {
       const node = get(id); if (node) { node.textContent = ''; if ('value' in node) node.value = ''; }
@@ -95,6 +99,9 @@
     for (const node of document.querySelectorAll('[data-art-style]')) {
       node.replaceChildren(new Option(DEFAULT.name, DEFAULT.id));
     }
+    for (const node of document.querySelectorAll('[data-workflow]')) node.replaceChildren(new Option(DEFAULT.name, DEFAULT.id));
+    get('secret-detail-status').textContent = '';
+    get('image-zoom').hidden = true;
     get('secret-detail-overlay').hidden = true;
     // Remove private images and job text from the shared creation panels too.
     for (const node of document.querySelectorAll('img')) {
@@ -118,6 +125,18 @@
       select.disabled = false;
     }
     get('art-style-error').hidden = true;
+  }
+
+  async function loadWorkflows() {
+    const data = await json('/api/workflows');
+    const workflows = visibleStyles(data.workflows, transport.authenticated);
+    for (const select of document.querySelectorAll('[data-workflow]')) {
+      const selected = select.value;
+      select.replaceChildren(...workflows.map(workflow => new Option(workflow.name, workflow.id)));
+      select.value = workflows.some(workflow => workflow.id === selected) ? selected : 'default';
+      select.disabled = false;
+    }
+    get('workflow-error').hidden = true;
   }
 
   function openGallery() {
@@ -148,6 +167,7 @@
       [item.name, item.callsign, item.artStyle?.name, ...Object.values(item.traits || {})].join(' ').toLowerCase().includes(search));
     items.sort((a, b) => get('secret-sort').value === 'name' ? a.name.localeCompare(b.name) :
       String(b.when || '').localeCompare(String(a.when || '')));
+    visibleItems = items;
     for (const item of items) {
       const card = document.createElement('div');
       card.className = `card${item.kind === 'spaceship' ? ' card--spaceship' : item.kind === 'background' ? ' card--background' : ''}`;
@@ -168,7 +188,12 @@
     get('secret-empty').hidden = items.length !== 0;
   }
 
-  function openDetail(item) {
+  function openDetail(item, preserve = false) {
+    detailId = item.id;
+    get('image-zoom').hidden = true;
+    const position = visibleItems.findIndex(other => other.id === item.id);
+    get('secret-detail-prev').disabled = position <= 0;
+    get('secret-detail-next').disabled = position < 0 || position >= visibleItems.length - 1;
     get('secret-detail-name').textContent = item.name;
     get('secret-detail-style').textContent = `Art style: ${item.artStyle?.name || 'Default'}`;
     const images = get('secret-detail-images'); images.replaceChildren();
@@ -176,16 +201,76 @@
       if (!url) continue;
       const figure = document.createElement('figure'), img = document.createElement('img'), caption = document.createElement('figcaption');
       img.src = url; img.alt = `${item.name} — ${label}`; caption.textContent = label;
+      if (typeof attachImageZoom === 'function') attachImageZoom(img);
       img.addEventListener('click', () => img.classList.toggle('secret-image-expanded'));
       figure.append(img, caption); images.append(figure);
     }
     const traits = item.background?.scene?.traits || item.traits || {};
-    get('secret-detail-traits').textContent = Object.entries(traits).map(([key, value]) => `${key}: ${value}`).join('\n');
+    const traitRows = get('secret-detail-traits'); traitRows.replaceChildren();
+    for (const [key, value] of Object.entries(traits)) {
+      const row = document.createElement('tr'), control = document.createElement('td'), name = document.createElement('td'), text = document.createElement('td');
+      if ((item.rerollable || []).includes(key)) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'reroll-btn'; button.textContent = 'Re-roll';
+        button.disabled = detailBusy || item.regenStatus === 'running';
+        button.addEventListener('click', () => mutateDetail('/api/secret/reroll-trait', { id: item.id, trait: key }));
+        control.append(button);
+      }
+      name.textContent = key; text.textContent = value; row.append(control, name, text); traitRows.append(row);
+    }
+    get('secret-regen-panel').hidden = item.kind === 'background';
+    get('secret-regen-btn').disabled = detailBusy || item.regenStatus === 'running';
+    if (!preserve) {
+      get('secret-regen-art-style').value = item.artStyle?.id || 'default';
+      get('secret-regen-workflow').value = 'default';
+      get('secret-regen-which').value = 'both';
+      get('secret-regen-seed-mode').value = 'same';
+      get('secret-regen-seed').value = item.seed ?? '';
+      get('secret-regen-seed').disabled = true;
+      get('secret-detail-status').textContent = item.artStale ? 'Traits changed. Regenerate to update the images.' : '';
+    }
     const prompts = item.prompts || { Portrait: item.portraitPrompt || item.background?.scene?.prompt, Token: item.tokenPrompt };
     get('secret-detail-prompts').textContent = typeof prompts === 'string' ? prompts :
       Object.entries(prompts).filter(([, value]) => value).map(([key, value]) => `${key}\n${value}`).join('\n\n');
     get('secret-detail-overlay').hidden = false;
     get('secret-detail-close').focus();
+  }
+
+  function stepDetail(offset) {
+    const index = visibleItems.findIndex(item => item.id === detailId);
+    if (index >= 0 && visibleItems[index + offset]) openDetail(visibleItems[index + offset]);
+  }
+
+  function closeDetail() {
+    get('secret-detail-overlay').hidden = true;
+    get('image-zoom').hidden = true;
+    detailId = null;
+  }
+
+  async function mutateDetail(route, body) {
+    if (detailBusy) return;
+    detailBusy = true;
+    const owner = body.id;
+    const item = galleryItems.find(item => item.id === owner);
+    if (item) openDetail(item, true);
+    get('secret-detail-status').textContent = route.endsWith('reroll-trait') ? 'Re-rolling trait…' : 'Regenerating…';
+    try {
+      const { jobId } = await post(route, body);
+      let job;
+      do {
+        await new Promise(resolve => root.setTimeout(resolve, 1000));
+        if (!transport.authenticated) return;
+        job = await json('/api/secret/create-status?jobId=' + encodeURIComponent(jobId));
+      } while (job.status === 'running');
+      if (job.status !== 'done') throw new Error(job.error || job.log || 'Generation failed');
+      await loadGallery();
+      if (detailId === owner) get('secret-detail-status').textContent = route.endsWith('reroll-trait') ? 'Traits and prompts updated. Regenerate to update the images.' : 'Images regenerated.';
+    } catch (err) {
+      if (detailId === owner) get('secret-detail-status').textContent = err.message;
+    } finally {
+      detailBusy = false;
+      const current = galleryItems.find(item => item.id === detailId);
+      if (current) openDetail(current, true);
+    }
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
@@ -228,10 +313,24 @@
     });
     get('secret-refresh').addEventListener('click', () => loadGallery().catch(err => { get('secret-gallery-status').textContent = err.message; }));
     for (const id of ['secret-search', 'secret-kind', 'secret-sort']) get(id).addEventListener('input', renderGallery);
-    get('secret-detail-close').addEventListener('click', () => { get('secret-detail-overlay').hidden = true; });
+    get('secret-detail-close').addEventListener('click', closeDetail);
+    get('secret-detail-prev').addEventListener('click', () => stepDetail(-1));
+    get('secret-detail-next').addEventListener('click', () => stepDetail(1));
+    get('secret-regen-seed-mode').addEventListener('change', () => { get('secret-regen-seed').disabled = get('secret-regen-seed-mode').value !== 'specific'; });
+    get('secret-regen-btn').addEventListener('click', () => mutateDetail('/api/secret/regenerate', {
+      id: detailId, which: get('secret-regen-which').value, seedMode: get('secret-regen-seed-mode').value,
+      seed: get('secret-regen-seed').value, artStyle: get('secret-regen-art-style').value,
+      workflow: get('secret-regen-workflow').value,
+    }));
     document.addEventListener('keydown', event => {
+      if (!get('secret-detail-overlay').hidden && !event.ctrlKey && !event.altKey && !event.metaKey &&
+          !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) && !document.activeElement?.isContentEditable) {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+          event.preventDefault(); stepDetail(event.key === 'ArrowLeft' ? -1 : 1); return;
+        }
+      }
       if (event.key !== 'Escape') return;
-      get('secret-detail-overlay').hidden = true; get('secret-login-overlay').hidden = true; get('secret-password').value = '';
+      closeDetail(); get('secret-login-overlay').hidden = true; get('secret-password').value = '';
     });
     get('settings-open').addEventListener('click', async () => {
       if (!transport.authenticated) return;
@@ -247,6 +346,8 @@
     });
     try { await loadStyles(); }
     catch (err) { get('art-style-error').textContent = `Could not load art styles: ${err.message}`; get('art-style-error').hidden = false; }
+    try { await loadWorkflows(); }
+    catch (err) { get('workflow-error').textContent = `Could not load workflows: ${err.message}`; get('workflow-error').hidden = false; }
     if (session.authenticated) openGallery();
     const verifySession = async () => {
       if (Date.now() - lastFocus < 1000) return; lastFocus = Date.now();

@@ -276,8 +276,9 @@ const SILLYTAVERN_CHARACTERS_DIR = typeof config.sillyTavernCharactersDir === 's
 // spaceship and why it is resolved here rather than as scattered constants.
 const KINDS = buildKinds(DERIVED_PATHS, config);
 const ART_STYLES_PATH = config.artStylesPath || path.join(path.dirname(DERIVED_PATHS.generateNpcScript), 'art-styles.json');
+const workflowCatalog = require('./lib/workflows').createCatalog(path.dirname(DERIVED_PATHS.generateNpcScript));
 const secretAuth = secretMode.createAuth(config.secretMode);
-const secretGallery = createGallery({ config, configFile: CONFIG_FILE, paths: DERIVED_PATHS, artStylesPath: ART_STYLES_PATH });
+const secretGallery = createGallery({ config, configFile: CONFIG_FILE, paths: DERIVED_PATHS, artStylesPath: ART_STYLES_PATH, workflowCatalog, rerollableFor });
 function publicStyleArgs(id) {
     const style = artStyles.select(ART_STYLES_PATH, id || 'default', false);
     return id ? ['--art-style', style.id, '--art-styles', ART_STYLES_PATH] : [];
@@ -1074,7 +1075,7 @@ const stagingItemIds = new Set();
 // Python leaving the trait gutters disabled until the page is reloaded.
 const STAGE_TIMEOUT_MS = 60000;
 
-function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, release, artStyle }) {
+function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, release, artStyle, workflow }) {
     const existing = regenJobsByItemId.get(item.id);
     if (existing?.status === 'running') return { ok: false, reason: 'already regenerating' };
     // kindFor(), not kindOf(): kindOf() falls back an UNRECOGNISED kind onto
@@ -1125,6 +1126,7 @@ function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, rel
     // it prints every trait that travelled rather than counting them.
     if (release && release.length) args.push('--release', release.join(','));
     args.push(...publicStyleArgs(artStyle));
+    args.push(...workflowCatalog.args(workflow));
 
     const job = {
         status: 'running', which, seedMode, seed: newSeed,
@@ -2046,7 +2048,7 @@ const dynamicScenes = dynamicBackgrounds.createService({
     script: DERIVED_PATHS.generateBackgroundScript,
     tables: DERIVED_PATHS.dynamicBackgroundTablesPath,
     root: BACKGROUNDS_DIR, executable: config.pythonExecutable, jobs: backgroundJobs,
-    extraArgs: publicStyleArgs,
+    extraArgs: (style, workflow) => [...publicStyleArgs(style), ...workflowCatalog.args(workflow)],
     blockedFile: publicBackgroundBlocked,
     onProduced(job, options) {
         if (job.kind !== 'dynamic') return;
@@ -2434,7 +2436,7 @@ function backgroundMotionPrompts() {
  * cannot show.
  */
 function startBackgroundRenderJob({
-    catalogue, prefix, variants, seed, width, height, animateWhenDone, artStyle,
+    catalogue, prefix, variants, seed, width, height, animateWhenDone, artStyle, workflow,
 }) {
     if (!fs.existsSync(GENERATE_ART_SCRIPT)) {
         return { ok: false, status: 400, error: `generate-art.py not found at ${GENERATE_ART_SCRIPT}` };
@@ -2451,6 +2453,7 @@ function startBackgroundRenderJob({
             seed,
         });
         args.push(...publicStyleArgs(artStyle));
+        args.push(...workflowCatalog.args(workflow));
     } catch (err) {
         return { ok: false, status: 400, error: err.message };
     }
@@ -2929,6 +2932,7 @@ function startCreateJob(kindEntry, opts) {
 
     const args = kindEntry.createArgs(opts);
     args.push(...publicStyleArgs(opts.artStyle));
+    args.push(...workflowCatalog.args(opts.workflow));
 
     // Snapshot before the child can write anything. `produced` and
     // `producedIds` stay null until the run ends and, for a dry run or an
@@ -3013,7 +3017,10 @@ function startCreateJob(kindEntry, opts) {
  * Returns `{ status, body }`, ready to hand straight to sendJson().
  */
 function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
-    try { artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', runner !== startCreateJob); }
+    try {
+        artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', runner !== startCreateJob);
+        workflowCatalog.args(body.workflow, runner !== startCreateJob);
+    }
     catch (err) { return { status: 400, body: { error: err.message } }; }
     if (!kindEntry.supports.create) {
         return { status: 400, body: { error: `creating a ${kindEntry.subject} isn't supported yet` } };
@@ -3075,6 +3082,7 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
 
     const result = runner(kindEntry, {
         artStyle: body.artStyle,
+        workflow: body.workflow,
         count,
         seed,
         name: name || null,
@@ -3877,6 +3885,16 @@ async function handleSecretApi(req, res, url, authenticated) {
             return sendJson(res, 200, { secretImagesDir: secretGallery.root });
         }
         if (route === '/items' && req.method === 'GET') return sendJson(res, 200, { items: secretGallery.items() });
+        if (['/regenerate', '/reroll-trait'].includes(route) && req.method === 'POST') {
+            const body = JSON.parse(await readBody(req, 8192));
+            const item = secretGallery.find(body.id);
+            if (!item) return sendJson(res, 404, { error: 'Unknown private item' });
+            const kind = kindFor(KINDS, item.kind || 'npc');
+            if (!kind?.supports.regen) return sendJson(res, 400, { error: 'Regeneration unavailable for this kind' });
+            const trait = route === '/reroll-trait' ? body.trait : null;
+            if (route === '/reroll-trait' && !rerollableFor({ ...item, kind: kind.id }).includes(trait)) return sendJson(res, 400, { error: 'Unknown or unavailable trait' });
+            return sendJson(res, 202, secretGallery.startRegen(kind, item, body, trait));
+        }
         if ((route === '/image' || route === '/backgrounds/image') && req.method === 'GET') {
             if (route === '/backgrounds/image') url.searchParams.set('rel', 'backgrounds/' + (url.searchParams.get('rel') || ''));
             const file = secretGallery.image(url);
@@ -3906,6 +3924,7 @@ async function handleSecretApi(req, res, url, authenticated) {
         if (req.method === 'POST' && ['/backgrounds/dynamic/preview', '/backgrounds/dynamic/render', '/backgrounds/battlemap', '/backgrounds/render'].includes(route)) {
             const body = JSON.parse(await readBody(req, 256 * 1024));
             artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', true);
+            workflowCatalog.args(body.workflow, true);
             if (route === '/backgrounds/render') {
                 if (!backgroundCatalogueFiles().includes(body.catalogue)) return sendJson(res, 400, { error: 'Unknown catalogue' });
                 const entries = await readCatalogueEntries(body.catalogue);
@@ -3915,7 +3934,7 @@ async function handleSecretApi(req, res, url, authenticated) {
             if (route === '/backgrounds/battlemap') return sendJson(res, 202, { ...secretGallery.scenes().battlemap(body), secret: true });
             const plan = await secretGallery.scenes().preview(body);
             if (route.endsWith('/preview')) return sendJson(res, 200, plan);
-            return sendJson(res, 202, { ...secretGallery.scenes().render(plan, { artStyle: body.artStyle }), secret: true });
+            return sendJson(res, 202, { ...secretGallery.scenes().render(plan, { artStyle: body.artStyle, workflow: body.workflow }), secret: true });
         }
         return sendJson(res, 404, { error: 'Private operation unavailable' });
     } catch (err) { return sendJson(res, 400, { error: err.message }); }
@@ -3923,12 +3942,16 @@ async function handleSecretApi(req, res, url, authenticated) {
 
 async function handleApi(req, res, url) {
     const authenticated = secretAuth.authenticated(req);
-    if (url.pathname.startsWith('/api/secret/') || url.pathname === '/api/art-styles') {
+    if (url.pathname.startsWith('/api/secret/') || ['/api/art-styles', '/api/workflows'].includes(url.pathname)) {
         res.setHeader('Cache-Control', 'no-store');
         if (!secretMode.sameOrigin(req, config.publicOrigin)) return sendJson(res, 403, { error: 'Same-origin requests required' });
     }
     if (url.pathname === '/api/art-styles' && req.method === 'GET') {
         try { return sendJson(res, 200, { styles: artStyles.list(ART_STYLES_PATH, authenticated) }); }
+        catch (err) { return sendJson(res, 400, { error: err.message }); }
+    }
+    if (url.pathname === '/api/workflows' && req.method === 'GET') {
+        try { return sendJson(res, 200, { workflows: workflowCatalog.list(authenticated), note: 'UTIL_ workflows are reserved for utility operations and cannot be selected here.' }); }
         catch (err) { return sendJson(res, 400, { error: err.message }); }
     }
     if (url.pathname.startsWith('/api/secret/')) return handleSecretApi(req, res, url, authenticated);
@@ -3938,7 +3961,7 @@ async function handleApi(req, res, url) {
         if (url.pathname === '/api/create-npc') url.searchParams.set('kind', 'npc');
         url.pathname = '/api/secret/create'; return handleSecretApi(req, res, url, true);
     }
-    if (authenticated && url.pathname.startsWith('/api/backgrounds')) {
+    if (authenticated && url.pathname.startsWith('/api/backgrounds') && !['/api/backgrounds/image', '/api/backgrounds/animation-image'].includes(url.pathname)) {
         url.pathname = url.pathname.replace('/api/backgrounds', '/api/secret/backgrounds'); return handleSecretApi(req, res, url, true);
     }
     if (authenticated && !['GET', 'HEAD'].includes(req.method) && !['/api/settings', '/api/seen'].includes(url.pathname)) return sendJson(res, 403, { error: 'Leave Secret mode before changing or importing public items' });
@@ -4239,9 +4262,9 @@ async function handleApi(req, res, url) {
         }
 
         let artStyle;
-        try { artStyle = artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', false).id; }
+        try { artStyle = artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', false).id; workflowCatalog.args(body.workflow); }
         catch (err) { return sendJson(res, 400, { error: err.message }); }
-        const result = startRegenJob(item, { which, seedMode, seed, artStyle });
+        const result = startRegenJob(item, { which, seedMode, seed, artStyle, workflow: body.workflow });
         return sendJson(res, result.ok ? 202 : 409, result);
     }
 
@@ -4450,11 +4473,12 @@ async function handleApi(req, res, url) {
         try {
             const body = JSON.parse((await readBody(req, 256 * 1024)) || '{}');
             artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', false);
+            workflowCatalog.args(body.workflow);
             if (url.pathname === '/api/backgrounds/battlemap') return sendJson(res, 202, dynamicScenes.battlemap(body));
             const { animateWhenDone, pingpong, ...request } = body;
             const plan = await dynamicScenes.preview(request);
             if (url.pathname.endsWith('/preview')) return sendJson(res, 200, plan);
-            return sendJson(res, 202, dynamicScenes.render(plan, { animateWhenDone, pingpong, artStyle: body.artStyle }));
+            return sendJson(res, 202, dynamicScenes.render(plan, { animateWhenDone, pingpong, artStyle: body.artStyle, workflow: body.workflow }));
         } catch (err) { return sendJson(res, /already/.test(err.message) ? 409 : 400, { error: err.message }); }
     }
 
@@ -4577,6 +4601,7 @@ async function handleApi(req, res, url) {
         const result = startBackgroundRenderJob({
             catalogue, prefix, variants, seed, width, height,
             artStyle: body.artStyle,
+            workflow: body.workflow,
             animateWhenDone: body.animateWhenDone ? { pingpong: body.pingpong !== false } : null,
         });
         return sendJson(res, result.ok ? 202 : result.status, result);

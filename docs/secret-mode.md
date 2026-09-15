@@ -1,6 +1,6 @@
 # Art styles and Secret mode
 
-The generator owns `art-styles.json`, next to `generate-npc.py`. Set `artStylesPath` in GUI `config.json` to use a different catalog. Records have `id`, `name`, `prompt`, and optional boolean `hidden` (or `secret`). The reserved `default` style is always present. Missing/blank catalogs retain Default; malformed catalogs fail validation. Hidden records are only returned after Secret login. Prompt text is never part of the style-list response.
+The generator owns `art-styles.json`, next to `generate-npc.py`. Set `artStylesPath` in GUI `config.json` to use a different catalog. Records have `id`, `name`, `prompt`, and optional boolean `hidden` (or `secret`). The reserved `default` and `none` styles are always present, even with missing/blank catalogs; malformed catalogs fail validation. Default preserves the original prompts. **None (no art style)** removes house rendering clauses and adds no `Art style:` suffix. Custom prompts may be empty or whitespace-only for the same effect; names must remain nonblank. Hidden records are only returned after Secret login. Prompt text is never part of the style-list response.
 
 Choose styles in the NPC, spaceship, or background creation form. Cards and image
 details show the recorded style. Marking a previously public style hidden excludes
@@ -45,3 +45,23 @@ Private browsing and creation are available; public-item editing, animation, and
 For an HTTPS reverse proxy, configure `publicOrigin` to the exact external origin, such as `https://lancer.example`. This enables HTTPS origin validation and Secure session cookies without trusting spoofable `X-Forwarded-*` request headers. Leave it blank for direct localhost HTTP use. Restart after changing this setting.
 
 See [validation results and remaining verification limits](secret-mode-validation.md).
+# Workflow selection and private image editing
+
+Creation and regeneration forms offer a Workflow selector alongside Art style.
+The list comes from `workflows/api/` beside the configured NPC generator.
+ComfyUI editor-format exports are excluded; use API-format JSON exports.
+Files in `workflows/api/secret/` are automatically restricted to Secret mode.
+Optional `workflows.json` beside the generator scripts can mark main-folder
+files with `hidden: true` or `secret: true`. `UTIL_` workflows never appear.
+Utility passes such as background removal and battlemap conversion keep their
+own workflows. Default retains the generator's normal workflow behavior.
+
+Secret NPC and spaceship detail sheets offer per-trait Re-roll controls.
+These update traits and prompts; press Regenerate to render the changed art,
+optionally selecting a different workflow, art style, image half, or seed.
+Use Previous/Next or the arrow keys to browse the current filtered gallery,
+and hover over a portrait or token to expand it. All these operations use
+authenticated private routes and the private manifest.
+
+To regenerate a saved dynamic background, open it on Create Background,
+choose Load scene, select a workflow, and render the loaded scene again.
