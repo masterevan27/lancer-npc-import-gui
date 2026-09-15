@@ -170,6 +170,20 @@
     <button id="add-override" type="button">+ Add trait override</button>
 
     <!--
+      Secret mode only: the user's own roll tables from the secret-tables
+      folder, and the default tables to leave out of the prompt when one of
+      those covers the same ground. Filled by secret-mode.js after login and
+      emptied on logout; the public form never sees it.
+    -->
+    <div class="secret-tables" id="secret-tables-section" hidden>
+      <h3>Secret tables <span class="hint">(your own tables, each rolled by weight and appended to the prompt)</span></h3>
+      <div id="secret-tables-files"></div>
+      <p class="hint" id="secret-tables-status"></p>
+      <h3>Disable default tables <span class="hint">(leave a default table's clause out of the prompt when a secret table covers it - the trait is still rolled)</span></h3>
+      <div class="secret-disable-tables" id="secret-disable-tables"></div>
+    </div>
+
+    <!--
       Presets for the form above, the sibling of the Tables tab's own. A saved
       preset is the whole recipe - count, pronouns, the four switches and every
       trait override - so "frontier medic run" or "zero-g salvage crew" is one

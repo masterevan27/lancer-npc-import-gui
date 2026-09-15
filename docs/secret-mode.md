@@ -45,6 +45,27 @@ Private browsing and creation are available; public-item editing, animation, and
 For an HTTPS reverse proxy, configure `publicOrigin` to the exact external origin, such as `https://lancer.example`. This enables HTTPS origin validation and Secure session cookies without trusting spoofable `X-Forwarded-*` request headers. Leave it blank for direct localhost HTTP use. Restart after changing this setting.
 
 See [validation results and remaining verification limits](secret-mode-validation.md).
+
+## Secret tables and disabled default tables
+
+`secretTablesDir` (default `secret-tables/` beside `npcTablesPath`, gitignored by the generator repo) holds roll tables of your own. Each file is either the generator's markdown shape or its JSON twin, told apart by extension:
+
+```markdown
+## camera_framing
+
+- x3 low angle looking up
+- eye level medium shot
+```
+
+```json
+{ "camera_framing": [ { "value": "low angle looking up", "weight": 3 }, { "value": "eye level medium shot" } ] }
+```
+
+After Secret login, **Create NPC** lists every file with a checkbox per table (the file's own box ticks them all) and shows the row count beside each. A ticked table rolls one value per NPC by weight; the values are appended to both prompts as one sentence after the line naming what the NPC carries, recorded on the private manifest entry as `extraTraits`, shown on the detail sheet, and reproduced by Regenerate. Nothing ticked is an ordinary private roll. A file the generator would refuse - not valid JSON, a table with no rows, a weight that is not a positive number, a table named like a default one - is listed with its reason and cannot be selected. Markdown bullets are taken whole: `|| flag` and `=> Name` mean nothing to a private table.
+
+**Disable default tables** lists the tables the generator lets a run leave out of the prompt: Height, Build, Skin, Hair, Eyes, Feature, Demeanor, Faction, Outfit, Headgear, Weapon, Gear, Weather, Stance and Glow colour. Disabling is prompt-only: the trait is still rolled, so the filters that read it and the seed behave exactly as before, and the detail sheet marks it "left out of the prompt". Tick Stance when one of your tables describes the pose. Names, Pronouns, Theme, Age, Role, Backdrop, Glow placement and Hair colour cannot be disabled; they decide the folder, the id, the shot or the gendered pools, or are folded into another table's text.
+
+Both controls are Secret-mode only. The server refuses them on the public create path, only ever resolves file names against its own listing of the folder, and passes the generator `--extra-tables`, `--extra-table` and `--disable-table`, which need a generator that has them. Selections are not saved in Create presets.
 # Workflow selection and private image editing
 
 Creation and regeneration forms offer a Workflow selector alongside Art style.

@@ -2670,6 +2670,7 @@ const createJobs = new Map();
 const CREATE_LOG_LIMIT = 20000;
 
 const overrideTables = require('./lib/overrideTables');
+const secretTables = require('./lib/secretTables');
 const gatesLib = require('./lib/gates');
 
 // Derived from generate-npc.py's REQUIRED_TABLES rather than restated, because
@@ -2733,6 +2734,10 @@ const OVERRIDE_DATA_BY_KIND = (() => {
             rerollable: source ? overrideTables.rerollableTraitsFrom(source) : [],
             rawRerollable: source ? overrideTables.rawRerollableTraitsFrom(source) : [],
             dependents: source ? overrideTables.traitDependentsFrom(source) : {},
+            // The tables Secret mode's Create form may switch out of the
+            // prompt. Empty for a generator without --disable-table, which
+            // hides the checkboxes rather than offering a flag it lacks.
+            disableable: source ? overrideTables.disableableTablesFrom(source) : [],
             // The script's own gate maps (ROLE_LOCKS and its siblings) are the
             // DEFAULTS the gate editor shows; the user's edits live in a
             // sidecar beside the tables file and are read per request, since
@@ -3045,6 +3050,50 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
     const overrideTablesForKind = OVERRIDE_DATA_BY_KIND[kindEntry.id].tables;
     const unknownTable = overrides.find((o) => !overrideTablesForKind.includes(o.table));
     if (unknownTable) return { status: 400, body: { error: `unknown table "${unknownTable.table}"` } };
+
+    // Secret mode's own tables and the default tables it switches off. Both
+    // are refused on the public path outright rather than dropped: a request
+    // that named them and got a public NPC back would look like it worked.
+    // File names are checked against the folder listing, never resolved from
+    // the request, so a name with a separator in it has nowhere to go.
+    const extraPicks = Array.isArray(body.extraTables) ? body.extraTables : [];
+    const disablePicks = Array.isArray(body.disabledTables) ? body.disabledTables : [];
+    let extraTables = [], extraTableNames = [], disabledTables = [];
+    if (extraPicks.length || disablePicks.length) {
+        if (runner === startCreateJob) {
+            return { status: 400, body: { error: 'secret tables and disabled tables are available in Secret mode only' } };
+        }
+        if (kindEntry.id !== DEFAULT_KIND) {
+            return { status: 400, body: { error: `secret tables are not a ${kindEntry.subject} field` } };
+        }
+        const listing = secretTables.listSecretTables(DERIVED_PATHS.secretTablesDir, { reserved: overrideTablesForKind });
+        const chosen = new Map();
+        let narrowed = false;
+        for (const pick of extraPicks) {
+            const file = pick && typeof pick.file === 'string' ? pick.file : '';
+            const known = secretTables.isSecretTablesFileName(file) && listing.files.find((f) => f.file === file);
+            if (!known) return { status: 400, body: { error: `unknown secret tables file "${file}"` } };
+            if (known.error) return { status: 400, body: { error: `${file}: ${known.error}` } };
+            const names = known.tables.map((t) => t.name);
+            let tables = names;
+            if (Array.isArray(pick.tables)) {
+                const bad = pick.tables.find((t) => !names.includes(t));
+                if (bad !== undefined) return { status: 400, body: { error: `${file} has no table "${bad}"` } };
+                tables = [...new Set(pick.tables)];
+                if (!tables.length) return { status: 400, body: { error: `${file}: no tables selected` } };
+                if (tables.length !== names.length) narrowed = true;
+            }
+            chosen.set(file, tables);
+        }
+        extraTables = [...chosen.keys()].map((file) => path.join(listing.dir, file));
+        if (narrowed) extraTableNames = [...chosen.values()].flat();
+        const disableable = OVERRIDE_DATA_BY_KIND[kindEntry.id].disableable;
+        const undisableable = disablePicks.find((t) => !disableable.includes(t));
+        if (undisableable !== undefined) {
+            return { status: 400, body: { error: `cannot disable table "${undisableable}"` } };
+        }
+        disabledTables = [...new Set(disablePicks)];
+    }
     if (body.noPortrait && body.noToken) {
         return {
             status: 400,
@@ -3093,6 +3142,9 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
         noToken: !!body.noToken,
         keepRawToken: !!body.keepRawToken,
         unarmed: kindEntry.id === DEFAULT_KIND ? !!body.unarmed : false,
+        extraTables,
+        extraTableNames,
+        disabledTables,
         server: typeof body.server === 'string' && body.server ? body.server : null,
         dryRun: !!body.dryRun,
         // Always passed, kind-independent: npc's createArgs never reads
@@ -3890,6 +3942,12 @@ async function handleSecretApi(req, res, url, authenticated) {
             return sendJson(res, 200, { secretImagesDir: secretGallery.root });
         }
         if (route === '/items' && req.method === 'GET') return sendJson(res, 200, { items: secretGallery.items() });
+        if (route === '/tables' && req.method === 'GET') {
+            return sendJson(res, 200, {
+                ...secretTables.listSecretTables(DERIVED_PATHS.secretTablesDir, { reserved: OVERRIDE_DATA_BY_KIND[DEFAULT_KIND].tables }),
+                disableable: OVERRIDE_DATA_BY_KIND[DEFAULT_KIND].disableable,
+            });
+        }
         if (['/regenerate', '/reroll-trait'].includes(route) && req.method === 'POST') {
             const body = JSON.parse(await readBody(req, 8192));
             const item = secretGallery.find(body.id);

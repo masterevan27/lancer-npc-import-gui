@@ -402,6 +402,16 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 #trait-search::placeholder,
 #tables-search::placeholder { color: var(--text-4); }
 .filter-rows { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+/* Secret mode's own tables on Create NPC: one fieldset per file, the legend
+   box ticking the whole file, and a row of default tables to switch off. */
+.secret-tables { margin-top: 1rem; }
+.secret-tables-file { border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0.75rem; margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; }
+.secret-tables-file legend { font-weight: 600; padding: 0 0.35rem; }
+.secret-tables-file .secret-tables-table { display: inline-flex; align-items: center; gap: 0.25rem; }
+.secret-tables-error { color: var(--danger-text); font-weight: normal; }
+.secret-disable-tables { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; }
+.secret-extra-trait td:nth-child(2) { color: var(--text-4); }
 .filter-row {
   display: flex;
   align-items: center;

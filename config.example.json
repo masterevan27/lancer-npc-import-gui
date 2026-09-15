@@ -37,6 +37,7 @@
   "stagedRefsDir": "",
   "presetsDir": "",
   "createPresetsDir": "",
+  "secretTablesDir": "",
   "spaceshipTablesPath": "",
   "spaceshipStagedImportsDir": "",
   "spaceshipStagedRefsDir": "",

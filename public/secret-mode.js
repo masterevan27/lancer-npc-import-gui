@@ -20,6 +20,12 @@
       body.artStyle = selections[kind] || 'default';
       if (selections.workflows) body.workflow = selections.workflows[kind] || 'default';
       if (create && authenticated) body.kind = kind;
+      // The Secret tables section is an NPC-only, logged-in-only part of the
+      // form, so its picks ride along here rather than in app.js's body.
+      if (create && authenticated && kind === 'npc' && selections.secretTables) {
+        body.extraTables = selections.secretTables.extraTables;
+        body.disabledTables = selections.secretTables.disabledTables;
+      }
       next.body = JSON.stringify(body);
     }
     if (authenticated) {
@@ -61,7 +67,24 @@
   const selections = () => ({ ...Object.fromEntries(['npc', 'spaceship', 'background'].map(kind =>
     [kind, document.querySelector(`[data-art-style="${kind}"]`)?.value || 'default'])),
     workflows: Object.fromEntries(['npc', 'spaceship', 'background'].map(kind =>
-      [kind, document.querySelector(`[data-workflow="${kind}"]`)?.value || 'default'])) });
+      [kind, document.querySelector(`[data-workflow="${kind}"]`)?.value || 'default'])),
+    secretTables: secretTablePicks() });
+
+  // What the Secret tables section has ticked, or null while it is hidden.
+  function secretTablePicks() {
+    const section = get('secret-tables-section');
+    if (!section || section.hidden) return null;
+    const files = new Map();
+    for (const box of document.querySelectorAll('[data-secret-table]')) {
+      if (!box.checked) continue;
+      if (!files.has(box.dataset.secretFile)) files.set(box.dataset.secretFile, []);
+      files.get(box.dataset.secretFile).push(box.dataset.secretTable);
+    }
+    return {
+      extraTables: [...files].map(([file, tables]) => ({ file, tables })),
+      disabledTables: [...document.querySelectorAll('[data-disable-table]')].filter(box => box.checked).map(box => box.dataset.disableTable),
+    };
+  }
   const transport = createTransport(root.fetch.bind(root), expire, selections);
   const ready = root.fetch('/api/secret/session', { cache: 'no-store', credentials: 'same-origin' })
     .then(res => res.ok ? res.json() : { authenticated: false, configured: false })
@@ -100,6 +123,8 @@
       node.replaceChildren(new Option(DEFAULT.name, DEFAULT.id));
     }
     for (const node of document.querySelectorAll('[data-workflow]')) node.replaceChildren(new Option(DEFAULT.name, DEFAULT.id));
+    for (const id of ['secret-tables-files', 'secret-disable-tables']) get(id)?.replaceChildren();
+    if (get('secret-tables-section')) get('secret-tables-section').hidden = true;
     get('secret-detail-status').textContent = '';
     get('image-zoom').hidden = true;
     get('secret-detail-overlay').hidden = true;
@@ -125,6 +150,51 @@
       select.disabled = false;
     }
     get('art-style-error').hidden = true;
+  }
+
+  // The Secret tables section of Create NPC: one fieldset per file in the
+  // secret-tables folder with a checkbox per table (the legend's box ticks
+  // the whole file), and one row of checkboxes for the default tables the
+  // generator lets a run leave out of the prompt. Shown only while logged in.
+  async function loadSecretTables() {
+    const section = get('secret-tables-section');
+    if (!section) return;
+    if (!transport.authenticated) { section.hidden = true; return; }
+    const data = await json('/api/secret/tables');
+    const filesNode = get('secret-tables-files'); filesNode.replaceChildren();
+    for (const file of data.files || []) {
+      const box = document.createElement('fieldset'); box.className = 'secret-tables-file';
+      const legend = document.createElement('legend');
+      if (file.error) {
+        legend.className = 'secret-tables-error'; legend.textContent = `${file.file} - ${file.error}`;
+        box.append(legend); filesNode.append(box); continue;
+      }
+      const all = document.createElement('input'); all.type = 'checkbox'; all.dataset.secretFile = file.file;
+      const allLabel = document.createElement('label'); allLabel.append(all, ` ${file.file}`);
+      legend.append(allLabel); box.append(legend);
+      const inputs = [];
+      for (const table of file.tables || []) {
+        const input = document.createElement('input'); input.type = 'checkbox';
+        input.dataset.secretTable = table.name; input.dataset.secretFile = file.file;
+        const count = document.createElement('span'); count.className = 'hint'; count.textContent = `(${table.count})`;
+        const label = document.createElement('label'); label.className = 'secret-tables-table';
+        label.append(input, ` ${table.name} `, count); box.append(label); inputs.push(input);
+        input.addEventListener('change', () => {
+          all.checked = inputs.every(other => other.checked);
+          all.indeterminate = !all.checked && inputs.some(other => other.checked);
+        });
+      }
+      all.addEventListener('change', () => { for (const input of inputs) input.checked = all.checked; all.indeterminate = false; });
+      filesNode.append(box);
+    }
+    get('secret-tables-status').textContent = !data.exists ? `Folder not found: ${data.dir}. Create it, or point secretTablesDir at yours in Settings.`
+      : (data.files || []).length ? `From ${data.dir}. Untick everything to roll the default tables alone.` : `No .json or .md tables in ${data.dir}.`;
+    const disable = get('secret-disable-tables'); disable.replaceChildren();
+    for (const name of data.disableable || []) {
+      const input = document.createElement('input'); input.type = 'checkbox'; input.dataset.disableTable = name;
+      const label = document.createElement('label'); label.append(input, ` ${name}`); disable.append(label);
+    }
+    section.hidden = false;
   }
 
   async function loadWorkflows() {
@@ -215,7 +285,16 @@
         button.addEventListener('click', () => mutateDetail('/api/secret/reroll-trait', { id: item.id, trait: key }));
         control.append(button);
       }
-      name.textContent = key; text.textContent = value; row.append(control, name, text); traitRows.append(row);
+      name.textContent = key;
+      text.textContent = (item.disabledTables || []).includes(key) ? `${value} (left out of the prompt)` : value;
+      row.append(control, name, text); traitRows.append(row);
+    }
+    // The secret tables' rolled values, after the defaults. Not re-rollable
+    // from here: the values were drawn from a file the entry does not name.
+    for (const [key, value] of Object.entries(item.extraTraits || {})) {
+      const row = document.createElement('tr'), control = document.createElement('td'), name = document.createElement('td'), text = document.createElement('td');
+      row.className = 'secret-extra-trait'; name.textContent = key; text.textContent = value;
+      row.append(control, name, text); traitRows.append(row);
     }
     get('secret-regen-panel').hidden = item.kind === 'background';
     get('secret-regen-btn').disabled = detailBusy || item.regenStatus === 'running';
@@ -348,6 +427,13 @@
     catch (err) { get('art-style-error').textContent = `Could not load art styles: ${err.message}`; get('art-style-error').hidden = false; }
     try { await loadWorkflows(); }
     catch (err) { get('workflow-error').textContent = `Could not load workflows: ${err.message}`; get('workflow-error').hidden = false; }
+    if (session.authenticated) {
+      try { await loadSecretTables(); }
+      catch (err) {
+        if (get('secret-tables-status')) get('secret-tables-status').textContent = `Could not load secret tables: ${err.message}`;
+        if (get('secret-tables-section')) get('secret-tables-section').hidden = false;
+      }
+    }
     if (session.authenticated) openGallery();
     const verifySession = async () => {
       if (Date.now() - lastFocus < 1000) return; lastFocus = Date.now();

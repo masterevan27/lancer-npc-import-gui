@@ -110,6 +110,10 @@ Everything else in `config.example.json` is optional and derived by default:
   disk, since at roughly a megabyte an image they are the one thing here that
   gets large.
 - `presetsDir` — where saved table presets are written.
+- `secretTablesDir` — your own `.json` or `.md` roll tables, offered on
+  **Create NPC** in Secret mode. Defaults to `secret-tables/` beside
+  `npcTablesPath`, which the generator repo gitignores. See
+  [Secret tables](docs/secret-mode.md#secret-tables-and-disabled-default-tables).
 - `traitOddsSamples` — rolls behind each sampled NPC/spaceship percentage on
   the **Tables** tab. Expression percentages are exact and do not use it.
   Default 20000, about six seconds; fewer settles sooner and wobbles more.
@@ -737,6 +741,14 @@ folder, then open **Settings → Secret**. Hidden styles only become available a
 login. All images created in Secret mode appear under the red **Secret Images**
 pill, with server authentication protecting the files and metadata. **Leave Secret**
 ends the session. See [configuration and access controls](docs/secret-mode.md).
+
+While logged in, **Create NPC** grows a **Secret tables** section: every
+`.json` or `.md` table file in `secretTablesDir` with a checkbox per table, and
+a row of default tables to switch off. A ticked table rolls one weighted value
+per NPC and the values are appended to the prompt; a ticked default table stays
+rolled but its clause leaves the prompt, which is how a table of your own takes
+Stance's place without fighting it. Both are Secret-mode only and the public
+form never sends them.
 
 ## Development
 
