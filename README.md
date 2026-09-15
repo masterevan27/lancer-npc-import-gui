@@ -736,6 +736,12 @@ available when the file is missing or empty, including in regeneration selectors
 Selected styles appear on image cards and details. Update the generator together
 with the GUI to use `none`.
 
+NPC creation and the Regenerate panel also include a **Color guidance** selector,
+fed by the generator's `color-guidance.json` (override with `colorGuidancePath`).
+Each entry replaces the house "Keep the palette restrained - greys, olive drab and
+rust" sentence in the NPC prompts; **Default** keeps it. The detail sheet shows the
+guidance an NPC was rendered with, and Regenerate preselects it.
+
 For private generation, configure a username, password hash, and separate image
 folder, then open **Settings → Secret**. Hidden styles only become available after
 login. All images created in Secret mode appear under the red **Secret Images**

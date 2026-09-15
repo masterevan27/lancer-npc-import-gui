@@ -21,7 +21,7 @@ test('ordinary config keys are editable and server/private settings stay outside
     const keys = new Set(settings.SETTINGS_FIELDS.map((f) => f.key));
     // Origin and catalog settings are operator configuration; private storage
     // has its own authenticated form, and credentials never enter a form.
-    const serverOnly = ['publicOrigin', 'artStylesPath', 'secretImagesDir', 'secretMode'];
+    const serverOnly = ['publicOrigin', 'artStylesPath', 'colorGuidancePath', 'secretImagesDir', 'secretMode'];
     for (const key of serverOnly) assert.equal(keys.has(key), false, `${key} must not appear in public Settings`);
     const missing = Object.keys(example).filter((k) => k !== 'manifestPath' && !serverOnly.includes(k) && !keys.has(k));
     assert.deepEqual(missing, [], 'a config key with no Settings field cannot be changed from the GUI');

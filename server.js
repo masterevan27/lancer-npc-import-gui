@@ -75,6 +75,7 @@ const backgrounds = require('./lib/backgrounds');
 const dynamicBackgrounds = require('./lib/dynamicBackgrounds');
 const settings = require('./lib/settings');
 const artStyles = require('./lib/artStyles');
+const colorGuidance = require('./lib/colorGuidance');
 const secretMode = require('./lib/secretMode');
 const { createGallery } = require('./lib/secretGallery');
 const { APP_VERSION } = require('./lib/version');
@@ -278,11 +279,20 @@ const SILLYTAVERN_CHARACTERS_DIR = typeof config.sillyTavernCharactersDir === 's
 const KINDS = buildKinds(DERIVED_PATHS, config);
 const ART_STYLES_PATH = config.artStylesPath || path.join(path.dirname(DERIVED_PATHS.generateNpcScript), 'art-styles.json');
 const workflowCatalog = require('./lib/workflows').createCatalog(path.dirname(DERIVED_PATHS.generateNpcScript));
+const COLOR_GUIDANCE_PATH = config.colorGuidancePath || path.join(path.dirname(DERIVED_PATHS.generateNpcScript), 'color-guidance.json');
 const secretAuth = secretMode.createAuth(config.secretMode);
-const secretGallery = createGallery({ config, configFile: CONFIG_FILE, paths: DERIVED_PATHS, artStylesPath: ART_STYLES_PATH, workflowCatalog, rerollableFor });
+const secretGallery = createGallery({ config, configFile: CONFIG_FILE, paths: DERIVED_PATHS, artStylesPath: ART_STYLES_PATH, colorGuidancePath: COLOR_GUIDANCE_PATH, workflowCatalog, rerollableFor });
 function publicStyleArgs(id) {
     const style = artStyles.select(ART_STYLES_PATH, id || 'default', false);
     return id ? ['--art-style', style.id, '--art-styles', ART_STYLES_PATH] : [];
+}
+// The palette counterpart of publicStyleArgs: --color-guidance names the
+// entry and --color-guidance-catalog the file it lives in, so the generator
+// reads the same catalog the GUI validated against. Only generate-npc.py
+// knows the flags, so only the NPC create and regen paths call this.
+function publicGuidanceArgs(id) {
+    const guidance = colorGuidance.select(COLOR_GUIDANCE_PATH, id || 'default', false);
+    return id ? ['--color-guidance', guidance.id, '--color-guidance-catalog', COLOR_GUIDANCE_PATH] : [];
 }
 
 /**
@@ -1076,7 +1086,7 @@ const stagingItemIds = new Set();
 // Python leaving the trait gutters disabled until the page is reloaded.
 const STAGE_TIMEOUT_MS = 60000;
 
-function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, release, artStyle, workflow }) {
+function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, release, artStyle, workflow, colorGuidance: guidance }) {
     const existing = regenJobsByItemId.get(item.id);
     if (existing?.status === 'running') return { ok: false, reason: 'already regenerating' };
     // kindFor(), not kindOf(): kindOf() falls back an UNRECOGNISED kind onto
@@ -1128,6 +1138,7 @@ function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, rel
     if (release && release.length) args.push('--release', release.join(','));
     args.push(...publicStyleArgs(artStyle));
     args.push(...workflowCatalog.args(workflow));
+    if (kind.id === DEFAULT_KIND) args.push(...publicGuidanceArgs(guidance));
 
     const job = {
         status: 'running', which, seedMode, seed: newSeed,
@@ -2939,6 +2950,7 @@ function startCreateJob(kindEntry, opts) {
     const args = kindEntry.createArgs(opts);
     args.push(...publicStyleArgs(opts.artStyle));
     args.push(...workflowCatalog.args(opts.workflow));
+    if (kindEntry.id === DEFAULT_KIND) args.push(...publicGuidanceArgs(opts.colorGuidance));
 
     // Snapshot before the child can write anything. `produced` and
     // `producedIds` stay null until the run ends and, for a dry run or an
@@ -3026,6 +3038,9 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
     try {
         artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', runner !== startCreateJob);
         workflowCatalog.args(body.workflow, runner !== startCreateJob);
+        // Colour guidance is an NPC prompt concept; a ship request naming one
+        // is refused below with the other person-only fields.
+        if (kindEntry.id === DEFAULT_KIND) colorGuidance.select(COLOR_GUIDANCE_PATH, body.colorGuidance || 'default', runner !== startCreateJob);
     }
     catch (err) { return { status: 400, body: { error: err.message } }; }
     if (!kindEntry.supports.create) {
@@ -3111,6 +3126,9 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
         if (body.unarmed) {
             return { status: 400, body: { error: `unarmed is not a ${kindEntry.subject} field` } };
         }
+        if (body.colorGuidance && body.colorGuidance !== 'default') {
+            return { status: 400, body: { error: `colour guidance is not a ${kindEntry.subject} field` } };
+        }
     }
 
     let requestedPronouns = null;
@@ -3133,6 +3151,7 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
     const result = runner(kindEntry, {
         artStyle: body.artStyle,
         workflow: body.workflow,
+        colorGuidance: kindEntry.id === DEFAULT_KIND ? body.colorGuidance : undefined,
         count,
         seed,
         name: name || null,
@@ -3758,6 +3777,7 @@ function itemView(item, includePrompts = false) {
     return {
         id: item.id,
         artStyle: artStyles.metadata(item),
+        colorGuidance: colorGuidance.metadata(item),
         kind: item.kind,
         name: item.name,
         callsign: item.callsign,
@@ -4005,7 +4025,7 @@ async function handleSecretApi(req, res, url, authenticated) {
 
 async function handleApi(req, res, url) {
     const authenticated = secretAuth.authenticated(req);
-    if (url.pathname.startsWith('/api/secret/') || ['/api/art-styles', '/api/workflows'].includes(url.pathname)) {
+    if (url.pathname.startsWith('/api/secret/') || ['/api/art-styles', '/api/workflows', '/api/color-guidance'].includes(url.pathname)) {
         res.setHeader('Cache-Control', 'no-store');
         if (!secretMode.sameOrigin(req, config.publicOrigin)) return sendJson(res, 403, { error: 'Same-origin requests required' });
     }
@@ -4015,6 +4035,10 @@ async function handleApi(req, res, url) {
     }
     if (url.pathname === '/api/workflows' && req.method === 'GET') {
         try { return sendJson(res, 200, { workflows: workflowCatalog.list(authenticated), note: 'UTIL_ workflows are reserved for utility operations and cannot be selected here.' }); }
+        catch (err) { return sendJson(res, 400, { error: err.message }); }
+    }
+    if (url.pathname === '/api/color-guidance' && req.method === 'GET') {
+        try { return sendJson(res, 200, { guidance: colorGuidance.list(COLOR_GUIDANCE_PATH, authenticated) }); }
         catch (err) { return sendJson(res, 400, { error: err.message }); }
     }
     if (url.pathname.startsWith('/api/secret/')) return handleSecretApi(req, res, url, authenticated);
@@ -4324,10 +4348,14 @@ async function handleApi(req, res, url) {
             }
         }
 
-        let artStyle;
-        try { artStyle = artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', false).id; workflowCatalog.args(body.workflow); }
+        let artStyle, guidance;
+        try {
+            artStyle = artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', false).id;
+            workflowCatalog.args(body.workflow);
+            if (item.kind === DEFAULT_KIND) guidance = colorGuidance.select(COLOR_GUIDANCE_PATH, body.colorGuidance || 'default', false).id;
+        }
         catch (err) { return sendJson(res, 400, { error: err.message }); }
-        const result = startRegenJob(item, { which, seedMode, seed, artStyle, workflow: body.workflow });
+        const result = startRegenJob(item, { which, seedMode, seed, artStyle, workflow: body.workflow, colorGuidance: guidance });
         return sendJson(res, result.ok ? 202 : 409, result);
     }
 

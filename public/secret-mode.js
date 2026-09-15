@@ -19,6 +19,7 @@
       const kind = background ? 'background' : pathname === '/api/create-npc' ? 'npc' : body.kind || 'npc';
       body.artStyle = selections[kind] || 'default';
       if (selections.workflows) body.workflow = selections.workflows[kind] || 'default';
+      if (create && kind === 'npc' && selections.colorGuidance) body.colorGuidance = selections.colorGuidance[kind] || 'default';
       if (create && authenticated) body.kind = kind;
       // The Secret tables section is an NPC-only, logged-in-only part of the
       // form, so its picks ride along here rather than in app.js's body.
@@ -68,6 +69,7 @@
     [kind, document.querySelector(`[data-art-style="${kind}"]`)?.value || 'default'])),
     workflows: Object.fromEntries(['npc', 'spaceship', 'background'].map(kind =>
       [kind, document.querySelector(`[data-workflow="${kind}"]`)?.value || 'default'])),
+    colorGuidance: { npc: document.querySelector('[data-color-guidance="npc"]')?.value || 'default' },
     secretTables: secretTablePicks() });
 
   // What the Secret tables section has ticked, or null while it is hidden.
@@ -120,6 +122,9 @@
       const node = get(id); if (node) { node.textContent = ''; if ('value' in node) node.value = ''; }
     }
     for (const node of document.querySelectorAll('[data-art-style]')) {
+      node.replaceChildren(new Option(DEFAULT.name, DEFAULT.id));
+    }
+    for (const node of document.querySelectorAll('[data-color-guidance]')) {
       node.replaceChildren(new Option(DEFAULT.name, DEFAULT.id));
     }
     for (const node of document.querySelectorAll('[data-workflow]')) node.replaceChildren(new Option(DEFAULT.name, DEFAULT.id));
@@ -207,6 +212,20 @@
       select.disabled = false;
     }
     get('workflow-error').hidden = true;
+  }
+
+  // The palette catalog, loaded the same way: ids and names only, the
+  // saved selection restored where the catalog still offers it.
+  async function loadColorGuidance() {
+    const data = await json('/api/color-guidance');
+    const entries = visibleStyles(data.guidance, transport.authenticated);
+    for (const select of document.querySelectorAll('[data-color-guidance]')) {
+      const selected = select.dataset.guidanceId || select.value;
+      select.replaceChildren(...entries.map(entry => new Option(entry.name, entry.id)));
+      select.value = entries.some(entry => entry.id === selected) ? selected : 'default';
+      select.disabled = false;
+    }
+    get('color-guidance-error').hidden = true;
   }
 
   function openGallery() {
@@ -300,6 +319,9 @@
     get('secret-regen-btn').disabled = detailBusy || item.regenStatus === 'running';
     if (!preserve) {
       get('secret-regen-art-style').value = item.artStyle?.id || 'default';
+      get('secret-regen-color-guidance').value = item.colorGuidance?.id || 'default';
+      const guidanceLabel = get('secret-regen-color-guidance').parentElement;
+      if (guidanceLabel) guidanceLabel.hidden = (item.kind || 'npc') !== 'npc';
       get('secret-regen-workflow').value = 'default';
       get('secret-regen-which').value = 'both';
       get('secret-regen-seed-mode').value = 'same';
@@ -399,6 +421,7 @@
     get('secret-regen-btn').addEventListener('click', () => mutateDetail('/api/secret/regenerate', {
       id: detailId, which: get('secret-regen-which').value, seedMode: get('secret-regen-seed-mode').value,
       seed: get('secret-regen-seed').value, artStyle: get('secret-regen-art-style').value,
+      colorGuidance: get('secret-regen-color-guidance').value,
       workflow: get('secret-regen-workflow').value,
     }));
     document.addEventListener('keydown', event => {
@@ -434,6 +457,8 @@
         if (get('secret-tables-section')) get('secret-tables-section').hidden = false;
       }
     }
+    try { await loadColorGuidance(); }
+    catch (err) { get('color-guidance-error').textContent = `Could not load color guidance: ${err.message}`; get('color-guidance-error').hidden = false; }
     if (session.authenticated) openGallery();
     const verifySession = async () => {
       if (Date.now() - lastFocus < 1000) return; lastFocus = Date.now();

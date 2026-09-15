@@ -47,6 +47,7 @@
 </div>
 <p id="art-style-error" class="settings-error" role="status" hidden></p>
 <p id="workflow-error" class="settings-error" role="status" hidden></p>
+<p id="color-guidance-error" class="settings-error" role="status" hidden></p>
 
 <!-- One shelf, two announcements, stacked rather than sharing a slot. A regen
      finishing during a generate run would otherwise replace the batch banner,
@@ -130,6 +131,9 @@
   <div class="create-form">
     <label class="form-field art-style-field">Art style
       <select id="create-art-style" data-art-style="npc" disabled><option value="default">Default</option></select>
+    </label>
+    <label class="form-field art-style-field">Color guidance
+      <select id="create-color-guidance" data-color-guidance="npc" disabled><option value="default">Default</option></select>
     </label>
     <label class="form-field">Workflow<select id="create-workflow" data-workflow="npc" disabled><option value="default">Default</option></select></label>
     <p class="hint">UTIL_ workflows are reserved for utility operations. Files in workflows/api/secret are available only in Secret mode.</p>
@@ -610,6 +614,7 @@
       <p id="detail-sub"></p>
       <p class="detail-generated" id="detail-generated"></p>
       <p id="detail-art-style" class="hint"></p>
+      <p id="detail-color-guidance" class="hint"></p>
 
       <!-- Where the art is on disk. Text rather than a link: a browser cannot
            navigate to file:// from an http page, so copying the path into a
@@ -650,6 +655,9 @@
         <div class="regen-row">
           <label>Art style
             <select id="regen-art-style" data-art-style="npc" disabled><option value="default">Default</option></select>
+          </label>
+          <label>Color guidance
+            <select id="regen-color-guidance" data-color-guidance="npc" disabled><option value="default">Default</option></select>
           </label>
           <label>Workflow<select id="regen-workflow" data-workflow="regen" disabled><option value="default">Default</option></select></label>
         </div>
@@ -1006,6 +1014,7 @@
       </div>
       <div class="regen-row">
         <label>Art style<select id="secret-regen-art-style" data-art-style="secret-regen" disabled><option value="default">Default</option></select></label>
+        <label>Color guidance<select id="secret-regen-color-guidance" data-color-guidance="secret-regen" disabled><option value="default">Default</option></select></label>
         <label>Workflow<select id="secret-regen-workflow" data-workflow="secret-regen" disabled><option value="default">Default</option></select></label>
         <button id="secret-regen-btn" type="button">Regenerate</button>
       </div>

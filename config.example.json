@@ -4,6 +4,7 @@
   "publicOrigin": "",
   "secret": "",
   "artStylesPath": "",
+  "colorGuidancePath": "",
   "secretImagesDir": "",
   "secretMode": {
     "username": "",

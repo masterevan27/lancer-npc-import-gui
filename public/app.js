@@ -167,6 +167,7 @@ const el = {
   imageZoomImg: document.getElementById("image-zoom-img"),
   regenPanel: document.getElementById("regen-panel"),
   regenArtStyle: document.getElementById("regen-art-style"),
+  regenColorGuidance: document.getElementById("regen-color-guidance"),
   regenSeedInput: document.getElementById("regen-seed-input"),
   regenCurrentSeed: document.getElementById("regen-current-seed"),
   regenBtn: document.getElementById("regen-btn"),
@@ -1123,6 +1124,14 @@ function render() {
     artStyleLine.className = "sub";
     artStyleLine.textContent = `Art style: ${item.artStyle?.name || "Default"}`;
     body.appendChild(artStyleLine);
+    // Only NPCs carry colour guidance, and only a non-default one is worth
+    // a line on the card - the house palette is the unstated norm.
+    if (item.colorGuidance && item.colorGuidance.id !== "default") {
+      const guidanceLine = document.createElement("div");
+      guidanceLine.className = "sub";
+      guidanceLine.textContent = `Color guidance: ${item.colorGuidance.name}`;
+      body.appendChild(guidanceLine);
+    }
     card.appendChild(body);
 
     card.addEventListener("click", () => openDetail(item));
@@ -1409,6 +1418,11 @@ function renderDetailHeader(item) {
   el.detailGenerated.textContent = formatGeneratedWhen(item.when);
   const styleLabel = document.getElementById("detail-art-style");
   if (styleLabel) styleLabel.textContent = `Art style: ${item.artStyle?.name || "Default"}`;
+  const guidanceLabel = document.getElementById("detail-color-guidance");
+  if (guidanceLabel) {
+    guidanceLabel.hidden = item.kind !== "npc";
+    guidanceLabel.textContent = `Color guidance: ${item.colorGuidance?.name || "Default"}`;
+  }
   renderDetailFiles(item);
 }
 
@@ -1779,6 +1793,15 @@ function renderRegenPanel(item) {
   if ([...el.regenArtStyle.options].some((option) => option.value === styleId)) {
     el.regenArtStyle.value = styleId;
   }
+  // Same dance for the palette: preselect what the NPC was rendered with,
+  // and remember it so a later catalog load can restore it. The select only
+  // applies to NPCs; a ship sheet hides it rather than offering a no-op.
+  const guidanceId = item.colorGuidance?.id || "default";
+  el.regenColorGuidance.dataset.guidanceId = guidanceId;
+  if ([...el.regenColorGuidance.options].some((option) => option.value === guidanceId)) {
+    el.regenColorGuidance.value = guidanceId;
+  }
+  el.regenColorGuidance.parentElement.hidden = item.kind !== "npc";
   // The traits below the panel describe the NPC; the images above it may not.
   // Set by a staged trait edit, cleared by the next real render - so the notice
   // is exactly "there is a Regenerate waiting to be pressed", and the button
@@ -1803,6 +1826,7 @@ function renderRegenPanel(item) {
     radio.disabled = blocked;
   el.regenSeedInput.disabled = blocked || seedMode !== "specific";
   el.regenArtStyle.disabled = blocked;
+  el.regenColorGuidance.disabled = blocked;
   setTraitGuttersDisabled(blocked);
 
   const justFinished =
@@ -3055,6 +3079,7 @@ el.regenBtn.addEventListener("click", async () => {
   const body = { id, which, seedMode };
   body.artStyle = el.regenArtStyle.value || "default";
   body.workflow = document.getElementById("regen-workflow")?.value || "default";
+  body.colorGuidance = el.regenColorGuidance.value || "default";
   if (seedMode === "specific") {
     const seed = Number(el.regenSeedInput.value);
     if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295) {

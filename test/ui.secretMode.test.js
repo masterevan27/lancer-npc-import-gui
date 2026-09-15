@@ -32,6 +32,21 @@ test('public generation sends its style and keeps normal routes', () => {
     assert.equal(ui().routeRequest('/api/settings', {}, true, {}).path, '/api/settings');
 });
 
+test('NPC creation carries the selected colour guidance; other kinds do not', () => {
+    const options = { method: 'POST', body: JSON.stringify({ count: 1 }) };
+    const selections = { npc: 'ink', background: 'ink', colorGuidance: { npc: 'ochre' } };
+    const request = ui().routeRequest('/api/create-npc', options, false, selections);
+    assert.equal(request.path, '/api/create-npc');
+    assert.equal(JSON.parse(request.options.body).colorGuidance, 'ochre');
+    const priv = ui().routeRequest('/api/create-npc', options, true, selections);
+    assert.equal(priv.path, '/api/secret/create');
+    assert.equal(JSON.parse(priv.options.body).colorGuidance, 'ochre');
+    const bg = ui().routeRequest('/api/backgrounds/dynamic/preview', options, false, selections);
+    assert.equal('colorGuidance' in JSON.parse(bg.options.body), false);
+    const legacy = ui().routeRequest('/api/create-npc', options, false, { npc: 'ink' });
+    assert.equal('colorGuidance' in JSON.parse(legacy.options.body), false);
+});
+
 test('an in-flight private body cannot reach the caller after logout', async () => {
     let finish;
     const transport = ui().createTransport(async () => ({ status: 200, headers: {},
@@ -69,12 +84,15 @@ async function page(authenticated, privateItems) {
     }
     const nodes = Object.fromEntries([...html.matchAll(/id="([^"]+)"/g)].map(match => [match[1], new Element()]));
     const selectors = ['create-art-style', 'create-ship-art-style', 'bg-art-style', 'regen-art-style'].map(id => nodes[id]);
+    const guidanceSelectors = ['create-color-guidance', 'regen-color-guidance'].map(id => nodes[id]);
     const document = new Element(); document.body = new Element();
     document.getElementById = id => nodes[id] || null;
     document.createElement = () => new Element();
     const workflows = ['create-workflow', 'create-ship-workflow', 'bg-workflow', 'regen-workflow', 'secret-regen-workflow'].map(id => nodes[id]);
-    document.querySelectorAll = query => query === '[data-art-style]' ? selectors : query === '[data-workflow]' ? workflows : [];
-    document.querySelector = query => (query.includes('data-workflow') ? workflows : selectors)[['npc', 'spaceship', 'background'].findIndex(kind => query.includes(`"${kind}"`))] || null;
+    document.querySelectorAll = query => query === '[data-art-style]' ? selectors : query === '[data-workflow]' ? workflows
+        : query === '[data-color-guidance]' ? guidanceSelectors : [];
+    document.querySelector = query => query.includes('data-color-guidance') ? guidanceSelectors[0]
+        : (query.includes('data-workflow') ? workflows : selectors)[['npc', 'spaceship', 'background'].findIndex(kind => query.includes(`"${kind}"`))] || null;
     const requests = [], navigations = [];
     const window = new Element();
     window.location = { replace: path => navigations.push(path) };
@@ -87,6 +105,9 @@ async function page(authenticated, privateItems) {
             { id: 'ink', name: 'Ink' }, { id: 'private-ink', name: 'Private Ink', hidden: true }
         ] };
         if (path === '/api/workflows') body = { workflows: [{ id: 'Public.json', name: 'Public' }, { id: 'secret/Private.json', name: 'Private', hidden: true }] };
+        if (path === '/api/color-guidance') body = { guidance: [
+            { id: 'ochre', name: 'Ochre' }, { id: 'private-ochre', name: 'Private Ochre', hidden: true }
+        ] };
         if (path === '/api/secret/items') body = { items: privateItems || [{ id: 'one', kind: 'npc', name: 'Private NPC',
             portraitUrl: '/api/secret/image?rel=one.png', portraitPrompt: 'Private portrait prompt', artStyle: { name: 'Private Ink' } }] };
         return new Response(JSON.stringify(body), { status: 200 });
@@ -121,6 +142,11 @@ test('logged-out page populates all selectors without hidden names', async () =>
         assert.deepEqual(nodes[id].children.map(option => option.value), ['default', 'ink']);
         assert.equal(nodes[id].value, 'default');
     }
+    for (const id of ['create-color-guidance', 'regen-color-guidance']) {
+        assert.deepEqual(nodes[id].children.map(option => option.value), ['default', 'ochre']);
+        assert.equal(nodes[id].value, 'default');
+        assert.equal(nodes[id].disabled, false);
+    }
     assert.equal(nodes['leave-secret'].hidden, true);
     assert.equal(nodes['secret-images'].hidden, true);
     assert.equal(nodes['secret-storage'].hidden, true);
@@ -142,11 +168,13 @@ test('authenticated page displays private controls, sends chosen style, and rend
     assert.equal(nodes['image-zoom'].hidden, true);
     nodes['create-art-style'].value = 'private-ink';
     nodes['create-workflow'].value = 'secret/Private.json';
+    nodes['create-color-guidance'].value = 'private-ochre';
     await window.SecretMode.fetch('/api/create-npc', { method: 'POST', body: '{}' });
     const sent = requests.at(-1);
     assert.equal(sent.path, '/api/secret/create');
     assert.equal(JSON.parse(sent.options.body).artStyle, 'private-ink');
     assert.equal(JSON.parse(sent.options.body).workflow, 'secret/Private.json');
+    assert.equal(JSON.parse(sent.options.body).colorGuidance, 'private-ochre');
 });
 
 test('Leave Secret invalidates the session and removes private DOM before navigation', async () => {

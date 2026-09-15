@@ -2,6 +2,8 @@
 
 The generator owns `art-styles.json`, next to `generate-npc.py`. Set `artStylesPath` in GUI `config.json` to use a different catalog. Records have `id`, `name`, `prompt`, and optional boolean `hidden` (or `secret`). The reserved `default` and `none` styles are always present, even with missing/blank catalogs; malformed catalogs fail validation. Default preserves the original prompts. **None (no art style)** removes house rendering clauses and adds no `Art style:` suffix. Custom prompts may be empty or whitespace-only for the same effect; names must remain nonblank. Hidden records are only returned after Secret login. Prompt text is never part of the style-list response.
 
+The colour guidance catalog (`color-guidance.json`, override with `colorGuidancePath`) follows the same rules under a `guidance` key and is served by `/api/color-guidance`. It applies to NPC creation and regeneration only; hidden entries likewise require Secret login.
+
 Choose styles in the NPC, spaceship, or background creation form. Cards and image
 details show the recorded style. Marking a previously public style hidden excludes
 its recorded images from public GUI lists and image routes. This does not relocate
