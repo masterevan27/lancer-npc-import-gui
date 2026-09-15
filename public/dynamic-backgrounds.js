@@ -1,12 +1,13 @@
 /* Dynamic backgrounds stay separate from the existing catalogue/animation UI. */
 (function installDynamicBackgrounds(root) {
-  const peopleTraits = ['Population', 'Clothing and equipment', 'Adult age mix', 'Appearance variety', 'Activity'];
+  const peopleTraits = ['Population', 'Clothing and equipment', 'Armament', 'Adult age mix', 'Appearance variety', 'Activity'];
   function changeTrait(plan, name, value, locked) {
     const traits = { ...(plan?.traits || {}) };
     if (value === undefined) delete traits[name]; else traits[name] = value;
     const dependents = { Weather: ['Motion'], Motion: ['Weather'], Time: ['Lighting'], Lighting: ['Time'],
-      Population: ['Clothing and equipment', 'Activity'],
-      'Clothing and equipment': ['Population', 'Activity'], Activity: ['Population', 'Clothing and equipment'] }[name] || [];
+      Population: ['Clothing and equipment', 'Activity', 'Armament'],
+      'Clothing and equipment': ['Population', 'Activity', 'Armament'], Activity: ['Population', 'Clothing and equipment', 'Armament'],
+      Armament: ['Population', 'Clothing and equipment', 'Activity'] }[name] || [];
     for (const dependent of dependents) if (!locked.includes(dependent)) delete traits[dependent];
     return traits;
   }

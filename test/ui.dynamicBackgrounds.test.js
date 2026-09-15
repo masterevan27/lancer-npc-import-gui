@@ -89,7 +89,7 @@ function uiFixture(apiOverride) {
 }
 
 test('people pickers are grouped and saved choices survive disabling people and changing view', async () => {
-    const names = ['Population', 'Clothing and equipment', 'Adult age mix', 'Appearance variety', 'Activity'];
+    const names = ['Population', 'Clothing and equipment', 'Armament', 'Adult age mix', 'Appearance variety', 'Activity'];
     const catalogue = { tables: [...names, 'Weather'].map((name) => ({ name,
         values: [{ text: name + ' choice', environments: ['outdoor'] }] })) };
     const { elements, ui } = uiFixture(async () => catalogue);
@@ -98,7 +98,7 @@ test('people pickers are grouped and saved choices survive disabling people and 
         populatePeople: true, traits: Object.fromEntries(names.map((name) => [name, name + ' choice'])) } });
     await elements.get('bg-load-scene').listeners.click();
     const pickers = elements.get('bg-dynamic-people-traits');
-    assert.equal(pickers.children.length, 5);
+    assert.equal(pickers.children.length, names.length);
     assert.equal(elements.get('bg-dynamic-traits').children.length, 1);
     assert.equal(elements.get('bg-dynamic-people-options').hidden, false);
     const people = elements.get('bg-dynamic-people');
@@ -111,7 +111,7 @@ test('people pickers are grouped and saved choices survive disabling people and 
     assert.equal(pickers.children.length, 0);
     elements.get('bg-dynamic-view').value = 'perspective';
     elements.get('bg-dynamic-view').listeners.change();
-    assert.equal(pickers.children.length, 5);
+    assert.equal(pickers.children.length, names.length);
     for (const [i, name] of names.entries()) {
         assert.equal(pickers.children[i].children[0].children[1].value, name + ' choice');
         assert.equal(pickers.children[i].children[1].children[0].checked, true);

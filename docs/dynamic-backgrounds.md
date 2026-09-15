@@ -16,11 +16,12 @@ or **Lively** population density. Expand **People traits** to customize:
 - **Adult age mix:** young, middle-aged, older or intergenerational adult groups.
 - **Appearance variety:** faces, hair, skin tones, builds, presentation and personal details.
 - **Activity:** everyday tasks, downtime, patrols, briefings and inspections.
+- **Armament:** unarmed groups, holstered pistols, slung rifles and carbines, sheathed swords, polearms or the occasional heavy weapon; civilians stay unarmed apart from a few civilian choices.
 
 Each has Random, Omit, Lock and Re-roll controls. Random choices vary across a
-batch; locks preserve chosen details. Population, clothing and activity constrain
+batch; locks preserve chosen details. Population, clothing, activity and armament constrain
 one another so tagged civilian and military choices stay compatible. Changing
-one releases the other two when unlocked; explicit conflicting locks produce a
+one releases the others when unlocked; explicit conflicting locks produce a
 preview error that identifies the affected choices. Untagged activities suit any group.
 Uniforms may match; individual appearances should remain distinct. These are
 directions to the image model, so generated crowd sizes and appearances can vary.
