@@ -523,7 +523,10 @@ and open <http://127.0.0.1:5089>.
   rerolls, preview its prompt before ComfyUI starts, reload a saved scene's
   traits, and turn any still into a gridless top-down battlemap. **Scene life**
   adds default-on distinct people, population density, balanced/lush vegetation,
-  and indoor pets or aquariums, with context-sensitive controls. See
+  and indoor pets or aquariums on separate rows. **People traits** customize civilian,
+  military or mixed groups, clothing, adult ages, appearance and activities with
+  independent locks and rerolls. Expanded background pools include military settings
+  and NPC-inspired scenes in the painterly NPC art style. See
   [Dynamic backgrounds and battlemaps](docs/dynamic-backgrounds.md).
 
   **Animate each still when it lands** chains an animation onto every image a

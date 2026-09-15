@@ -2647,6 +2647,8 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .bg-battlemap { margin: 1rem 0; padding: var(--sp-4); background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-md); }
 .bg-scene-life { margin: 1rem 0; padding: var(--sp-4); min-width: 0; border: 1px solid var(--line-strong); border-radius: var(--r-md); }
 .bg-scene-life legend { padding: 0 .4rem; font-weight: 600; }
+.bg-scene-life > .filter-row { margin: .65rem 0; }
+.bg-scene-life > details { margin: .65rem 0 1rem; }
 .bg-scene-life p { margin: .5rem 0 0; color: var(--text-2); }
 #bg-dynamic input[type="number"], .bg-battlemap input[type="number"] { width: 7rem; }
 #bg-map-results { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 1rem; }

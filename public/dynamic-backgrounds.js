@@ -1,10 +1,13 @@
 /* Dynamic backgrounds stay separate from the existing catalogue/animation UI. */
 (function installDynamicBackgrounds(root) {
+  const peopleTraits = ['Population', 'Clothing and equipment', 'Adult age mix', 'Appearance variety', 'Activity'];
   function changeTrait(plan, name, value, locked) {
     const traits = { ...(plan?.traits || {}) };
     if (value === undefined) delete traits[name]; else traits[name] = value;
-    const dependent = { Weather: 'Motion', Motion: 'Weather', Time: 'Lighting', Lighting: 'Time' }[name];
-    if (dependent && !locked.includes(dependent)) delete traits[dependent];
+    const dependents = { Weather: ['Motion'], Motion: ['Weather'], Time: ['Lighting'], Lighting: ['Time'],
+      Population: ['Clothing and equipment', 'Activity'],
+      'Clothing and equipment': ['Population', 'Activity'], Activity: ['Population', 'Clothing and equipment'] }[name] || [];
+    for (const dependent of dependents) if (!locked.includes(dependent)) delete traits[dependent];
     return traits;
   }
   function sceneRequest(plan, controls, locked, { reroll = false, only = null, render = false } = {}) {
@@ -27,7 +30,7 @@
   const get = (id) => document.getElementById(id);
   const el = Object.fromEntries(['environment', 'view', 'width', 'height', 'count', 'seed', 'notes',
     'traits', 'preview', 'roll', 'refresh', 'lock-all', 'unlock-all', 'preview-btn', 'render', 'animate',
-    'pingpong', 'status', 'log', 'people', 'density', 'vegetation', 'interior-life', 'life-hint'].map((key) => [key, get(`bg-dynamic-${key}`)]));
+    'pingpong', 'status', 'log', 'people', 'density', 'vegetation', 'interior-life', 'life-hint', 'people-traits', 'people-options'].map((key) => [key, get(`bg-dynamic-${key}`)]));
   const map = Object.fromEntries(['width', 'height', 'seed', 'notes', 'btn', 'status', 'log', 'results']
     .map((key) => [key, get(`bg-map-${key}`)]));
   const state = { catalogue: null, plan: null, locked: new Set(), busy: false, available: false,
@@ -51,10 +54,11 @@
     el.density.disabled = disabled || topdown || !el.people.checked;
     el.vegetation.disabled = disabled || space;
     el['interior-life'].disabled = disabled || topdown || el.environment.value !== 'indoor';
+    el['people-options'].hidden = topdown || !el.people.checked;
     el['life-hint'].textContent = topdown
       ? 'Battlemaps omit people and pets; planting remains as terrain and cover. Your scene-life choices return in immersive view.'
       : space ? 'Space is exposed vacuum: people wear sealed pressure suits. Plants, pets and aquariums belong in indoor scenes.'
-      : 'Distinct people, mostly young adults, in everyday activities. Plants suit the setting. Indoor pets & aquariums adds one small vignette; select its trait below.';
+      : 'People traits control population, clothing, adult ages, appearance and activity. Random choices vary between scenes; locks keep your choices. Plants suit the setting; indoor pets & aquariums adds one small vignette.';
   }
   function setBusy(busy) {
     state.busy = busy;
@@ -73,9 +77,10 @@
   }
   function drawTraits() {
     el.traits.replaceChildren();
+    el['people-traits'].replaceChildren();
     for (const table of state.catalogue?.tables || []) {
       if (el.view.value === 'topdown' && ['Sky', 'Distant features', 'Motion'].includes(table.name)) continue;
-      if (table.name === 'Activity' && (el.view.value === 'topdown' || !el.people.checked)) continue;
+      if (peopleTraits.includes(table.name) && (el.view.value === 'topdown' || !el.people.checked)) continue;
       if (table.name === 'Interior life' && (el.view.value === 'topdown' || !el['interior-life'].checked)) continue;
       if (table.name === 'Vegetation' && el.vegetation.value === 'none') continue;
       const values = relevantValues(table, el.environment.value);
@@ -119,7 +124,7 @@
       roll.disabled = state.busy || !state.available || lock.checked; roll.title = `Re-roll ${table.name}`;
       lock.addEventListener('change', () => { roll.disabled = lock.checked; });
       roll.addEventListener('click', () => preview({ only: table.name, newSeed: true })); row.append(roll);
-      el.traits.append(row);
+      (peopleTraits.includes(table.name) ? el['people-traits'] : el.traits).append(row);
     }
   }
   async function refreshPools() {

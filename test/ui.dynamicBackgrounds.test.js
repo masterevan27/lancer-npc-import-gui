@@ -11,6 +11,15 @@ test('changing weather releases unlocked motion but respects explicit locks', ()
     assert.equal(changeTrait(plan, 'Weather', 'snow', ['Motion']).Motion, 'rain falling');
 });
 
+test('changing population releases dependent people choices while preserving locks', () => {
+    const plan = { traits: { Population: 'civilian', Activity: 'shopping', 'Clothing and equipment': 'casual', 'Adult age mix': 'older adults' } };
+    assert.deepEqual(changeTrait(plan, 'Population', 'military', []), { Population: 'military', 'Adult age mix': 'older adults' });
+    const locked = changeTrait(plan, 'Population', 'military', ['Activity']);
+    assert.equal(locked.Activity, 'shopping');
+    assert.equal(locked['Clothing and equipment'], undefined);
+    assert.equal(changeTrait(plan, 'Activity', 'guard duty', []).Population, undefined);
+});
+
 test('scene life defaults and explicit opt-outs survive preview and render requests', () => {
     const defaults = sceneRequest(null, {}, []);
     assert.equal(defaults.populatePeople, true);
@@ -78,6 +87,36 @@ function uiFixture(apiOverride) {
     ui.onGallery({ dynamicAvailable: true, items: [] });
     return { elements, ui, watched };
 }
+
+test('people pickers are grouped and saved choices survive disabling people and changing view', async () => {
+    const names = ['Population', 'Clothing and equipment', 'Adult age mix', 'Appearance variety', 'Activity'];
+    const catalogue = { tables: [...names, 'Weather'].map((name) => ({ name,
+        values: [{ text: name + ' choice', environments: ['outdoor'] }] })) };
+    const { elements, ui } = uiFixture(async () => catalogue);
+    await elements.get('bg-dynamic-refresh').listeners.click();
+    ui.onSelect({ rel: 'people.png', scene: { environment: 'outdoor', view: 'perspective', seed: 19,
+        populatePeople: true, traits: Object.fromEntries(names.map((name) => [name, name + ' choice'])) } });
+    await elements.get('bg-load-scene').listeners.click();
+    const pickers = elements.get('bg-dynamic-people-traits');
+    assert.equal(pickers.children.length, 5);
+    assert.equal(elements.get('bg-dynamic-traits').children.length, 1);
+    assert.equal(elements.get('bg-dynamic-people-options').hidden, false);
+    const people = elements.get('bg-dynamic-people');
+    people.checked = false; people.listeners.change();
+    assert.equal(pickers.children.length, 0);
+    assert.equal(elements.get('bg-dynamic-people-options').hidden, true);
+    people.checked = true; people.listeners.change();
+    elements.get('bg-dynamic-view').value = 'topdown';
+    elements.get('bg-dynamic-view').listeners.change();
+    assert.equal(pickers.children.length, 0);
+    elements.get('bg-dynamic-view').value = 'perspective';
+    elements.get('bg-dynamic-view').listeners.change();
+    assert.equal(pickers.children.length, 5);
+    for (const [i, name] of names.entries()) {
+        assert.equal(pickers.children[i].children[0].children[1].value, name + ' choice');
+        assert.equal(pickers.children[i].children[1].children[0].checked, true);
+    }
+});
 
 test('returning to a source resumes its active battlemap watcher without a gallery refresh', async () => {
     const { elements, ui, watched } = uiFixture();

@@ -272,11 +272,19 @@
       <legend>Scene life</legend>
       <div class="filter-row">
         <label><input id="bg-dynamic-people" type="checkbox" checked aria-describedby="bg-dynamic-life-hint" /> Populate with people</label>
-        <label>Population <select id="bg-dynamic-density"><option value="sparse">Sparse</option><option value="natural" selected>Natural</option><option value="lively">Lively</option></select></label>
+        <label>Population density <select id="bg-dynamic-density"><option value="sparse">Sparse</option><option value="natural" selected>Natural</option><option value="lively">Lively</option></select></label>
+      </div>
+      <details id="bg-dynamic-people-options">
+        <summary>People traits — population, clothing, age, appearance &amp; activity</summary>
+        <div id="bg-dynamic-people-traits" class="bg-traits"></div>
+      </details>
+      <div class="filter-row">
         <label>Vegetation <select id="bg-dynamic-vegetation"><option value="none">Off</option><option value="balanced" selected>Balanced</option><option value="lush">Lush</option></select></label>
+      </div>
+      <div class="filter-row">
         <label><input id="bg-dynamic-interior-life" type="checkbox" checked aria-describedby="bg-dynamic-life-hint" /> Indoor pets &amp; aquariums</label>
       </div>
-      <p id="bg-dynamic-life-hint">Distinct people, mostly young adults, in everyday activities. Plants suit the environment; indoor life adds a small pet or fish tank.</p>
+      <p id="bg-dynamic-life-hint">Expand People traits to customize or randomize the population. Plants suit the environment; indoor life adds a small pet or fish tank.</p>
     </fieldset>
     <label class="bg-notes">Additional scene / layout notes<textarea id="bg-dynamic-notes" rows="2" maxlength="4000" placeholder="Optional: a courtyard café with flowering shrubs; keep the central walkway clear"></textarea></label>
     <div class="filter-row">

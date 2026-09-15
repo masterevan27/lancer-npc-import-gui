@@ -9,9 +9,19 @@ add your own requirements to the scene.
 ### Scene life
 
 **Populate with people** starts enabled. Choose **Sparse**, **Natural** (default)
-or **Lively** population. People have everyday activities, varied heights, builds,
-faces, hair, skin tones, sexes and clothing. Prompts favor young adults (median
-around 20–25) alongside some older adults, with children exceptionally rare.
+or **Lively** population density. Expand **People traits** to customize:
+
+- **Population:** civilian workers and travelers, military units and crews, or mixed groups.
+- **Clothing and equipment:** casual or work clothing, uniforms, flight suits, field equipment and mixed dress.
+- **Adult age mix:** young, middle-aged, older or intergenerational adult groups.
+- **Appearance variety:** faces, hair, skin tones, builds, presentation and personal details.
+- **Activity:** everyday tasks, downtime, patrols, briefings and inspections.
+
+Each has Random, Omit, Lock and Re-roll controls. Random choices vary across a
+batch; locks preserve chosen details. Population, clothing and activity constrain
+one another so tagged civilian and military choices stay compatible. Changing
+one releases the other two when unlocked; explicit conflicting locks produce a
+preview error that identifies the affected choices. Untagged activities suit any group.
 Uniforms may match; individual appearances should remain distinct. These are
 directions to the image model, so generated crowd sizes and appearances can vary.
 
@@ -19,8 +29,9 @@ directions to the image model, so generated crowd sizes and appearances can vary
 the choices include wild plants, large trees, medium and small shrubs, orchids,
 flowers and cultivated large/medium bonsai. Indoors, they include potted plants,
 orchids and small bonsai. **Indoor pets & aquariums** starts enabled and chooses
-a small cat, cute dog, fox or fish tank. Use the **Vegetation**, **Interior life**
-and **Activity** trait pickers below to choose, omit, lock or reroll details.
+a small cat, cute dog, fox or fish tank. Use the **Vegetation** and **Interior life**
+trait pickers below to choose, omit, lock or reroll details. People/population,
+vegetation and indoor pets/aquariums occupy separate rows.
 The prompt gives the setting priority: abandoned scenes use sparse visitors,
 and pets or tanks are omitted in sterile, hazardous or unattended locations.
 
@@ -35,6 +46,12 @@ gestures, with gentle movement for existing pets or fish.
 
 These controls apply to **Dynamic traits**. **Bespoke catalogue** continues to
 render its authored prompts.
+
+The expanded background pools adapt NPC backdrops and scene references into
+locations, layouts, weather, lighting and environmental details. Military choices
+include command bunkers, mech hangars, carrier decks, field hospitals and fortified
+checkpoints. Prompts use the NPC artwork's painterly brushwork, grain, clean
+linework and dense halftone shadows while keeping a wide scene composition.
 
 **Render scenes** uses the first preview and rolls unlocked traits for additional
 scenes. Lock all for seed variations of the same scene; unlock selected traits
