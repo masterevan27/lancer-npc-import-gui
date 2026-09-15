@@ -32,8 +32,8 @@ test('lists json and md files by name with each table and its row count', (t) =>
     assert.equal(listing.exists, true);
     assert.equal(listing.dir, dir);
     assert.deepEqual(listing.files, [
-        { file: 'a.json', tables: [{ name: 'partner_archetypes', count: 2 }, { name: 'camera_framing', count: 1 }] },
-        { file: 'b.md', tables: [{ name: 'lighting_mood', count: 2 }] },
+        { file: 'a.json', tables: [{ name: 'partner_archetypes', count: 2, values: ['tall muscular bodybuilder type', 'average build everyman'] }, { name: 'camera_framing', count: 1, values: ['low angle looking up'] }] },
+        { file: 'b.md', tables: [{ name: 'lighting_mood', count: 2, values: ['harsh overhead fluorescent light', 'soft window light'] }] },
     ]);
 });
 

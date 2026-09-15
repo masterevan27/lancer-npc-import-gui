@@ -180,11 +180,25 @@
       emptied on logout; the public form never sees it.
     -->
     <div class="secret-tables" id="secret-tables-section" hidden>
-      <h3>Secret tables <span class="hint">(your own tables, each rolled by weight and appended to the prompt)</span></h3>
-      <div id="secret-tables-files"></div>
-      <p class="hint" id="secret-tables-status"></p>
-      <h3>Disable default tables <span class="hint">(leave a default table's clause out of the prompt when a secret table covers it - the trait is still rolled)</span></h3>
-      <div class="secret-disable-tables" id="secret-disable-tables"></div>
+      <h3><button id="secret-tables-toggle" type="button" aria-expanded="true" aria-controls="secret-tables-content">Collapse secret tables</button></h3>
+      <div id="secret-tables-content">
+        <p class="hint">Enable your own tables and choose a fixed value or Random for a weighted roll.</p>
+        <div id="secret-tables-files"></div>
+        <p class="hint" id="secret-tables-status"></p>
+        <h3>Disable default tables <span class="hint">(leave a default table's clause out of the prompt when a secret table covers it - the trait is still rolled)</span></h3>
+        <div class="secret-disable-tables" id="secret-disable-tables"></div>
+        <button id="secret-tables-collapse" type="button">Collapse secret tables</button>
+      </div>
+    </div>
+    <div class="create-presets" id="secret-presets-section" hidden>
+      <div class="create-presets-row">
+        <label for="secret-preset-select">Secret presets</label>
+        <select id="secret-preset-select"></select>
+        <button id="secret-preset-load" type="button" disabled>Load</button>
+        <button id="secret-preset-save" type="button">Save current as secret preset&hellip;</button>
+        <button id="secret-preset-delete" type="button" disabled>Delete</button>
+      </div>
+      <p class="create-preset-status" id="secret-preset-status"></p>
     </div>
 
     <!--

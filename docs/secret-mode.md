@@ -67,7 +67,13 @@ After Secret login, **Create NPC** lists every file with a checkbox per table (t
 
 **Disable default tables** lists the tables the generator lets a run leave out of the prompt: Height, Build, Skin, Hair, Eyes, Feature, Demeanor, Faction, Outfit, Headgear, Weapon, Gear, Weather, Stance and Glow colour. Disabling is prompt-only: the trait is still rolled, so the filters that read it and the seed behave exactly as before, and the detail sheet marks it "left out of the prompt". Tick Stance when one of your tables describes the pose. Names, Pronouns, Theme, Age, Role, Backdrop, Glow placement and Hair colour cannot be disabled; they decide the folder, the id, the shot or the gendered pools, or are folded into another table's text.
 
-Both controls are Secret-mode only. The server refuses them on the public create path, only ever resolves file names against its own listing of the folder, and passes the generator `--extra-tables`, `--extra-table` and `--disable-table`, which need a generator that has them. Selections are not saved in Create presets.
+Each enabled table has a value selector. Leave it on **Random (weighted)** to roll as before, or select an exact value to use for every NPC in the batch. The server checks that fixed values still belong to the selected tables. **Collapse secret tables** is available at both ends of the section; the top button expands it again. Collapsing preserves all selections, including disabled default tables.
+
+**Secret presets**, below the section, saves the Create NPC recipe: count, seed, pronouns, generation switches, overrides, art style, workflow, color guidance, selected secret tables, fixed values, and disabled default tables. As with normal Create presets, the character name is not saved and loading never starts generation. Load restores the whole recipe; Delete removes the selected preset. Missing tables or values are reported when loading, rather than silently becoming random rolls.
+
+Secret presets live in `presetsDir/secret-presets/`, normally `G:\GIT-REPOS\lancer-art-generator\prompts\presets\secret-presets`. The folder is created on the first save. They have a separate `secret-create-form` format and authenticated routes; normal preset lists and imports do not offer them.
+
+These controls are Secret-mode only. The server refuses table selections on the public create path and resolves file names against its own folder listing. It passes the generator `--extra-tables`, `--extra-table`, `--extra-value TABLE=VALUE` and `--disable-table`; update the generator alongside the GUI. Normal Create presets do not store secret table selections.
 # Workflow selection and private image editing
 
 Creation and regeneration forms offer a Workflow selector alongside Art style.

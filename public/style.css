@@ -410,7 +410,11 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .secret-tables { margin-top: 1rem; }
 .secret-tables-file { border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0.75rem; margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; }
 .secret-tables-file legend { font-weight: 600; padding: 0 0.35rem; }
-.secret-tables-file .secret-tables-table { display: inline-flex; align-items: center; gap: 0.25rem; }
+.secret-tables-file .secret-tables-table { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; width: 100%; min-width: 0; }
+.secret-tables-table label { flex: 0 1 16rem; overflow-wrap: anywhere; }
+.secret-tables-table select { flex: 1 1 18rem; min-width: 0; max-width: 100%; }
+#secret-presets-section[hidden], #secret-tables-content[hidden] { display: none; }
+#secret-tables-collapse { margin-top: 1rem; }
 .secret-tables-error { color: var(--danger-text); font-weight: normal; }
 .secret-disable-tables { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; }
 .secret-extra-trait td:nth-child(2) { color: var(--text-4); }

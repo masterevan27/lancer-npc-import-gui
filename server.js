@@ -55,6 +55,7 @@ const tableFlags = require('./lib/tableFlags');
 const traitCandidateEdit = require('./lib/traitCandidateEdit');
 const presets = require('./lib/presets');
 const createPresets = require('./lib/createPresets');
+const secretPresets = require('./lib/secretPresets');
 const presetFromItem = require('./lib/presetFromItem');
 const { derivePaths } = require('./lib/paths');
 const { buildKinds, kindFor, kindOf, requestKind, available, DEFAULT_KIND } = require('./lib/kinds');
@@ -3073,7 +3074,7 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
     // the request, so a name with a separator in it has nowhere to go.
     const extraPicks = Array.isArray(body.extraTables) ? body.extraTables : [];
     const disablePicks = Array.isArray(body.disabledTables) ? body.disabledTables : [];
-    let extraTables = [], extraTableNames = [], disabledTables = [];
+    let extraTables = [], extraTableNames = [], extraValues = [], disabledTables = [];
     if (extraPicks.length || disablePicks.length) {
         if (runner === startCreateJob) {
             return { status: 400, body: { error: 'secret tables and disabled tables are available in Secret mode only' } };
@@ -3082,32 +3083,10 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
             return { status: 400, body: { error: `secret tables are not a ${kindEntry.subject} field` } };
         }
         const listing = secretTables.listSecretTables(DERIVED_PATHS.secretTablesDir, { reserved: overrideTablesForKind });
-        const chosen = new Map();
-        let narrowed = false;
-        for (const pick of extraPicks) {
-            const file = pick && typeof pick.file === 'string' ? pick.file : '';
-            const known = secretTables.isSecretTablesFileName(file) && listing.files.find((f) => f.file === file);
-            if (!known) return { status: 400, body: { error: `unknown secret tables file "${file}"` } };
-            if (known.error) return { status: 400, body: { error: `${file}: ${known.error}` } };
-            const names = known.tables.map((t) => t.name);
-            let tables = names;
-            if (Array.isArray(pick.tables)) {
-                const bad = pick.tables.find((t) => !names.includes(t));
-                if (bad !== undefined) return { status: 400, body: { error: `${file} has no table "${bad}"` } };
-                tables = [...new Set(pick.tables)];
-                if (!tables.length) return { status: 400, body: { error: `${file}: no tables selected` } };
-                if (tables.length !== names.length) narrowed = true;
-            }
-            chosen.set(file, tables);
-        }
-        extraTables = [...chosen.keys()].map((file) => path.join(listing.dir, file));
-        if (narrowed) extraTableNames = [...chosen.values()].flat();
-        const disableable = OVERRIDE_DATA_BY_KIND[kindEntry.id].disableable;
-        const undisableable = disablePicks.find((t) => !disableable.includes(t));
-        if (undisableable !== undefined) {
-            return { status: 400, body: { error: `cannot disable table "${undisableable}"` } };
-        }
-        disabledTables = [...new Set(disablePicks)];
+        try {
+            ({ extraTables, extraTableNames, extraValues, disabledTables } = secretTables.validateSelection(
+                body, listing, OVERRIDE_DATA_BY_KIND[kindEntry.id].disableable));
+        } catch (err) { return { status: 400, body: { error: err.message } }; }
     }
     if (body.noPortrait && body.noToken) {
         return {
@@ -3163,6 +3142,7 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
         unarmed: kindEntry.id === DEFAULT_KIND ? !!body.unarmed : false,
         extraTables,
         extraTableNames,
+        extraValues,
         disabledTables,
         server: typeof body.server === 'string' && body.server ? body.server : null,
         dryRun: !!body.dryRun,
@@ -3956,6 +3936,38 @@ async function handleSecretApi(req, res, url, authenticated) {
         return sendJson(res, 200, { authenticated: false, configured: secretAuth.configured }, { 'Set-Cookie': 'secret_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0' });
     }
     try {
+        if (['/presets', '/presets/export', '/presets/delete'].includes(route)) {
+            const dir = path.join(DERIVED_PATHS.presetsDir, 'secret-presets');
+            if (route === '/presets' && req.method === 'GET') {
+                return sendJson(res, 200, { presets: createPresets.listCreatePresets(dir, { secret: true }) });
+            }
+            if (route === '/presets/export' && req.method === 'GET') {
+                const slug = safeSlug(url.searchParams.get('slug'));
+                const preset = slug && createPresets.readCreatePreset(dir, slug);
+                if (!preset || preset.kind !== secretPresets.KIND) return sendJson(res, 404, { error: 'unknown secret preset' });
+                const listing = secretTables.listSecretTables(DERIVED_PATHS.secretTablesDir, { reserved: OVERRIDE_DATA_BY_KIND[DEFAULT_KIND].tables });
+                const normalized = secretPresets.normaliseSettings(preset.settings, listing, OVERRIDE_DATA_BY_KIND[DEFAULT_KIND]);
+                return sendJson(res, 200, { ...preset, settings: normalized });
+            }
+            if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+            const body = JSON.parse(await readBody(req, 256 * 1024));
+            if (route === '/presets/delete') {
+                const slug = safeSlug(body.slug);
+                const preset = slug && createPresets.readCreatePreset(dir, slug);
+                if (!preset || preset.kind !== secretPresets.KIND) return sendJson(res, 404, { error: 'unknown secret preset' });
+                createPresets.deleteCreatePreset(dir, slug);
+                return sendJson(res, 200, { ok: true });
+            }
+            if (route !== '/presets') return sendJson(res, 405, { error: 'Method not allowed' });
+            const name = typeof body.name === 'string' ? body.name.trim() : '';
+            const slug = name && safeSlug(createPresets.slugify(name));
+            if (!slug) return sendJson(res, 400, { error: 'preset name must contain letters or numbers' });
+            if (createPresets.createPresetExists(dir, slug)) return sendJson(res, 409, { error: `a preset named "${name}" already exists` });
+            const listing = secretTables.listSecretTables(DERIVED_PATHS.secretTablesDir, { reserved: OVERRIDE_DATA_BY_KIND[DEFAULT_KIND].tables });
+            const settings = secretPresets.normaliseSettings(body.settings, listing, OVERRIDE_DATA_BY_KIND[DEFAULT_KIND]);
+            createPresets.writeCreatePreset(dir, slug, { name, kind: secretPresets.KIND, created: new Date().toISOString(), settings });
+            return sendJson(res, 200, { ok: true, slug });
+        }
         if (route === '/settings') {
             if (req.method === 'POST') {
                 const body = JSON.parse(await readBody(req, 8192)); secretGallery.setRoot(body.secretImagesDir);
@@ -5682,7 +5694,7 @@ async function handleApi(req, res, url) {
         if (!kind.supports.create) return sendJson(res, 400, { error: `${kind.label} have no create presets` });
         const slug = safeSlug(url.searchParams.get('slug') || '');
         const preset = slug && createPresets.readCreatePreset(kind.createPresetsDir, slug);
-        if (!preset) return sendJson(res, 404, { error: 'unknown preset' });
+        if (!preset || preset.kind === secretPresets.KIND) return sendJson(res, 404, { error: 'unknown preset' });
         const payload = JSON.stringify(preset, null, 2);
         res.writeHead(200, {
             'Content-Type': 'application/json; charset=utf-8',

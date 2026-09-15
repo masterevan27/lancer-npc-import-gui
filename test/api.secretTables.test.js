@@ -65,8 +65,47 @@ async function setup(t) {
         }
         throw new Error('create job never finished');
     }
-    return { call, createLog, tablesDir };
+    return { call, createLog, tablesDir, server };
 }
+
+test('fixed secret values reach the generator and invalid values are refused', async (t) => {
+    const { call, createLog } = await setup(t);
+    const extraTables = [{ file: 'b.md', tables: ['mood'], values: { mood: 'soft light' } }];
+    assert.match(await createLog({ extraTables }), /--extra-value mood=soft light/);
+    extraTables[0].values.mood = 'not offered';
+    const res = await call('/api/secret/create', { dryRun: true, extraTables }, true);
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /value.*mood/);
+});
+
+test('secret presets round trip privately and cannot be loaded from public routes', async (t) => {
+    const { call, server } = await setup(t);
+    const settings = { count: 3, seed: 42, artStyle: 'default', workflow: 'default', colorGuidance: 'default',
+        extraTables: [{ file: 'b.md', tables: ['mood'], values: { mood: 'soft light' } }], disabledTables: ['Stance'] };
+    assert.equal((await call('/api/secret/presets')).status, 401);
+    const saved = await call('/api/secret/presets', { name: 'Private recipe', settings }, true);
+    assert.equal(saved.status, 200, await saved.clone().text());
+    const { slug } = await saved.json();
+    const listing = await (await call('/api/secret/presets', undefined, true)).json();
+    assert.equal(listing.presets[0].slug, slug);
+    const full = await (await call('/api/secret/presets/export?slug=' + slug, undefined, true)).json();
+    assert.equal(full.kind, 'secret-create-form');
+    for (const key of Object.keys(settings)) assert.deepEqual(full.settings[key], settings[key]);
+    assert.ok(fs.existsSync(path.join(server.dir, 'presets', 'secret-presets', slug + '.json')));
+    for (const route of ['/api/presets', '/api/create-presets']) {
+        assert.deepEqual((await (await call(route)).json()).presets, []);
+        assert.equal((await call(route + '/export?slug=' + slug)).status, 404);
+    }
+    assert.equal((await call('/api/create-presets/import', full)).status, 400);
+    const publicDir = path.join(server.dir, 'presets', 'create');
+    fs.mkdirSync(publicDir, { recursive: true });
+    fs.writeFileSync(path.join(publicDir, slug + '.json'), JSON.stringify(full));
+    assert.deepEqual((await (await call('/api/create-presets')).json()).presets, []);
+    assert.equal((await call('/api/create-presets/export?slug=' + slug)).status, 404);
+    assert.equal((await call('/api/secret/presets/export?slug=../private-recipe', undefined, true)).status, 404);
+    assert.equal((await call('/api/secret/presets/delete', { slug }, true)).status, 200);
+    assert.deepEqual((await (await call('/api/secret/presets', undefined, true)).json()).presets, []);
+});
 
 test('the listing needs a session and reports files, tables, counts, errors and the disableable set', async (t) => {
     const { call, tablesDir } = await setup(t);
@@ -79,8 +118,8 @@ test('the listing needs a session and reports files, tables, counts, errors and 
     assert.equal(data.exists, true);
     assert.deepEqual(data.disableable, ['Stance', 'Weapon']);
     assert.deepEqual(data.files.map((f) => f.file), ['a.json', 'b.md', 'bad.json']);
-    assert.deepEqual(data.files[0].tables, [{ name: 'one', count: 1 }, { name: 'two', count: 1 }]);
-    assert.deepEqual(data.files[1].tables, [{ name: 'mood', count: 2 }]);
+    assert.deepEqual(data.files[0].tables, [{ name: 'one', count: 1, values: ['first'] }, { name: 'two', count: 1, values: ['second'] }]);
+    assert.deepEqual(data.files[1].tables, [{ name: 'mood', count: 2, values: ['harsh light', 'soft light'] }]);
     assert.match(data.files[2].error, /not valid JSON/);
 });
 

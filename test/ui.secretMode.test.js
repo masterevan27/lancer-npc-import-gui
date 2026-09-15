@@ -81,8 +81,11 @@ async function page(authenticated, privateItems, respond = () => undefined) {
         replaceChildren(...children) { this.children = children; }
         append(...children) { this.children.push(...children); }
         querySelectorAll() { return []; }
-        focus() {}
-        setAttribute() {}
+        focus() { this.focused = true; }
+        scrollIntoView() { this.scrolled = true; }
+        setAttribute(name, value) { (this.attributes ||= {})[name] = value; }
+        get options() { return this.children; }
+        get selectedOptions() { return this.children.filter(option => option.value === this.value); }
     }
     const nodes = Object.fromEntries([...html.matchAll(/id="([^"]+)"/g)].map(match => [match[1], new Element()]));
     nodes['set-trait-overlay'].hidden = true;
@@ -92,8 +95,14 @@ async function page(authenticated, privateItems, respond = () => undefined) {
     document.getElementById = id => nodes[id] || null;
     document.createElement = () => new Element();
     const workflows = ['create-workflow', 'create-ship-workflow', 'bg-workflow', 'regen-workflow', 'secret-regen-workflow'].map(id => nodes[id]);
+    const descendants = node => [node, ...(node.children || []).flatMap(child => typeof child === 'object' ? descendants(child) : [])];
     document.querySelectorAll = query => query === '[data-art-style]' ? selectors : query === '[data-workflow]' ? workflows
-        : query === '[data-color-guidance]' ? guidanceSelectors : [];
+        : query === '[data-color-guidance]' ? guidanceSelectors
+        : ['[data-secret-table]', '[data-secret-file]', '[data-disable-table]'].includes(query)
+            ? [...new Set(Object.values(nodes).flatMap(descendants))].filter(node => {
+                const key = query === '[data-secret-table]' ? 'secretTable' : query === '[data-secret-file]' ? 'secretFile' : 'disableTable';
+                return node.dataset && key in node.dataset;
+            }) : [];
     document.querySelector = query => query.includes('data-color-guidance') ? guidanceSelectors[0]
         : (query.includes('data-workflow') ? workflows : selectors)[['npc', 'spaceship', 'background'].findIndex(kind => query.includes(`"${kind}"`))] || null;
     const requests = [], navigations = [];
@@ -124,7 +133,11 @@ async function page(authenticated, privateItems, respond = () => undefined) {
     const elSetTrait = Object.fromEntries(['overlay', 'title', 'filter', 'list', 'releaseRow', 'release', 'releaseLabel', 'warning', 'cancel', 'ok']
         .map(key => [key, nodes['set-trait-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())]]));
     const context = vm.createContext({ window, document, Option, Response, console, setTimeout, Date, attachImageZoom, elSetTrait,
+        elCreate: Object.fromEntries(['count', 'seed', 'name', 'pronouns', 'server', 'portrait', 'token', 'keepRaw', 'unarmed']
+            .map(key => [key, nodes['create-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())]])),
+        createState: { overrides: [] }, renderOverrideRows() {},
         fetch: (...args) => window.SecretMode.fetch(...args), escapeHtml: text => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;') });
+    vm.runInContext(app.slice(app.indexOf('function createFormSettings('), app.indexOf('function setPresetStatus(')), context);
     vm.runInContext(app.slice(app.indexOf('function groupChoices('), app.indexOf('function traitControlCells('))
         + app.slice(app.indexOf('function openSetTrait('), app.indexOf('function markSeen(')), context);
     vm.runInContext(fs.readFileSync(require.resolve('../public/secret-mode'), 'utf8'), context);
@@ -132,6 +145,52 @@ async function page(authenticated, privateItems, respond = () => undefined) {
     await new Promise(resolve => setImmediate(resolve));
     return { nodes, window, document, requests, navigations };
 }
+
+test('secret presets restore fixed table values and collapsing preserves the create request', async () => {
+    let saved;
+    const { nodes, document, window, requests } = await page(true, [], (path, options) => {
+        if (path === '/api/secret/tables') return { exists: true, dir: '/private/tables', disableable: ['Stance'], files: [
+            { file: 'a.json', tables: [{ name: 'mood', count: 2, values: ['soft light', 'harsh light'] },
+                { name: 'constructor', count: 1, values: ['a jacket'] }] }
+        ] };
+        if (path === '/api/secret/presets' && options.method === 'POST') {
+            saved = JSON.parse(options.body); return { slug: 'private-recipe' };
+        }
+        if (path === '/api/secret/presets') return { presets: saved ? [{ name: saved.name, slug: 'private-recipe' }] : [] };
+        if (path.startsWith('/api/secret/presets/export')) return saved;
+    });
+    window.prompt = () => 'Private recipe';
+    const input = document.querySelectorAll('[data-secret-table]')[0];
+    input.checked = true; await input.dispatch('change');
+    assert.equal(input.valueSelect.disabled, false);
+    input.valueSelect.value = 'soft light';
+    const randomInput = document.querySelectorAll('[data-secret-table]')[1];
+    randomInput.checked = true;
+    document.querySelectorAll('[data-disable-table]')[0].checked = true;
+    nodes['create-count'].value = '3'; nodes['create-seed'].value = '42';
+    nodes['create-art-style'].value = 'private-ink';
+    await nodes['secret-preset-save'].dispatch('click');
+    assert.deepEqual(saved.settings.extraTables, [{ file: 'a.json', tables: ['mood', 'constructor'], values: { mood: 'soft light' } }]);
+    assert.equal(saved.settings.artStyle, 'private-ink');
+    input.checked = false; input.valueSelect.value = '';
+    nodes['create-count'].value = '1'; nodes['create-art-style'].value = 'default';
+    await nodes['secret-preset-load'].dispatch('click');
+    assert.equal(nodes['create-count'].value, '3');
+    assert.equal(nodes['create-art-style'].value, 'private-ink');
+    assert.equal(input.checked, true); assert.equal(input.valueSelect.value, 'soft light');
+    await nodes['secret-tables-collapse'].dispatch('click');
+    assert.equal(nodes['secret-tables-content'].hidden, true);
+    assert.equal(nodes['secret-tables-toggle'].focused, true);
+    assert.equal(nodes['secret-tables-toggle'].attributes['aria-expanded'], 'false');
+    await window.SecretMode.fetch('/api/create-npc', { method: 'POST', body: '{"count":3}' });
+    assert.deepEqual(JSON.parse(requests.at(-1).options.body).extraTables, saved.settings.extraTables);
+    await nodes['secret-tables-toggle'].dispatch('click');
+    assert.equal(nodes['secret-tables-content'].hidden, false);
+    assert.equal(input.valueSelect.value, 'soft light');
+    await nodes['leave-secret'].dispatch('click');
+    assert.equal(nodes['secret-presets-section'].hidden, true);
+    assert.equal(nodes['secret-preset-select'].children.length, 0);
+});
 
 test('private detail cycles through filtered items and offers per-trait rerolls', async () => {
     const { nodes, document } = await page(true, [

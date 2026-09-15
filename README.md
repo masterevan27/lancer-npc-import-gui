@@ -110,6 +110,9 @@ Everything else in `config.example.json` is optional and derived by default:
   disk, since at roughly a megabyte an image they are the one thing here that
   gets large.
 - `presetsDir` — where saved table presets are written.
+  Secret Create NPC presets are stored separately in its `secret-presets/`
+  subfolder and are available only after Secret login. They include secret
+  table choices and fixed values; see [Secret tables and presets](docs/secret-mode.md#secret-tables-and-disabled-default-tables).
 - `secretTablesDir` — your own `.json` or `.md` roll tables, offered on
   **Create NPC** in Secret mode. Defaults to `secret-tables/` beside
   `npcTablesPath`, which the generator repo gitignores. See

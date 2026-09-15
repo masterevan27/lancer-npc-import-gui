@@ -79,11 +79,14 @@
     const files = new Map();
     for (const box of document.querySelectorAll('[data-secret-table]')) {
       if (!box.checked) continue;
-      if (!files.has(box.dataset.secretFile)) files.set(box.dataset.secretFile, []);
-      files.get(box.dataset.secretFile).push(box.dataset.secretTable);
+      if (!files.has(box.dataset.secretFile)) files.set(box.dataset.secretFile, { tables: [], values: {} });
+      const pick = files.get(box.dataset.secretFile);
+      pick.tables.push(box.dataset.secretTable);
+      if (box.valueSelect?.value) Object.defineProperty(pick.values, box.dataset.secretTable,
+        { value: box.valueSelect.value, enumerable: true, configurable: true, writable: true });
     }
     return {
-      extraTables: [...files].map(([file, tables]) => ({ file, tables })),
+      extraTables: [...files].map(([file, pick]) => ({ file, ...pick })),
       disabledTables: [...document.querySelectorAll('[data-disable-table]')].filter(box => box.checked).map(box => box.dataset.disableTable),
     };
   }
@@ -133,6 +136,9 @@
     for (const node of document.querySelectorAll('[data-workflow]')) node.replaceChildren(new Option(DEFAULT.name, DEFAULT.id));
     for (const id of ['secret-tables-files', 'secret-disable-tables']) get(id)?.replaceChildren();
     if (get('secret-tables-section')) get('secret-tables-section').hidden = true;
+    get('secret-preset-select')?.replaceChildren();
+    if (get('secret-presets-section')) get('secret-presets-section').hidden = true;
+    if (get('secret-preset-status')) get('secret-preset-status').textContent = '';
     get('secret-detail-status').textContent = '';
     get('image-zoom').hidden = true;
     get('secret-detail-overlay').hidden = true;
@@ -185,14 +191,24 @@
         const input = document.createElement('input'); input.type = 'checkbox';
         input.dataset.secretTable = table.name; input.dataset.secretFile = file.file;
         const count = document.createElement('span'); count.className = 'hint'; count.textContent = `(${table.count})`;
-        const label = document.createElement('label'); label.className = 'secret-tables-table';
-        label.append(input, ` ${table.name} `, count); box.append(label); inputs.push(input);
+        const row = document.createElement('div'); row.className = 'secret-tables-table';
+        const label = document.createElement('label');
+        const select = document.createElement('select');
+        select.setAttribute('aria-label', `${table.name} value (${file.file})`);
+        select.replaceChildren(new Option('Random (weighted)', ''), ...(table.values || []).map(value => new Option(value, value)));
+        select.disabled = true; input.valueSelect = select;
+        label.append(input, ` ${table.name} `, count); row.append(label, select); box.append(row); inputs.push(input);
         input.addEventListener('change', () => {
+          select.disabled = !input.checked;
           all.checked = inputs.every(other => other.checked);
           all.indeterminate = !all.checked && inputs.some(other => other.checked);
         });
       }
-      all.addEventListener('change', () => { for (const input of inputs) input.checked = all.checked; all.indeterminate = false; });
+      all.addEventListener('change', () => {
+        for (const input of inputs) { input.checked = all.checked; input.valueSelect.disabled = !all.checked; }
+        all.indeterminate = false;
+      });
+      all.secretInputs = inputs;
       filesNode.append(box);
     }
     get('secret-tables-status').textContent = !data.exists ? `Folder not found: ${data.dir}. Create it, or point secretTablesDir at yours in Settings.`
@@ -203,6 +219,59 @@
       const label = document.createElement('label'); label.append(input, ` ${name}`); disable.append(label);
     }
     section.hidden = false;
+    await loadSecretPresets();
+  }
+
+  async function loadSecretPresets(wanted = '') {
+    const data = await json('/api/secret/presets');
+    const select = get('secret-preset-select');
+    select.replaceChildren(new Option('— pick a secret preset —', ''),
+      ...(data.presets || []).map(preset => new Option(preset.name, preset.slug)));
+    select.value = wanted;
+    get('secret-preset-load').disabled = !wanted;
+    get('secret-preset-delete').disabled = !wanted;
+    get('secret-presets-section').hidden = false;
+  }
+
+  function applySecretSettings(settings) {
+    // Check every saved choice before changing any form fields.
+    const inputs = [...document.querySelectorAll('[data-secret-table]')];
+    const restored = new Map();
+    for (const pick of settings.extraTables || []) {
+      for (const table of pick.tables) {
+        const input = inputs.find(box => box.dataset.secretFile === pick.file && box.dataset.secretTable === table);
+        const value = Object.hasOwn(pick.values || {}, table) ? pick.values[table] : '';
+        if (!input || ![...input.valueSelect.options].some(option => option.value === value)) {
+          throw new Error(`Reload Secret mode: ${pick.file} / ${table} has changed.`);
+        }
+        restored.set(input, value);
+      }
+    }
+    const selectors = [['create-art-style', 'artStyle'], ['create-workflow', 'workflow'], ['create-color-guidance', 'colorGuidance']];
+    for (const [id, key] of selectors) {
+      if (![...get(id).options].some(option => option.value === settings[key])) throw new Error(`${key} is no longer available.`);
+    }
+    applyCreateSettings(settings);
+    for (const [id, key] of selectors) get(id).value = settings[key];
+    for (const input of inputs) {
+      input.checked = restored.has(input);
+      input.valueSelect.value = restored.get(input) || '';
+      input.valueSelect.disabled = !input.checked;
+    }
+    for (const all of document.querySelectorAll('[data-secret-file]')) {
+      if (!all.secretInputs) continue;
+      all.checked = all.secretInputs.every(input => input.checked);
+      all.indeterminate = !all.checked && all.secretInputs.some(input => input.checked);
+    }
+    for (const input of document.querySelectorAll('[data-disable-table]')) input.checked = (settings.disabledTables || []).includes(input.dataset.disableTable);
+  }
+
+  function setSecretTablesCollapsed(collapsed, fromBottom = false) {
+    const toggle = get('secret-tables-toggle');
+    get('secret-tables-content').hidden = collapsed;
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.textContent = collapsed ? 'Expand secret tables' : 'Collapse secret tables';
+    if (fromBottom) { toggle.scrollIntoView({ block: 'center' }); toggle.focus(); }
   }
 
   async function loadWorkflows() {
@@ -390,6 +459,44 @@
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
+    get('secret-tables-toggle').addEventListener('click', () => setSecretTablesCollapsed(!get('secret-tables-content').hidden));
+    get('secret-tables-collapse').addEventListener('click', () => setSecretTablesCollapsed(true, true));
+    get('secret-preset-select').addEventListener('change', () => {
+      const chosen = !!get('secret-preset-select').value;
+      get('secret-preset-load').disabled = !chosen;
+      get('secret-preset-delete').disabled = !chosen;
+      get('secret-preset-status').textContent = '';
+    });
+    const presetAction = async action => {
+      try { await action(); }
+      catch (err) { get('secret-preset-status').textContent = err.message; }
+    };
+    get('secret-preset-save').addEventListener('click', () => presetAction(async () => {
+      if (!transport.authenticated) return;
+      const name = root.prompt('Name this secret preset');
+      if (name === null) return;
+      const selected = selections();
+      const settings = { ...createFormSettings(), ...secretTablePicks(), artStyle: selected.npc,
+        workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc };
+      const { slug } = await post('/api/secret/presets', { name, settings });
+      await loadSecretPresets(slug);
+      get('secret-preset-status').textContent = `Saved “${name.trim()}”.`;
+    }));
+    get('secret-preset-load').addEventListener('click', () => presetAction(async () => {
+      const slug = get('secret-preset-select').value;
+      if (!transport.authenticated || !slug) return;
+      const preset = await json('/api/secret/presets/export?slug=' + encodeURIComponent(slug));
+      applySecretSettings(preset.settings);
+      get('secret-preset-status').textContent = `Loaded “${preset.name}”.`;
+    }));
+    get('secret-preset-delete').addEventListener('click', () => presetAction(async () => {
+      const select = get('secret-preset-select');
+      const slug = select.value;
+      if (!transport.authenticated || !slug || !root.confirm(`Delete secret preset “${select.selectedOptions[0].textContent}”?`)) return;
+      await post('/api/secret/presets/delete', { slug });
+      await loadSecretPresets();
+      get('secret-preset-status').textContent = 'Secret preset deleted.';
+    }));
     const session = await ready;
     get('leave-secret').hidden = !session.authenticated;
     get('secret-images').hidden = !session.authenticated;
