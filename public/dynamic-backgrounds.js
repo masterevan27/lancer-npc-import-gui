@@ -14,6 +14,8 @@
       width: controls.width ?? 1920, height: controls.height ?? 1080,
       seed: controls.seed ?? null, count: render ? controls.count : 1,
       notes: controls.notes || '', traits, locked: locked.filter((name) => name !== only), reroll,
+      populatePeople: controls.populatePeople ?? true, populationDensity: controls.populationDensity ?? 'natural',
+      vegetation: controls.vegetation ?? 'balanced', interiorLife: controls.interiorLife ?? true,
     };
   }
   function relevantValues(table, environment) {
@@ -25,7 +27,7 @@
   const get = (id) => document.getElementById(id);
   const el = Object.fromEntries(['environment', 'view', 'width', 'height', 'count', 'seed', 'notes',
     'traits', 'preview', 'roll', 'refresh', 'lock-all', 'unlock-all', 'preview-btn', 'render', 'animate',
-    'pingpong', 'status', 'log'].map((key) => [key, get(`bg-dynamic-${key}`)]));
+    'pingpong', 'status', 'log', 'people', 'density', 'vegetation', 'interior-life', 'life-hint'].map((key) => [key, get(`bg-dynamic-${key}`)]));
   const map = Object.fromEntries(['width', 'height', 'seed', 'notes', 'btn', 'status', 'log', 'results']
     .map((key) => [key, get(`bg-map-${key}`)]));
   const state = { catalogue: null, plan: null, locked: new Set(), busy: false, available: false,
@@ -38,11 +40,26 @@
 
   function controls() {
     return { environment: el.environment.value, view: el.view.value, width: number(el.width), height: number(el.height),
-      count: number(el.count), seed: number(el.seed), notes: el.notes.value };
+      count: number(el.count), seed: number(el.seed), notes: el.notes.value,
+      populatePeople: el.people.checked, populationDensity: el.density.value,
+      vegetation: el.vegetation.value, interiorLife: el['interior-life'].checked };
+  }
+  function updateLifeControls() {
+    const disabled = state.busy || !state.available;
+    const topdown = el.view.value === 'topdown', space = el.environment.value === 'space';
+    el.people.disabled = disabled || topdown;
+    el.density.disabled = disabled || topdown || !el.people.checked;
+    el.vegetation.disabled = disabled || space;
+    el['interior-life'].disabled = disabled || topdown || el.environment.value !== 'indoor';
+    el['life-hint'].textContent = topdown
+      ? 'Battlemaps omit people and pets; planting remains as terrain and cover. Your scene-life choices return in immersive view.'
+      : space ? 'Space is exposed vacuum: people wear sealed pressure suits. Plants, pets and aquariums belong in indoor scenes.'
+      : 'Distinct people, mostly young adults, in everyday activities. Plants suit the setting. Indoor pets & aquariums adds one small vignette; select its trait below.';
   }
   function setBusy(busy) {
     state.busy = busy;
     for (const input of get('bg-dynamic').querySelectorAll('button, input, select, textarea')) input.disabled = busy || !state.available;
+    updateLifeControls();
     if (!busy) {
       drawTraits();
       el.animate.disabled = el.view.value === 'topdown';
@@ -58,6 +75,9 @@
     el.traits.replaceChildren();
     for (const table of state.catalogue?.tables || []) {
       if (el.view.value === 'topdown' && ['Sky', 'Distant features', 'Motion'].includes(table.name)) continue;
+      if (table.name === 'Activity' && (el.view.value === 'topdown' || !el.people.checked)) continue;
+      if (table.name === 'Interior life' && (el.view.value === 'topdown' || !el['interior-life'].checked)) continue;
+      if (table.name === 'Vegetation' && el.vegetation.value === 'none') continue;
       const values = relevantValues(table, el.environment.value);
       if (!values.length) continue;
       const row = document.createElement('div'); row.className = 'bg-trait-row';
@@ -229,9 +249,17 @@
         delete state.plan.traits[name]; state.locked.delete(name);
       }
     }
+    updateLifeControls();
     drawTraits(); el.status.textContent = 'Environment changed; incompatible traits and their locks were cleared. Update preview to roll this setting.';
   });
+  for (const input of [el.people, el.density, el.vegetation, el['interior-life']]) {
+    input.addEventListener('change', () => {
+      updateLifeControls(); drawTraits();
+      el.status.textContent = 'Scene life changed. Update preview to see the new prompt; Render scenes also applies these settings.';
+    });
+  }
   el.view.addEventListener('change', () => {
+    updateLifeControls();
     el.animate.disabled = el.view.value === 'topdown';
     if (el.view.value === 'topdown') { el.width.value = 1536; el.height.value = 1536; }
     drawTraits();
@@ -245,8 +273,14 @@
     for (const key of ['environment', 'view', 'width', 'height', 'seed', 'notes']) {
       if (plan[key] !== undefined) el[key].value = plan[key];
     }
+    // Original scenes predate scene-life controls and explicitly excluded people.
+    el.people.checked = plan.populatePeople ?? false;
+    el.density.value = plan.populationDensity ?? 'natural';
+    el.vegetation.value = plan.vegetation ?? 'none';
+    el['interior-life'].checked = plan.interiorLife ?? false;
     el.count.value = 1; state.locked = new Set(Object.keys(plan.traits));
     showPlan(JSON.parse(JSON.stringify(plan))); get('bg-mode').value = 'dynamic'; state.modeChosen = true; mode();
+    setBusy(false);
     el.status.textContent = 'Saved scene loaded with all traits locked. Unlock or change any trait to create variations.';
     get('bg-dynamic').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });

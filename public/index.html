@@ -268,7 +268,17 @@
       <label>Height <input id="bg-dynamic-height" type="number" min="64" max="8192" value="1080" /></label>
       <label>Seed <input id="bg-dynamic-seed" type="number" min="0" max="4294967295" placeholder="Random" /></label>
     </div>
-    <label class="bg-notes">Additional scene / layout notes<textarea id="bg-dynamic-notes" rows="2" maxlength="4000" placeholder="Optional: a damaged bridge divides the district; multiple routes between cover"></textarea></label>
+    <fieldset class="bg-scene-life">
+      <legend>Scene life</legend>
+      <div class="filter-row">
+        <label><input id="bg-dynamic-people" type="checkbox" checked aria-describedby="bg-dynamic-life-hint" /> Populate with people</label>
+        <label>Population <select id="bg-dynamic-density"><option value="sparse">Sparse</option><option value="natural" selected>Natural</option><option value="lively">Lively</option></select></label>
+        <label>Vegetation <select id="bg-dynamic-vegetation"><option value="none">Off</option><option value="balanced" selected>Balanced</option><option value="lush">Lush</option></select></label>
+        <label><input id="bg-dynamic-interior-life" type="checkbox" checked aria-describedby="bg-dynamic-life-hint" /> Indoor pets &amp; aquariums</label>
+      </div>
+      <p id="bg-dynamic-life-hint">Distinct people, mostly young adults, in everyday activities. Plants suit the environment; indoor life adds a small pet or fish tank.</p>
+    </fieldset>
+    <label class="bg-notes">Additional scene / layout notes<textarea id="bg-dynamic-notes" rows="2" maxlength="4000" placeholder="Optional: a courtyard café with flowering shrubs; keep the central walkway clear"></textarea></label>
     <div class="filter-row">
       <button type="button" id="bg-dynamic-roll">Randomize unlocked</button>
       <button type="button" id="bg-dynamic-refresh">Refresh pools</button>

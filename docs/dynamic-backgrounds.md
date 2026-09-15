@@ -6,6 +6,36 @@ picker, a lock and a reroll button. **Update preview** uses the displayed seed;
 **Randomize unlocked** and individual rerolls choose a fresh seed. Layout notes
 add your own requirements to the scene.
 
+### Scene life
+
+**Populate with people** starts enabled. Choose **Sparse**, **Natural** (default)
+or **Lively** population. People have everyday activities, varied heights, builds,
+faces, hair, skin tones, sexes and clothing. Prompts favor young adults (median
+around 20–25) alongside some older adults, with children exceptionally rare.
+Uniforms may match; individual appearances should remain distinct. These are
+directions to the image model, so generated crowd sizes and appearances can vary.
+
+**Vegetation** starts at **Balanced**, with **Lush** and **Off** options. Outdoors,
+the choices include wild plants, large trees, medium and small shrubs, orchids,
+flowers and cultivated large/medium bonsai. Indoors, they include potted plants,
+orchids and small bonsai. **Indoor pets & aquariums** starts enabled and chooses
+a small cat, cute dog, fox or fish tank. Use the **Vegetation**, **Interior life**
+and **Activity** trait pickers below to choose, omit, lock or reroll details.
+The prompt gives the setting priority: abandoned scenes use sparse visitors,
+and pets or tanks are omitted in sterile, hazardous or unattended locations.
+
+Changing a setting marks the preview as needing an update; **Render scenes**
+always applies the current settings. Disabled features retain their chosen traits
+for when you turn them back on. Space disables greenery and indoor life and uses
+suited workers. Top-down views disable people and pets, keeping planting as terrain
+and cover. Switching back restores your choices. Scene-life settings are saved
+beside each image and restored by **Load saved traits**; older scenes load with
+the new additions off. Animation prompts retain people's identities and use small
+gestures, with gentle movement for existing pets or fish.
+
+These controls apply to **Dynamic traits**. **Bespoke catalogue** continues to
+render its authored prompts.
+
 **Render scenes** uses the first preview and rolls unlocked traits for additional
 scenes. Lock all for seed variations of the same scene; unlock selected traits
 for new combinations. A fixed seed, unchanged pools and the same selected traits

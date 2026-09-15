@@ -521,7 +521,9 @@ and open <http://127.0.0.1:5089>.
   **Dynamic traits** is the other render mode: roll a scene from the
   generator's `background-generator-tables.md` with per-trait locks and
   rerolls, preview its prompt before ComfyUI starts, reload a saved scene's
-  traits, and turn any still into a gridless top-down battlemap. See
+  traits, and turn any still into a gridless top-down battlemap. **Scene life**
+  adds default-on distinct people, population density, balanced/lush vegetation,
+  and indoor pets or aquariums, with context-sensitive controls. See
   [Dynamic backgrounds and battlemaps](docs/dynamic-backgrounds.md).
 
   **Animate each still when it lands** chains an animation onto every image a

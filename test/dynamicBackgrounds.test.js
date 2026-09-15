@@ -34,7 +34,8 @@ test('preview passes Unicode and multiline scene requests through stdin', async 
 test('reject unsafe dimensions, seeds, counts, contexts and malformed traits before spawn', () => {
     for (const bad of [{ width: 0 }, { height: 9000 }, { count: 9 }, { seed: 2 ** 32 },
         { seed: -1 }, { environment: 'wat' }, { traits: [] }, { locked: 'Location' },
-        { view: 'tilted' }, { notes: 'a'.repeat(4001) }, null]) {
+        { view: 'tilted' }, { notes: 'a'.repeat(4001) }, { populatePeople: 'false' },
+        { interiorLife: 0 }, { populationDensity: 'packed' }, { vegetation: false }, null]) {
         assert.throws(() => dynamic.validateRequest(bad));
     }
     assert.doesNotThrow(() => dynamic.validateRequest({ environment: 'space', seed: 0, count: 8, width: 1920, height: 1080 }));

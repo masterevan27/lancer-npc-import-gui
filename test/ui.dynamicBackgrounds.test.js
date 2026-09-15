@@ -11,6 +11,52 @@ test('changing weather releases unlocked motion but respects explicit locks', ()
     assert.equal(changeTrait(plan, 'Weather', 'snow', ['Motion']).Motion, 'rain falling');
 });
 
+test('scene life defaults and explicit opt-outs survive preview and render requests', () => {
+    const defaults = sceneRequest(null, {}, []);
+    assert.equal(defaults.populatePeople, true);
+    assert.equal(defaults.populationDensity, 'natural');
+    assert.equal(defaults.vegetation, 'balanced');
+    assert.equal(defaults.interiorLife, true);
+    for (const render of [false, true]) {
+        const request = sceneRequest(null, { populatePeople: false, populationDensity: 'sparse',
+            vegetation: 'none', interiorLife: false, count: 3 }, [], { render });
+        assert.equal(request.populatePeople, false);
+        assert.equal(request.populationDensity, 'sparse');
+        assert.equal(request.vegetation, 'none');
+        assert.equal(request.interiorLife, false);
+    }
+});
+
+test('top-down disables people controls and returning to perspective restores the choice', () => {
+    const { elements } = uiFixture();
+    const people = elements.get('bg-dynamic-people');
+    people.checked = true;
+    elements.get('bg-dynamic-view').value = 'topdown';
+    elements.get('bg-dynamic-view').listeners.change();
+    assert.equal(people.disabled, true);
+    assert.equal(elements.get('bg-dynamic-density').disabled, true);
+    elements.get('bg-dynamic-view').value = 'perspective';
+    elements.get('bg-dynamic-view').listeners.change();
+    assert.equal(people.disabled, false);
+    assert.equal(people.checked, true);
+    assert.equal(elements.get('bg-dynamic-density').disabled, false);
+});
+
+test('loading a saved scene restores life settings and legacy scenes keep people off', async () => {
+    const { elements, ui } = uiFixture();
+    ui.onSelect({ rel: 'alive.png', scene: { environment: 'indoor', view: 'perspective', seed: 8,
+        traits: {}, populatePeople: false, populationDensity: 'sparse', vegetation: 'lush', interiorLife: false } });
+    await elements.get('bg-load-scene').listeners.click();
+    assert.equal(elements.get('bg-dynamic-people').checked, false);
+    assert.equal(elements.get('bg-dynamic-density').value, 'sparse');
+    assert.equal(elements.get('bg-dynamic-vegetation').value, 'lush');
+    assert.equal(elements.get('bg-dynamic-interior-life').checked, false);
+    ui.onSelect({ rel: 'legacy.png', scene: { environment: 'indoor', seed: 3, traits: {} } });
+    await elements.get('bg-load-scene').listeners.click();
+    assert.equal(elements.get('bg-dynamic-people').checked, false);
+    assert.equal(elements.get('bg-dynamic-vegetation').value, 'none');
+});
+
 function uiFixture(apiOverride) {
     const elements = new Map();
     function node() {
