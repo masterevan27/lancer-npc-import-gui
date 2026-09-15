@@ -69,12 +69,14 @@ test('expired private requests clear authentication without returning the body',
     assert.equal(expired, true);
 });
 
-async function page(authenticated, privateItems) {
+async function page(authenticated, privateItems, respond = () => undefined) {
     const fs = require('node:fs'), vm = require('node:vm');
     const html = fs.readFileSync(require.resolve('../public/index.html'), 'utf8');
     class Element {
         constructor() { this.children = []; this.value = ''; this.hidden = false; this.disabled = false; this.textContent = ''; this.listeners = {}; this.dataset = {}; this.classList = { add() {}, remove() {}, toggle() {} }; }
         addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
+        removeEventListener(name, callback) { this.listeners[name] = (this.listeners[name] || []).filter(fn => fn !== callback); }
+        click() { return this.dispatch('click'); }
         async dispatch(name, extra = {}) { for (const callback of this.listeners[name] || []) await callback({ preventDefault() {}, target: this, ...extra }); }
         replaceChildren(...children) { this.children = children; }
         append(...children) { this.children.push(...children); }
@@ -83,6 +85,7 @@ async function page(authenticated, privateItems) {
         setAttribute() {}
     }
     const nodes = Object.fromEntries([...html.matchAll(/id="([^"]+)"/g)].map(match => [match[1], new Element()]));
+    nodes['set-trait-overlay'].hidden = true;
     const selectors = ['create-art-style', 'create-ship-art-style', 'bg-art-style', 'regen-art-style'].map(id => nodes[id]);
     const guidanceSelectors = ['create-color-guidance', 'regen-color-guidance'].map(id => nodes[id]);
     const document = new Element(); document.body = new Element();
@@ -97,6 +100,7 @@ async function page(authenticated, privateItems) {
     const window = new Element();
     window.location = { replace: path => navigations.push(path) };
     window.setInterval = () => 1;
+    window.setTimeout = callback => setImmediate(callback);
     window.fetch = async (path, options = {}) => {
         requests.push({ path, options });
         let body = {};
@@ -110,14 +114,20 @@ async function page(authenticated, privateItems) {
         ] };
         if (path === '/api/secret/items') body = { items: privateItems || [{ id: 'one', kind: 'npc', name: 'Private NPC',
             portraitUrl: '/api/secret/image?rel=one.png', portraitPrompt: 'Private portrait prompt', artStyle: { name: 'Private Ink' } }] };
-        return new Response(JSON.stringify(body), { status: 200 });
+        const custom = await respond(path, options);
+        return new Response(JSON.stringify(custom === undefined ? body : custom), { status: 200 });
     };
     function Option(text, value) { this.textContent = text; this.value = value; }
     const app = fs.readFileSync(require.resolve('../public/app.js'), 'utf8');
     const zoomCode = app.slice(app.indexOf('function attachImageZoom('), app.indexOf('attachImageZoom(el.detailPortrait)'));
     const attachImageZoom = new Function('el', zoomCode + '; return attachImageZoom;')({ imageZoom: nodes['image-zoom'], imageZoomImg: nodes['image-zoom-img'] });
-    vm.runInNewContext(fs.readFileSync(require.resolve('../public/secret-mode'), 'utf8'),
-        { window, document, Option, Response, console, setTimeout, Date, attachImageZoom });
+    const elSetTrait = Object.fromEntries(['overlay', 'title', 'filter', 'list', 'releaseRow', 'release', 'releaseLabel', 'warning', 'cancel', 'ok']
+        .map(key => [key, nodes['set-trait-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())]]));
+    const context = vm.createContext({ window, document, Option, Response, console, setTimeout, Date, attachImageZoom, elSetTrait,
+        fetch: (...args) => window.SecretMode.fetch(...args), escapeHtml: text => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;') });
+    vm.runInContext(app.slice(app.indexOf('function groupChoices('), app.indexOf('function traitControlCells('))
+        + app.slice(app.indexOf('function openSetTrait('), app.indexOf('function markSeen(')), context);
+    vm.runInContext(fs.readFileSync(require.resolve('../public/secret-mode'), 'utf8'), context);
     await document.dispatch('DOMContentLoaded');
     await new Promise(resolve => setImmediate(resolve));
     return { nodes, window, document, requests, navigations };
@@ -134,6 +144,61 @@ test('private detail cycles through filtered items and offers per-trait rerolls'
     assert.equal(nodes['secret-detail-name'].textContent, 'Beta');
     await document.dispatch('keydown', { key: 'ArrowLeft' });
     assert.equal(nodes['secret-detail-name'].textContent, 'Alpha');
+});
+
+test('Secret Set opens the shared picker, saves its exact value and refreshes the detail', async () => {
+    const items = [{ id: 'a', name: 'Alpha', kind: 'npc', secret: true, hasRawTraits: true,
+        traits: { Outfit: 'jacket', Headgear: 'helmet' }, rerollable: ['Outfit'] }];
+    const { nodes, requests, document } = await page(true, items, (path, options) => {
+        if (path.startsWith('/api/secret/trait-choices?')) return { choices: [
+            { value: 'robe || civ', label: 'robe · civ', allowed: true, current: false, conflicts: ['Headgear'], releases: ['Headgear'] },
+        ] };
+        if (path === '/api/secret/set-trait') {
+            items[0].traits.Outfit = 'robe'; items[0].portraitPrompt = 'wearing a robe'; items[0].artStale = true;
+            return { jobId: 'edit' };
+        }
+        if (path === '/api/secret/create-status?jobId=edit') return { status: 'done' };
+    });
+    await nodes['secret-grid'].children[0].dispatch('click');
+    const button = nodes['secret-detail-traits'].children[0].children.flatMap(cell => cell.children).find(node => node.className === 'set-trait-btn');
+    assert.ok(button, 'the private NPC row offers Set');
+    const pending = button.dispatch('click');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(nodes['set-trait-overlay'].hidden, false);
+    assert.ok(requests.some(request => request.path === '/api/secret/trait-choices?id=a&trait=Outfit'));
+    assert.match(nodes['set-trait-list'].innerHTML, /robe/);
+    await document.dispatch('keydown', { key: 'ArrowRight' });
+    assert.equal(nodes['secret-detail-name'].textContent, 'Alpha');
+    await nodes['set-trait-list'].dispatch('change', { target: { value: 'robe || civ' } });
+    assert.equal(nodes['set-trait-release-row'].hidden, false);
+    nodes['set-trait-release'].checked = true;
+    await nodes['set-trait-ok'].dispatch('click');
+    await pending;
+    const sent = requests.find(request => request.path === '/api/secret/set-trait');
+    assert.deepEqual(JSON.parse(sent.options.body), { id: 'a', trait: 'Outfit', value: 'robe || civ', release: ['Headgear'] });
+    assert.ok(nodes['secret-detail-traits'].children[0].children.some(cell => cell.textContent === 'robe'));
+    assert.match(nodes['secret-detail-prompts'].textContent, /wearing a robe/);
+    assert.match(nodes['secret-detail-status'].textContent, /Regenerate/);
+});
+
+test('leaving Secret clears the open picker and discards a late choices response', async () => {
+    let finish;
+    const { nodes, requests } = await page(true, [{ id: 'a', name: 'Alpha', kind: 'npc', secret: true,
+        hasRawTraits: true, traits: { Outfit: 'jacket' }, rerollable: ['Outfit'] }], path => {
+        if (path.startsWith('/api/secret/trait-choices?')) return new Promise(resolve => { finish = resolve; });
+    });
+    await nodes['secret-grid'].children[0].dispatch('click');
+    const button = nodes['secret-detail-traits'].children[0].children.flatMap(cell => cell.children).find(node => node.className === 'set-trait-btn');
+    assert.ok(button, 'the private NPC row offers Set');
+    const pending = button.dispatch('click');
+    await new Promise(resolve => setImmediate(resolve));
+    await nodes['leave-secret'].dispatch('click');
+    assert.equal(nodes['set-trait-overlay'].hidden, true);
+    finish({ choices: [{ value: 'private choice', label: 'private choice', conflicts: [], releases: [] }] });
+    await pending;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(nodes['set-trait-list'].textContent, '');
+    assert.equal(requests.some(request => request.path === '/api/secret/set-trait'), false);
 });
 
 test('logged-out page populates all selectors without hidden names', async () => {
@@ -193,7 +258,7 @@ test('private background details display saved scene prompts and traits', async 
         background: { scene: { prompt: 'Private scene prompt', traits: { Location: 'a station' } } } }]);
     await nodes['secret-grid'].children[0].dispatch('click');
     assert.match(nodes['secret-detail-prompts'].textContent, /Private scene prompt/);
-    assert.equal(nodes['secret-detail-traits'].children[0].children[2].textContent, 'a station');
+    assert.equal(nodes['secret-detail-traits'].children[0].children[3].textContent, 'a station');
 });
 
 test('private catalogue completion refreshes without requiring an animation chain or public announcement', async () => {

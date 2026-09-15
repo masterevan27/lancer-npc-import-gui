@@ -114,9 +114,11 @@ body {
 .secret-detail-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: var(--fs-sm); }
 .detail-images img.secret-image-expanded { max-height: none; max-width: min(85vw, 1100px); }
 #secret-detail-images { flex-wrap: wrap; }
+.secret-trait-table { width: 100%; table-layout: fixed; }
 #secret-detail-traits td { padding: var(--sp-2); vertical-align: top; overflow-wrap: anywhere; }
-#secret-detail-traits td:first-child { width: 5rem; }
-#secret-detail-traits td:nth-child(2) { min-width: 7rem; color: var(--text-3); }
+#secret-detail-traits td:nth-child(-n+2) { width: 5rem; white-space: nowrap; }
+#secret-detail-traits td:nth-child(3) { width: 8rem; color: var(--text-3); }
+#set-trait-overlay { z-index: 15; }
 #secret-login-form .form-field { margin-bottom: var(--sp-4); }
 #secret-open { margin-bottom: var(--sp-4); }
 #secret-grid .card:focus-visible { box-shadow: var(--focus-ring); }
@@ -136,8 +138,8 @@ body {
 .secret-mode #detail-delete-btn,
 .secret-mode #import-btn,
 .secret-mode #delete-btn,
-.secret-mode .reroll-btn,
-.secret-mode .set-trait-btn { display: none; }
+.secret-mode #detail-overlay .reroll-btn,
+.secret-mode #detail-overlay .set-trait-btn { display: none; }
 /* Buttons and inputs otherwise pick up the browser's own control font, which
    on Windows is a different face at 13.33px from the page's. Only the family
    is inherited: sizes are set per rule below so nothing silently grows. */
@@ -185,8 +187,8 @@ button, a, label, select, input {
   z-index: 5;
 }
 .topbar h1 { font-size: 1.1rem; margin: 0; letter-spacing: 0.02em; white-space: nowrap; }
-.topbar-actions { position: relative; display: flex; align-items: center; gap: 1.5rem; }
-.release-version { position: absolute; right: 100%; margin-right: 0.75rem; color: var(--text-3); font-size: var(--fs-xs); white-space: nowrap; }
+.topbar-actions { margin-left: auto; display: flex; flex-shrink: 0; align-items: center; gap: 0.75rem; }
+.release-version { color: var(--text-3); font-size: var(--fs-xs); white-space: nowrap; }
 
 .tabs { display: flex; gap: 0.4rem; }
 .tabs button {
@@ -763,11 +765,10 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 }
 
 /* ---- Settings ----
-   The top-bar button pushes itself to the right edge, away from the tabs, so
+   The top-bar actions group pushes Settings to the right edge, away from the tabs, so
    it does not read as a seventh tab. The dialog is the confirm dialogs' shell
    made wide enough for a full Windows path, with one fieldset per group. */
 .settings-open {
-  margin-left: auto;
   background: none;
   border: 1px solid var(--line-strong);
   color: var(--text-3);

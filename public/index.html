@@ -169,9 +169,9 @@
       <label><input type="checkbox" id="create-unarmed" /> Unarmed run <span class="hint">(military and criminal roles keep their weapons)</span></label>
     </div>
 
-    <h3>Trait overrides <span class="hint">(force specific rolled traits, e.g. Role = a field medic)</span></h3>
+    <h3>Set traits <span class="hint">(choose specific values before generation, e.g. Role = a field medic)</span></h3>
     <div class="filter-rows" id="override-rows"></div>
-    <button id="add-override" type="button">+ Add trait override</button>
+    <button id="add-override" type="button">+ Set trait</button>
 
     <!--
       Secret mode only: the user's own roll tables from the secret-tables
@@ -937,12 +937,11 @@
       <input type="checkbox" id="set-trait-release">
       <span id="set-trait-release-label"></span>
     </label>
-    <p class="confirm-warning" id="set-trait-warning">The chosen bullet replaces the current one and
-      there is no undo, and the re-render takes a few minutes with ComfyUI
-      running.</p>
+    <p class="confirm-warning" id="set-trait-warning">This replaces the stored trait and updates the prompts.
+      Use Regenerate when you are ready to update the images.</p>
     <div class="confirm-actions">
       <button id="set-trait-cancel" type="button">Cancel</button>
-      <button id="set-trait-ok" type="button">Set and regen</button>
+      <button id="set-trait-ok" type="button">Set trait</button>
     </div>
   </div>
 </div>
@@ -1003,10 +1002,10 @@
     <p id="secret-detail-style" class="hint"></p>
     <nav class="regen-row" aria-label="Secret image navigation"><button id="secret-detail-prev" type="button">← Previous</button><button id="secret-detail-next" type="button">Next →</button><span class="hint">← → cycle · Hover to expand · Esc close</span></nav>
     <div id="secret-detail-images" class="detail-images"></div>
-    <table><tbody id="secret-detail-traits"></tbody></table>
+    <table class="secret-trait-table"><tbody id="secret-detail-traits"></tbody></table>
     <section id="secret-regen-panel" class="regen-panel">
       <h3>Regenerate</h3>
-      <p class="hint">Re-roll updates traits and prompts. Regenerate applies them to the images.</p>
+      <p class="hint">Re-roll and Set update traits and prompts. Regenerate applies them to the images.</p>
       <div class="regen-row">
         <label>Images<select id="secret-regen-which"><option value="both">Both</option><option value="portrait">Portrait</option><option value="token">Token</option></select></label>
         <label>Seed<select id="secret-regen-seed-mode"><option value="same">Same seed</option><option value="random">Random seed</option><option value="specific">Specific seed</option></select></label>

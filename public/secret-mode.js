@@ -116,6 +116,9 @@
   const post = (path, body) => json(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
   function clearPrivateView() {
+    if (!get('set-trait-overlay').hidden) get('set-trait-cancel').click();
+    for (const id of ['set-trait-title', 'set-trait-list', 'set-trait-release-label']) get(id).textContent = '';
+    get('set-trait-filter').value = '';
     galleryItems = []; visibleItems = []; detailId = null; galleryRequest += 1;
     for (const id of ['secret-grid', 'secret-detail-images', 'secret-detail-prompts', 'secret-detail-traits']) get(id)?.replaceChildren();
     for (const id of ['secret-detail-name', 'secret-detail-style', 'secret-storage-path']) {
@@ -297,23 +300,33 @@
     const traits = item.background?.scene?.traits || item.traits || {};
     const traitRows = get('secret-detail-traits'); traitRows.replaceChildren();
     for (const [key, value] of Object.entries(traits)) {
-      const row = document.createElement('tr'), control = document.createElement('td'), name = document.createElement('td'), text = document.createElement('td');
+      const row = document.createElement('tr'), control = document.createElement('td'), setControl = document.createElement('td'), name = document.createElement('td'), text = document.createElement('td');
       if ((item.rerollable || []).includes(key)) {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'reroll-btn'; button.textContent = 'Re-roll';
         button.disabled = detailBusy || item.regenStatus === 'running';
         button.addEventListener('click', () => mutateDetail('/api/secret/reroll-trait', { id: item.id, trait: key }));
         control.append(button);
+        if (item.hasRawTraits) {
+          const set = document.createElement('button'); set.type = 'button'; set.className = 'set-trait-btn'; set.textContent = 'Set…';
+          set.disabled = detailBusy || item.regenStatus === 'running';
+          set.addEventListener('click', async () => {
+            const picked = await openSetTrait(item, key);
+            if (!picked || !transport.authenticated || detailId !== item.id) return;
+            await mutateDetail('/api/secret/set-trait', { id: item.id, trait: key, value: picked.value, release: picked.release });
+          });
+          setControl.append(set);
+        }
       }
       name.textContent = key;
       text.textContent = (item.disabledTables || []).includes(key) ? `${value} (left out of the prompt)` : value;
-      row.append(control, name, text); traitRows.append(row);
+      row.append(control, setControl, name, text); traitRows.append(row);
     }
     // The secret tables' rolled values, after the defaults. Not re-rollable
     // from here: the values were drawn from a file the entry does not name.
     for (const [key, value] of Object.entries(item.extraTraits || {})) {
       const row = document.createElement('tr'), control = document.createElement('td'), name = document.createElement('td'), text = document.createElement('td');
       row.className = 'secret-extra-trait'; name.textContent = key; text.textContent = value;
-      row.append(control, name, text); traitRows.append(row);
+      row.append(control, document.createElement('td'), name, text); traitRows.append(row);
     }
     get('secret-regen-panel').hidden = item.kind === 'background';
     get('secret-regen-btn').disabled = detailBusy || item.regenStatus === 'running';
@@ -342,6 +355,7 @@
   }
 
   function closeDetail() {
+    if (!get('set-trait-overlay').hidden) get('set-trait-cancel').click();
     get('secret-detail-overlay').hidden = true;
     get('image-zoom').hidden = true;
     detailId = null;
@@ -353,7 +367,8 @@
     const owner = body.id;
     const item = galleryItems.find(item => item.id === owner);
     if (item) openDetail(item, true);
-    get('secret-detail-status').textContent = route.endsWith('reroll-trait') ? 'Re-rolling trait…' : 'Regenerating…';
+    const editing = route.endsWith('reroll-trait') || route.endsWith('set-trait');
+    get('secret-detail-status').textContent = editing ? 'Updating trait…' : 'Regenerating…';
     try {
       const { jobId } = await post(route, body);
       let job;
@@ -364,7 +379,7 @@
       } while (job.status === 'running');
       if (job.status !== 'done') throw new Error(job.error || job.log || 'Generation failed');
       await loadGallery();
-      if (detailId === owner) get('secret-detail-status').textContent = route.endsWith('reroll-trait') ? 'Traits and prompts updated. Regenerate to update the images.' : 'Images regenerated.';
+      if (detailId === owner) get('secret-detail-status').textContent = editing ? 'Traits and prompts updated. Regenerate to update the images.' : 'Images regenerated.';
     } catch (err) {
       if (detailId === owner) get('secret-detail-status').textContent = err.message;
     } finally {
@@ -425,6 +440,11 @@
       workflow: get('secret-regen-workflow').value,
     }));
     document.addEventListener('keydown', event => {
+      if (event.defaultPrevented) return;
+      if (!get('set-trait-overlay').hidden) {
+        if (event.key === 'Escape') { event.preventDefault(); get('set-trait-cancel').click(); }
+        return;
+      }
       if (!get('secret-detail-overlay').hidden && !event.ctrlKey && !event.altKey && !event.metaKey &&
           !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) && !document.activeElement?.isContentEditable) {
         if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {

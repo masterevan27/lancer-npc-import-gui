@@ -727,6 +727,17 @@ before changing any `/importer/*` route — the client ships inside a released
 
 ## Art styles and Secret mode
 
+To choose values before generating an NPC, open **Create NPC** and click
+**+ Set trait** under **Set traits**. Choose a table, then search and select its value. These selections
+apply in both normal and Secret mode.
+
+To change a generated NPC, open its card under **Import Generated Art** (use
+**Secret Images** for a private NPC) and click **Set…** beside a trait. The same
+searchable picker shows the current value and any conflicts, with an option to
+re-roll conflicting traits. Setting a value updates the stored traits and
+prompts; click **Regenerate** to update the images. Set requires an NPC with
+recorded raw traits, as in normal mode.
+
 NPC, spaceship, and background creation include an **Art style** selector. The
 generator's `art-styles.json` supplies the custom choices. **Default** preserves
 the existing generator prompts. Choose **None (no art style)** to omit the house

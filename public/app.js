@@ -487,6 +487,7 @@ function openSetTrait(item, trait) {
   return new Promise((resolve) => {
     let choices = [];
     let selected = null;
+    let closed = false;
 
     elSetTrait.title.textContent = `Set ${trait}`;
     elSetTrait.filter.value = "";
@@ -499,6 +500,7 @@ function openSetTrait(item, trait) {
     elSetTrait.cancel.focus();
 
     const cleanup = (result) => {
+      closed = true;
       elSetTrait.overlay.hidden = true;
       elSetTrait.ok.removeEventListener("click", onOk);
       elSetTrait.cancel.removeEventListener("click", onCancel);
@@ -595,9 +597,10 @@ function openSetTrait(item, trait) {
     elSetTrait.list.addEventListener("change", onPick);
 
     api(
-      `/api/trait-choices?id=${encodeURIComponent(item.id)}&trait=${encodeURIComponent(trait)}`,
+      `/api/${item.secret ? "secret/" : ""}trait-choices?id=${encodeURIComponent(item.id)}&trait=${encodeURIComponent(trait)}`,
     )
       .then((data) => {
+        if (closed) return;
         choices = data.choices || [];
         selected = choices.find((c) => c.current) || null;
         elSetTrait.filter.hidden = choices.length < 12;
@@ -609,6 +612,7 @@ function openSetTrait(item, trait) {
         elSetTrait.ok.disabled = !selected;
       })
       .catch((err) => {
+        if (closed) return;
         elSetTrait.list.textContent = `Could not list the values: ${err.message}`;
         elSetTrait.ok.disabled = true;
       });

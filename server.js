@@ -3462,7 +3462,7 @@ function readTraitChoices(item, trait) {
  * payload's keys come from the generator and a spread would let a future key
  * named `ok` or `reason` collide with the envelope.
  */
-function runTraitChoices(item, trait) {
+function runTraitChoices(item, trait, manifestPath = config.npcManifestPath, extraArgs = []) {
     const kindEntry = kindOf(KINDS, item);
     if (!fs.existsSync(kindEntry.script)) {
         return Promise.resolve({
@@ -3473,7 +3473,8 @@ function runTraitChoices(item, trait) {
     let args;
     try {
         args = traitChoices.choicesArgs(
-            kindEntry.script, config.npcManifestPath, item.id, trait);
+            kindEntry.script, manifestPath, item.id, trait);
+        args.push('--tables', kindEntry.tables, ...extraArgs);
     } catch (err) {
         return Promise.resolve({ ok: false, reason: err.message });
     }
@@ -3481,7 +3482,7 @@ function runTraitChoices(item, trait) {
     return new Promise((resolve) => {
         let child;
         try {
-            child = spawn(config.pythonExecutable, args, { cwd: path.dirname(kindEntry.script) });
+            child = spawn(config.pythonExecutable, args, { cwd: path.dirname(kindEntry.script), windowsHide: true });
         } catch (err) {
             return resolve({ ok: false, reason: `could not run ${config.pythonExecutable}: ${err.message}` });
         }
@@ -3962,6 +3963,35 @@ async function handleSecretApi(req, res, url, authenticated) {
             return sendJson(res, 200, { secretImagesDir: secretGallery.root });
         }
         if (route === '/items' && req.method === 'GET') return sendJson(res, 200, { items: secretGallery.items() });
+        if ((route === '/trait-choices' && req.method === 'GET') || (route === '/set-trait' && req.method === 'POST')) {
+            const setting = route === '/set-trait';
+            const body = setting ? JSON.parse(await readBody(req, 256 * 1024)) : {};
+            const item = secretGallery.find(setting ? body.id : url.searchParams.get('id'));
+            if (!item) return sendJson(res, 404, { error: 'Unknown private item' });
+            const kind = kindFor(KINDS, item.kind || 'npc');
+            if (!kind?.supports.setTrait) return sendJson(res, 400, { error: 'Setting traits unavailable for this kind' });
+            if (!hasRawTraits(item)) return sendJson(res, 400, { error: 'This NPC recorded no raw bullets. Re-roll the NPC to record them before choosing a trait.' });
+            const trait = setting ? body.trait : url.searchParams.get('trait');
+            if (!rerollableFor({ ...item, kind: kind.id }).includes(trait)) return sendJson(res, 400, { error: 'Unknown or unavailable trait' });
+            if ([...secretGallery.jobs.values()].some(job => job.itemId === item.id && job.status === 'running')) {
+                return sendJson(res, 409, { error: 'Wait for the current edit or regeneration to finish' });
+            }
+            // Query the private manifest directly; public choice caches must
+            // never hold these NPCs, even when a public NPC has the same id.
+            const query = await runTraitChoices({ ...item, kind: kind.id }, trait, path.join(secretGallery.root, 'manifest.json'),
+                ['--secret', '--secret-config', CONFIG_FILE, '--art-styles', ART_STYLES_PATH,
+                    ...(kind.id === DEFAULT_KIND ? ['--color-guidance-catalog', COLOR_GUIDANCE_PATH] : [])]);
+            if (!query.ok) return sendJson(res, 502, { error: query.reason });
+            if (!setting) return sendJson(res, 200, { ...query.data,
+                choices: query.data.choices.map(choice => ({ ...choice, label: traitOptions.readableLabel(choice.value) })) });
+            const choice = query.data.choices.find(candidate => candidate.value === body.value);
+            if (!choice) return sendJson(res, 400, { error: 'This value is not offered by the trait table. Reload the choices.' });
+            const release = body.release === undefined ? [] : body.release;
+            if (!Array.isArray(release) || release.some(name => typeof name !== 'string' || !choice.conflicts.includes(name))) {
+                return sendJson(res, 400, { error: 'Only traits conflicting with this value can be released' });
+            }
+            return sendJson(res, 202, secretGallery.startRegen(kind, item, {}, null, { table: trait, value: choice.value, release }));
+        }
         if (route === '/tables' && req.method === 'GET') {
             return sendJson(res, 200, {
                 ...secretTables.listSecretTables(DERIVED_PATHS.secretTablesDir, { reserved: OVERRIDE_DATA_BY_KIND[DEFAULT_KIND].tables }),
