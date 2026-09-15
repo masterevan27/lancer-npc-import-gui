@@ -66,12 +66,12 @@ test('the Animate panel carries the button and hides it when there is nowhere to
 
     assert.match(html, /<button type="button" id="bg-st-import-btn">Import into SillyTavern<\/button>/);
     assert.match(html, /<p class="regen-status" id="bg-st-import-status"><\/p>/);
-    assert.match(js, /stImportBtn: document\.getElementById\('bg-st-import-btn'\)/);
+    assert.match(js, /stImportBtn: document\.getElementById\(["']bg-st-import-btn["']\)/);
 
     // The panel's opener is what decides visibility, off the flag the
     // gallery load stored, so a config.json edit is noticed on the next visit.
     assert.match(functionBody(js, 'loadBackgrounds'),
-        /backgroundsState\.sillyTavern = data\.sillyTavern \|\| \{ available: false, dir: '' \}/);
+        /backgroundsState\.sillyTavern = data\.sillyTavern \|\| \{\s*available: false,\s*dir: (?:''|"")\s*,?\s*\}/);
     assert.match(functionBody(js, 'openBackgroundAnimate'),
         /elBackgrounds\.stImportBtn\.hidden = !backgroundsState\.sillyTavern\.available/);
 });
@@ -80,10 +80,10 @@ test('the Animate panel button posts the rel and refreshes the gallery', async (
     const server = await serve(t);
     const js = await fetchText(server, '/app.js');
     const body = functionBody(js, 'importBackgroundToSillyTavern');
-    assert.match(body, /api\('\/api\/backgrounds\/import',\s*\{\s*method: 'POST'/);
+    assert.match(body, /api\(["']\/api\/backgrounds\/import["'],\s*\{\s*method: ["']POST["']/);
     assert.match(body, /body: JSON\.stringify\(\{ rel/);
     assert.match(body, /await reload\(\)/, 'the In SillyTavern pill comes from a reload, not a local flip');
-    const click = /elBackgrounds\.stImportBtn\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
+    const click = /elBackgrounds\.stImportBtn\.addEventListener\(["']click["'][\s\S]*?\n\}\);/.exec(js);
     assert.ok(click, 'no click handler for the Animate panel button');
     assert.match(click[0], /reload: loadBackgrounds/, 'the panel reloads the gallery');
 });
@@ -94,11 +94,11 @@ test('the Import tab sheet offers the same button for a background only', async 
     const js = await fetchText(server, '/app.js');
 
     assert.match(html, /<button id="detail-import-sillytavern" type="button" hidden>Import into SillyTavern<\/button>/);
-    assert.match(js, /detailImportSillyTavern: document\.getElementById\('detail-import-sillytavern'\)/);
+    assert.match(js, /detailImportSillyTavern: document\.getElementById\(["']detail-import-sillytavern["']\)/);
     // Hidden for an NPC or a ship, and for a background with no folder to go to.
     assert.match(functionBody(js, 'openDetail'),
-        /el\.detailImportSillyTavern\.hidden = !isBackground \|\| !item\.background\?\.sillyTavern\?\.available/);
+        /el\.detailImportSillyTavern\.hidden =\s*!isBackground \|\| !item\.background\?\.sillyTavern\?\.available/);
     // The sheet's own line says what it is called over there.
     assert.match(functionBody(js, 'renderBackgroundDetail'), /In SillyTavern as/);
-    assert.match(js, /el\.detailImportSillyTavern\.addEventListener\('click'/);
+    assert.match(js, /el\.detailImportSillyTavern\.addEventListener\(["']click["']/);
 });

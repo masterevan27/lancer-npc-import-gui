@@ -316,10 +316,10 @@ test('both Create forms draw a Clear button beside the value select', async (t) 
     // The offer has to exist on both forms or the ship rows keep the scroll.
     // Counted rather than merely found: one occurrence would mean only the NPC
     // row got it, which is exactly how the two renderers drift.
-    const buttons = [...js.matchAll(/className = 'override-clear'/g)];
+    const buttons = [...js.matchAll(/className = ["']override-clear["']/g)];
     assert.equal(buttons.length, 2,
         `override-clear is created ${buttons.length} times - renderOverrideRows and renderShipOverrideRows each need one`);
-    const searchNotes = [...js.matchAll(/className = 'override-search-note'/g)];
+    const searchNotes = [...js.matchAll(/className = ["']override-search-note["']/g)];
     assert.equal(searchNotes.length, 2,
         `override-search-note is created ${searchNotes.length} times - both forms need the feedback`);
 });
@@ -333,10 +333,11 @@ test('Clear clears the value and keeps the row, on both forms', async (t) => {
         const start = js.indexOf(`function ${fn}(`);
         assert.notEqual(start, -1, `app.js no longer defines ${fn}`);
         const body = js.slice(start, js.indexOf('\nfunction ', start + 1));
-        const at = body.indexOf("clear.addEventListener('click'");
-        assert.notEqual(at, -1, `${fn} draws a Clear button but never wires it up`);
+        const atMatch = /clear\.addEventListener\(["']click["']/.exec(body);
+        assert.ok(atMatch, `${fn} draws a Clear button but never wires it up`);
+        const at = atMatch.index;
         const handler = body.slice(at, at + 400);
-        assert.match(handler, /override\.value = ''/, `${fn}'s Clear does not clear the value`);
+        assert.match(handler, /override\.value = ["']["']/, `${fn}'s Clear does not clear the value`);
         assert.doesNotMatch(handler, /splice\(/,
             `${fn}'s Clear removes the override row - it should only clear the value`);
     }

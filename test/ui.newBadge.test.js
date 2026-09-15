@@ -33,15 +33,15 @@ test('the grid builds a New tag from the server-reported flag', async (t) => {
 
     const js = await fetchText(server, '/app.js');
     assert.match(js, /item\.isNew/, 'app.js never reads the isNew flag /api/items reports');
-    assert.match(js, /'badge new'/, 'nothing in app.js builds a New badge element');
-    assert.match(js, /textContent = 'New'/, 'the New badge carries no label');
+    assert.match(js, /["']badge new["']/, 'nothing in app.js builds a New badge element');
+    assert.match(js, /textContent = ["']New["']/, 'the New badge carries no label');
     // The suppression rule, which is also what keeps a bright pill off a card
     // the stylesheet has already dimmed to 55%.
     assert.match(
         js, /item\.isNew && !item\.imported/,
         'the New tag is no longer suppressed on an imported card');
     // Same flag, second channel: the class the border above hangs off.
-    assert.match(js, /' is-new'/, 'the grid no longer marks a new card for the border rule');
+    assert.match(js, /["'] is-new["']/, 'the grid no longer marks a new card for the border rule');
 });
 
 test('the New tag is a second badge, not another arm of the status chain', async (t) => {
@@ -53,7 +53,7 @@ test('the New tag is a second badge, not another arm of the status chain', async
     // tag into the chain, at which cost a new-and-regenerating NPC shows only
     // one of the two. Assert the chain is still there and that the New tag's
     // own branch is an independent `if`, not an `else if` continuing it.
-    assert.match(js, /textContent = 'Regenerating…'/, 'the status chain lost its regen arm');
+    assert.match(js, /textContent = ["']Regenerating…["']/, 'the status chain lost its regen arm');
     assert.match(
         js, /\n\s*if \(item\.isNew && !item\.imported\) \{/,
         'the New tag was folded into the status if/else chain, where it competes for the one slot');
@@ -64,7 +64,7 @@ test('opening an NPC posts it seen', async (t) => {
     t.after(() => server.stop());
 
     const js = await fetchText(server, '/app.js');
-    assert.match(js, /'\/api\/seen'/, 'app.js never tells the server anything has been looked at');
+    assert.match(js, /["']\/api\/seen["']/, 'app.js never tells the server anything has been looked at');
     // Opening the detail sheet is the clear that matters: not grid presence,
     // which a ten-NPC batch would clear before the user had scrolled, and not
     // any click, since the checkbox is a selection gesture.
@@ -134,9 +134,10 @@ test('a finished run forgets the local record for the NPCs it produced', async (
         announce[0], /state\.locallySeen\.delete\(id\)/,
         'a finished run leaves a stale locallySeen entry, defeating the server-side un-see');
     // Before the reload, or the reload re-applies the very record it clears.
+    const tabStateMatch = /tabState\.current === ["']import["']/.exec(announce[0]);
+    assert.ok(tabStateMatch, 'announceBatchComplete no longer checks the current tab before reloading');
     assert.ok(
-        announce[0].indexOf('state.locallySeen.delete(id)')
-            < announce[0].indexOf("tabState.current === 'import'"),
+        announce[0].indexOf('state.locallySeen.delete(id)') < tabStateMatch.index,
         'the local record is cleared after the grid reloads, so the reload still overrides isNew');
 });
 

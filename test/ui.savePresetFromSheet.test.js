@@ -45,7 +45,7 @@ function liftFunction(js, name, helpers = {}) {
 
 /** The click handler's source, from its addEventListener to the closing `});`. */
 function clickHandler(js) {
-    const m = /el\.detailSavePreset\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
+    const m = /el\.detailSavePreset\.addEventListener\(["']click["'][\s\S]*?\n\}\);/.exec(js);
     assert.ok(m, 'no click handler for the sheet\'s Save as Create preset button');
     return m[0];
 }
@@ -63,8 +63,8 @@ test('the sheet carries the button beside Delete, and a status line of its own',
 
     assert.match(html, /<button id="detail-save-preset" type="button"[^>]*>Save as Create preset&hellip;<\/button>/);
     assert.match(html, /<p class="detail-preset-status" id="detail-preset-status" hidden><\/p>/);
-    assert.match(js, /detailSavePreset: document\.getElementById\('detail-save-preset'\)/);
-    assert.match(js, /detailPresetStatus: document\.getElementById\('detail-preset-status'\)/);
+    assert.match(js, /detailSavePreset: document\.getElementById\(["']detail-save-preset["']\)/);
+    assert.match(js, /detailPresetStatus: document\.getElementById\(["']detail-preset-status["']\)/);
 });
 
 test('openDetail hides the button for a background and clears the last outcome', async (t) => {
@@ -75,7 +75,7 @@ test('openDetail hides the button for a background and clears the last outcome',
     // Re-enabled and blanked on every open, so a sheet opened after a failed
     // save elsewhere does not arrive greyed out or wearing the wrong message.
     assert.match(body, /el\.detailSavePreset\.disabled = false/);
-    assert.match(body, /setDetailPresetStatus\(''\)/);
+    assert.match(body, /setDetailPresetStatus\(["']["']\)/);
 });
 
 test('the click posts the item id and a prompted name, then refreshes the right tab', async (t) => {
@@ -84,14 +84,14 @@ test('the click posts the item id and a prompted name, then refreshes the right 
 
     // The prompt defaults to the NPC's name as a label, and a cancelled
     // prompt (null) posts nothing.
-    assert.match(click, /window\.prompt\('Name this preset', item\.name \|\| ''\)/);
+    assert.match(click, /window\.prompt\(["']Name this preset["'], item\.name \|\| ["']["']\)/);
     assert.match(click, /if \(name === null\) return/);
-    assert.match(click, /api\('\/api\/create-presets\/from-item',\s*\{\s*method: 'POST'/);
+    assert.match(click, /api\(["']\/api\/create-presets\/from-item["'],\s*\{\s*method: ["']POST["']/);
     assert.match(click, /body: JSON\.stringify\(\{ id: item\.id, name \}\)/);
     // Never a background: the route would 404 and the button is hidden anyway.
     assert.match(click, /item\.kind === BACKGROUND_KIND\) return/);
     // The dropdown on the tab of the item's own kind, with the new preset chosen.
-    assert.match(click, /item\.kind === 'spaceship'\) await refreshShipCreatePresets\(slug\)/);
+    assert.match(click, /item\.kind === ["']spaceship["']\) await refreshShipCreatePresets\(slug\)/);
     assert.match(click, /else await refreshCreatePresets\(slug\)/);
     // The button comes back whichever way the save went.
     assert.match(click, /finally \{\s*el\.detailSavePreset\.disabled = false/);

@@ -248,7 +248,7 @@ test('the Tables UI gates odds requests and chance cells on the server capabilit
     t.after(() => server.stop());
 
     const js = await fetchText(server, '/app.js');
-    assert.match(js, /const \{ groups, flags, gates, capabilities \} = await api\(`\/api\/table-bullets\?kind=/,
+    assert.match(js, /const \{ groups, flags, gates, capabilities \} = await api\(\s*`\/api\/table-bullets\?kind=/,
         'loadTables must receive per-kind capabilities with the table data');
     assert.match(js, /capabilities\.odds/, 'odds capability must gate the chance UI');
     assert.match(js, /if \(!tablesState\.capabilities\.odds\) return;/,
@@ -299,7 +299,7 @@ test('loadCategories applies kind availability, and does it before its empty-lib
     assert.ok(body, 'loadCategories is no longer a top-level async function');
     // features joined the destructure in the Backgrounds task - the gate
     // this test cares about is still `kinds`, so accept it alongside.
-    assert.match(body[0], /const \{ categories, kinds, features \} = await api\('\/api\/categories'\)/,
+    assert.match(body[0], /const \{ categories, kinds, features \} = await api\(["']\/api\/categories["']\)/,
         'loadCategories no longer reads the `kinds` field off /api/categories');
     const applyAt = body[0].indexOf('applyKindAvailability(kinds)');
     const emptyReturnAt = body[0].indexOf('No generated content found yet.');
@@ -324,7 +324,7 @@ test('app.js declares shipCreateState and elShipCreate, and switchTab lazy-loads
 
     const switchTab = /function switchTab\([\s\S]*?\n\}/.exec(js);
     assert.ok(switchTab, 'switchTab is no longer a top-level function');
-    assert.match(switchTab[0], /tab === 'shipcreate'/,
+    assert.match(switchTab[0], /tab === ["']shipcreate["']/,
         "switchTab no longer registers 'shipcreate' in its lazy-load block");
 });
 
@@ -419,7 +419,7 @@ test('the ship submit posts /api/create, not /api/create-npc', async (t) => {
     const js = await fetchText(server, '/app.js');
     const startShipCreateJob = /function startShipCreateJob\([\s\S]*?\n\}/.exec(js);
     assert.ok(startShipCreateJob, 'startShipCreateJob is no longer a top-level function');
-    assert.match(startShipCreateJob[0], /fetch\('\/api\/create'/,
+    assert.match(startShipCreateJob[0], /fetch\(["']\/api\/create["']/,
         'the ship Create form no longer posts to the canonical /api/create route');
     assert.doesNotMatch(startShipCreateJob[0], /\/api\/create-npc/,
         'the ship Create form posts to the NPC-only alias, which always forces kind:npc');

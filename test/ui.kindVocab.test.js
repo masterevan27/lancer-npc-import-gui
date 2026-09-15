@@ -309,8 +309,9 @@ test('the re-roll click handler resolves the clicked item\'s vocabulary', async 
     // The handler touches the document and awaits a modal, so it is read
     // rather than run - the same treatment ui.detailRepaint.test.js gives the
     // other handlers in this file.
-    const start = js.indexOf("event.target.closest('.reroll-btn')");
-    assert.notEqual(start, -1, 'app.js no longer has a .reroll-btn click handler');
+    const startMatch = /event\.target\.closest\(["']\.reroll-btn["']\)/.exec(js);
+    assert.ok(startMatch, 'app.js no longer has a .reroll-btn click handler');
+    const start = startMatch.index;
     const handler = js.slice(start, js.indexOf('stageTraitEdit(', start));
 
     const resolved = handler.indexOf('vocabFor(');
@@ -385,7 +386,8 @@ test('traitControlCells takes the vocabulary as an optional trailing argument', 
     // A fourth optional parameter followed later - the Animation row's own
     // controls, see traitControlCells - and it too keeps every shorter call
     // meaning what it did.
-    assert.match(js, /function traitControlCells\(trait, rerollable, vocab = createState(?:, controls = null)?\)/,
+    assert.match(js,
+        /function traitControlCells\(\s*trait,\s*rerollable,\s*vocab\s*=\s*createState\s*,?\s*(?:controls\s*=\s*null\s*,?\s*)?\)/,
         'traitControlCells cannot be told which kind\'s raw list to explain from');
 
     const traitControlCells = liftFunction(js, 'traitControlCells', NPC_STATE, { escapeHtml });

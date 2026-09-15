@@ -95,6 +95,6 @@ test('the page ships a Settings button and dialog wired to /api/settings', async
     assert.ok(!tabs.includes('settings-open'), 'the Settings button must not be inside #tabs');
 
     const js = await (await fetch(`${server.baseUrl}/app.js`)).text();
-    assert.ok(js.includes("'/api/settings'"), 'app.js never calls /api/settings');
+    assert.match(js, /["']\/api\/settings["']/, 'app.js never calls /api/settings');
     assert.ok(js.includes('elSettings.overlay.hidden'), 'Esc does not know about the Settings dialog');
 });

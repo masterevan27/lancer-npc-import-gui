@@ -190,6 +190,6 @@ test('the banner names the kind that actually finished', async (t) => {
     // A server too old to send /api/create-status's kind field still gets the
     // NPC wording it always got, not a crash or an "undefined" in the banner.
     assert.match(
-        announce[0], /const jobKind = kind \?\? 'npc'/,
+        announce[0], /const jobKind = kind \?\? ["']npc["']/,
         'an unset kind no longer falls back to npc, so an older server\'s run announces nothing sane');
 });

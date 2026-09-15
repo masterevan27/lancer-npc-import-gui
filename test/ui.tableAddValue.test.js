@@ -35,17 +35,18 @@ test('the Tables tab ships an Add value form inside the bullet panel', async (t)
 
 test('an add posts the current kind to the add route and keeps the server\'s bullet', async (t) => {
     const { js } = await shipped(t);
-    assert.match(js, /api\('\/api\/table-bullets\/add', \{/);
+    assert.match(js, /api\(["']\/api\/table-bullets\/add["'],\s*\{/);
     assert.match(js, /body: JSON\.stringify\(\{ kind, table: tableName, text, weight \}\)/);
     // The server trims; the stored text is the id later toggles address.
-    assert.match(js, /const \{ bullet \} = await api\('\/api\/table-bullets\/add'/);
+    assert.match(js, /const \{ bullet \} = await api\(["']\/api\/table-bullets\/add["']/);
     assert.match(js, /table\.bullets\.push\(bullet\);/);
 });
 
 test('the form hides with no table selected and resets on a kind switch', async (t) => {
     const { js } = await shipped(t);
     assert.match(js, /elTables\.addForm\.hidden = !table;/);
-    const load = js.slice(js.indexOf('function beginTablesKindLoad('), js.indexOf("elTables.kindSelect.addEventListener('change'"));
+    const load = js.slice(js.indexOf('function beginTablesKindLoad('),
+        js.search(/elTables\.kindSelect\.addEventListener\(["']change["']/));
     assert.match(load, /resetAddForm\(\);/);
     assert.match(load, /elTables\.addForm\.hidden = true;/);
 });

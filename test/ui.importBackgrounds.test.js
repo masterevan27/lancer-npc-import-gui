@@ -32,9 +32,9 @@ test('the category is labelled and the empty grid points at the Create Backgroun
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());
     const js = await fetchText(server, '/app.js');
-    assert.match(js, /const CATEGORY_LABELS = \{[^}]*background: 'Backgrounds'/,
+    assert.match(js, /const CATEGORY_LABELS = \{[^}]*background: ["']Backgrounds["']/,
         'the banner and the category button fall back to CATEGORY_LABELS, so it must know the kind');
-    assert.match(js, /const BACKGROUND_KIND = 'background';/);
+    assert.match(js, /const BACKGROUND_KIND = ["']background["'];/);
     assert.match(functionBody(js, 'render'), /render one on the Create Background tab/,
         'an empty Backgrounds grid must not tell the user to run a generator script');
 });
@@ -46,7 +46,7 @@ test('Import Selected is off for backgrounds, in the toolbar and at the click', 
     assert.match(functionBody(js, 'updateToolbar'),
         /el\.importBtn\.disabled = state\.selected\.size === 0 \|\| noImport/,
         'the toolbar must disable Import for the backgrounds category');
-    const click = /el\.importBtn\.addEventListener\('click'[\s\S]{0,300}?state\.category === BACKGROUND_KIND\) return;/.exec(js);
+    const click = /el\.importBtn\.addEventListener\(["']click["'][\s\S]{0,300}?state\.category === BACKGROUND_KIND\) return;/.exec(js);
     assert.ok(click, 'the Import click handler must refuse the backgrounds category too');
 });
 
@@ -58,7 +58,7 @@ test('the sheet is reduced for a background and hands the still to the Create Ba
 
     const js = await fetchText(server, '/app.js');
     assert.match(functionBody(js, 'openDetail'),
-        /el\.detailSheet\.classList\.toggle\('detail--background', isBackground\)[\s\S]*?openBackgroundDetail\(item\)/,
+        /el\.detailSheet\.classList\.toggle\(["']detail--background["'], isBackground\)[\s\S]*?openBackgroundDetail\(item\)/,
         'openDetail must mark the sheet and hand a background to openBackgroundDetail');
     // The poll tick repaints through renderDetailFor, so it has to branch too
     // or a loop that lands while the sheet is open would repaint as an NPC.
@@ -75,9 +75,9 @@ test('the sheet is reduced for a background and hands the still to the Create Ba
     assert.match(css, /\.card--background img \{[^}]*aspect-ratio: 16 \/ 9/,
         'a background card must not crop its still to a square');
 
-    const jump = /el\.detailOpenBackground\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
+    const jump = /el\.detailOpenBackground\.addEventListener\(["']click["'][\s\S]*?\n\}\);/.exec(js);
     assert.ok(jump, 'no click handler for the Open in Create Background button');
-    assert.match(jump[0], /switchTab\('backgrounds'\)[\s\S]*?await loadBackgrounds\(\);\s*openBackgroundAnimate\(rel\)/,
+    assert.match(jump[0], /switchTab\(["']backgrounds["']\)[\s\S]*?await loadBackgrounds\(\);\s*openBackgroundAnimate\(rel\)/,
         'the jump must load the gallery before selecting the still in it');
 });
 
@@ -92,7 +92,7 @@ test('a finished render raises the batch banner with the background kind', async
         'the render poller must announce through the same banner NPC and ship runs use');
     // Inside the produced branch, not before the zero and error checks: a
     // failed run is not "finished generating".
-    const failedFirst = onDone[0].indexOf("job.status === 'error'");
+    const failedFirst = onDone[0].search(/job\.status === ["']error["']/);
     const announceAt = onDone[0].indexOf('announceBatchComplete(');
     assert.ok(failedFirst !== -1 && failedFirst < announceAt, 'the error check must come before the announce');
 });

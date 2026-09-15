@@ -141,7 +141,7 @@ test('the client and server keep the same three-segment table list', async (t) =
     // Both copies are literal lists, so they can disagree. Adding a table to
     // one and not the other silently corrupts that table's bullets.
     for (const table of THREE) {
-        assert.ok(js.includes(`'${table}'`),
+        assert.ok(js.includes(`'${table}'`) || js.includes(`"${table}"`),
             `app.js no longer names ${table} as a three-segment table`);
     }
 });
@@ -167,7 +167,7 @@ test('a table with no flag vocabulary gets no strip', async (t) => {
     const { js } = await lifted(t);
     // The Role table is the one exception: with gates loaded its rows carry
     // the category controls even though 'Role' reads only 'mil'.
-    assert.match(js, /const vocabulary = tablesState\.flags\[table\.name\] \|\| \(isRoleTable\(table\.name\) && tablesState\.gates \? \{\} : null\);\s*\n\s*if \(!vocabulary\) return null;/);
+    assert.match(js, /const vocabulary =\s*tablesState\.flags\[table\.name\] \|\|\s*\(isRoleTable\(table\.name\) && tablesState\.gates \? \{\} : null\);\s*\n\s*if \(!vocabulary\) return null;/);
     // Eyes, Skin and the rest carry no '||' at all - their text goes into the
     // prompt verbatim, so a flag written there would ship literally.
     for (const table of ['Eyes', 'Skin', 'Demeanor', 'Glow colour', 'Height']) {

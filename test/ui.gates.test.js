@@ -99,7 +99,7 @@ test('a gate row that was open stays open across the reload a write causes', asy
     const js = await fetchText(server, '/app.js');
     const row = extractSource(js, 'renderGateRow');
     assert.match(row, /row\.open = tablesState\.openGates\.has\(`\$\{key\}:\$\{flag\}`\)/);
-    assert.match(row, /row\.addEventListener\('toggle'/);
+    assert.match(row, /row\.addEventListener\(["']toggle["']/);
 });
 
 test('every gate edit is written whole to /api/gates and the tab reloads', async (t) => {
@@ -107,14 +107,14 @@ test('every gate edit is written whole to /api/gates and the tab reloads', async
     t.after(() => server.stop());
     const js = await fetchText(server, '/app.js');
     const write = extractSource(js, 'writeGates');
-    assert.match(write, /api\('\/api\/gates', \{/);
+    assert.match(write, /api\(["']\/api\/gates["'],\s*\{/);
     assert.match(write, /body: JSON\.stringify\(\{ kind: tablesState\.kind, gates: nextMaps \}\)/);
     assert.match(write, /await loadTables\(\)/, 'flags, glosses and odds all change with a gate, so the tab reloads');
     assert.match(write, /Couldn't save that gate/);
     for (const fn of ['setGateMember', 'removeGate', 'addGate', 'setRoleCategory', 'setRoleUnaffiliated']) {
         assert.match(extractSource(js, fn), /writeGates\(maps\)/, `${fn} must go through writeGates`);
     }
-    assert.match(js, /api\('\/api\/gates\/reset', \{/);
+    assert.match(js, /api\(["']\/api\/gates\/reset["'],\s*\{/);
 });
 
 test('a new gate name is checked before it is sent', async (t) => {
@@ -136,7 +136,7 @@ test('a Role row carries its category select and a works-for-nobody box', async 
     assert.match(flags, /isRoleTable\(table\.name\) && tablesState\.gates/);
     assert.match(flags, /renderRoleGateControls\(bulletBody\(table\.name, bullet\.text\)\)/);
     const controls = extractSource(js, 'renderRoleGateControls');
-    assert.match(controls, /fresh\.value = '__new__'/);
+    assert.match(controls, /fresh\.value = ["']__new__["']/);
     assert.match(controls, /setRoleCategory\(role, bucket\)/);
     assert.match(controls, /setRoleUnaffiliated\(role, on\)/);
 });

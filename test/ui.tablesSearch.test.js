@@ -38,7 +38,7 @@ test('the Tables tab has a search box wired to both lists', async (t) => {
     const html = await fetchText(server, '/index.html');
     assert.match(html, /<input type="search" id="tables-search"/);
     const js = await fetchText(server, '/app.js');
-    assert.match(js, /elTables\.search\.addEventListener\('input', \(\) => \{\s*tablesState\.search = elTables\.search\.value;\s*renderTableHeadingList\(\);\s*renderTableBullets\(\);/);
+    assert.match(js, /elTables\.search\.addEventListener\(["']input["'], \(\) => \{\s*tablesState\.search = elTables\.search\.value;\s*renderTableHeadingList\(\);\s*renderTableBullets\(\);/);
     const list = extractSource(js, 'renderTableHeadingList');
     assert.match(list, /if \(!tableMatchesSearch\(table, query\)\) continue;/);
     const rows = extractSource(js, 'renderTableBullets');

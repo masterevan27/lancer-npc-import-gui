@@ -172,15 +172,15 @@ test('renderDetailTraits renders the current values and the right buttons', asyn
 test('a trait edit posts to /api/stage-trait and renders nothing', async (t) => {
     const js = await appJs(t);
     const stage = liftSource(js, 'stageTraitEdit');
-    assert.match(stage, /fetch\('\/api\/stage-trait'/,
+    assert.match(stage, /fetch\(["']\/api\/stage-trait["']/,
         'the shared trait handler no longer posts a staged edit');
     // The route that renders is deliberately not reached from a trait button
     // any more. A re-roll used to queue two ComfyUI jobs, which is why trying
     // three haircuts took the better part of an hour and why a second edit
     // could not even be started until the first render had finished.
-    assert.doesNotMatch(js, /fetch\('\/api\/reroll-trait'/,
+    assert.doesNotMatch(js, /fetch\(["']\/api\/reroll-trait["']/,
         'a trait button still starts a render, so edits cannot accumulate');
-    assert.doesNotMatch(js, /fetch\('\/api\/set-trait'/,
+    assert.doesNotMatch(js, /fetch\(["']\/api\/set-trait["']/,
         'the Set… button still starts a render, so edits cannot accumulate');
     // And the result is painted from the response, which the server re-read
     // from the manifest - so what appears is the stored NPC rather than an echo
@@ -210,7 +210,7 @@ test('the stale-art notice ships hidden, styled and honoured', async (t) => {
     const panel = liftSource(js, 'renderRegenPanel');
     assert.match(panel, /el\.regenStale\.hidden = !item\.artStale/,
         'nothing shows or hides the notice, so it never appears');
-    assert.match(panel, /classList\.toggle\('accent'/,
+    assert.match(panel, /classList\.toggle\(["']accent["']/,
         'the Regenerate button is not highlighted when there is something staged to render');
 });
 
@@ -222,9 +222,9 @@ test('the stale badge is its own arm of the badge chain, after the regen arms', 
     const render = /^function render\(\) \{[\s\S]*?\n\}/m.exec(js);
     assert.ok(render, 'render is no longer a top-level function, so this check is vacuous');
     const chain = render[0];
-    const failed = chain.indexOf("'Regen failed'");
-    const stale = chain.indexOf("'Art out of date'");
-    const building = chain.indexOf("'Building 3D…'");
+    const failed = chain.search(/["']Regen failed["']/);
+    const stale = chain.search(/["']Art out of date["']/);
+    const building = chain.search(/["']Building 3D…["']/);
     assert.ok(failed !== -1 && stale !== -1 && building !== -1,
         'one of the three badge arms is gone from render()');
     // Placement, not just presence. A live or failed render outranks the notice

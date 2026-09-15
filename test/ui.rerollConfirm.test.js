@@ -396,6 +396,8 @@ test('the confirmation is awaited before anything is posted', async (t) => {
     // /api/stage-trait, not /api/reroll-trait: a Re-roll applies the edit to
     // the NPC and renders nothing, so the route it posts to changed. What this
     // pins did not - the dialog is still awaited before anything is sent.
-    assert.ok(gate < js.indexOf("fetch('/api/stage-trait'"),
+    const stageFetch = /fetch\(["']\/api\/stage-trait["']/.exec(js);
+    assert.ok(stageFetch, 'app.js no longer posts to /api/stage-trait');
+    assert.ok(gate < stageFetch.index,
         'the re-roll is posted before the confirmation is answered');
 });

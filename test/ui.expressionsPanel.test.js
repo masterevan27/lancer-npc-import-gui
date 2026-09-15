@@ -43,8 +43,14 @@ function liftAsyncFunction(js, name, helpers = {}) {
 }
 
 function liftListenerSource(js, target, eventName) {
-    const marker = `${target}.addEventListener('${eventName}',`;
-    const start = js.indexOf(marker);
+    const markerSingle = `${target}.addEventListener('${eventName}',`;
+    const markerDouble = `${target}.addEventListener("${eventName}",`;
+    let start = js.indexOf(markerSingle);
+    let marker = markerSingle;
+    if (start === -1) {
+        start = js.indexOf(markerDouble);
+        marker = markerDouble;
+    }
     assert.notEqual(start, -1, `app.js no longer registers ${target} ${eventName}`);
     const body = js.indexOf('{', start + marker.length);
     let depth = 0;
@@ -107,7 +113,7 @@ test('generated sprites sit in a collapsed section so the trait table stays near
         'no collapse control below the sprite rows');
     assert.match(details[0], /id="expressions-only-generated"[^>]*data-expression-view-control/);
     assert.match(details[0], /id="expressions-sprites-collapse"[^>]*data-expression-view-control/);
-    const collapse = /el\.expressionsSpritesCollapse\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
+    const collapse = /el\.expressionsSpritesCollapse\.addEventListener\(["']click["'][\s\S]*?\n\}\);/.exec(js);
     assert.ok(collapse, 'the bottom collapse button has no handler');
     assert.match(collapse[0], /expressionsSpritesDetails\.open = false/);
     assert.match(liftSource(js, 'openDetail'),
@@ -493,15 +499,15 @@ test('failed expression actions survive repaint only for their owning NPC and su
 test('generate, redo, cancel and delete use the expression endpoints and refresh safely', async (t) => {
     const { js } = await served(t);
     const start = liftSource(js, 'startExpressionJob');
-    assert.match(start, /fetch\('\/api\/expressions'/);
+    assert.match(start, /fetch\(["']\/api\/expressions["']/);
     assert.match(start, /state\.expressionExpectedJobId = job\.jobId/);
     assert.match(start, /startPolling\(\)/);
     assert.match(start, /await refreshExpressions\(id\)/);
 
-    const generate = /el\.expressionsGenerate\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
+    const generate = /el\.expressionsGenerate\.addEventListener\(["']click["'][\s\S]*?\n\}\);/.exec(js);
     assert.ok(generate, 'Generate handler is missing');
 
-    const click = /el\.expressionsSprites\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
+    const click = /el\.expressionsSprites\.addEventListener\(["']click["'][\s\S]*?\n\}\);/.exec(js);
     assert.ok(click, 'sprite actions are not delegated');
     assert.match(click[0], /dataset\.expressionRedo/);
     assert.match(click[0], /file/);
@@ -509,8 +515,8 @@ test('generate, redo, cancel and delete use the expression endpoints and refresh
     assert.match(click[0], /DELETE/);
     assert.doesNotMatch(click[0], /confirm\(/, 'Delete uses a browser confirmation');
 
-    assert.match(js, /fetch\('\/api\/expressions\/cancel'/);
-    assert.match(js, /api\('\/api\/expressions\/import'/);
+    assert.match(js, /fetch\(["']\/api\/expressions\/cancel["']/);
+    assert.match(js, /api\(["']\/api\/expressions\/import["']/);
 });
 
 test('registered Generate and Redo handlers post the current rendered source selection', async (t) => {
@@ -612,24 +618,24 @@ test('refresh rejects late item and job responses and polling treats expression 
 
     const poll = liftSource(js, 'startPolling');
     assert.match(poll, /await refreshExpressions\(state\.detailItemId\)/);
-    assert.match(poll, /expressionStatus === 'running'/);
+    assert.match(poll, /expressionStatus === ["']running["']/);
 });
 
 test('the panel is NPC-capability-only and mutually excludes portrait actions', async (t) => {
     const { js } = await served(t);
     const panel = liftSource(js, 'renderExpressionsPanel');
-    assert.match(panel, /item\.supports \? !item\.supports\.expressions : item\.kind !== 'npc'/);
-    assert.match(panel, /item\.regenStatus === 'running'/);
-    assert.match(panel, /item\.model3dStatus === 'running'/);
-    assert.match(panel, /item\.animationStatus === 'running'/);
+    assert.match(panel, /item\.supports\s*\?\s*!item\.supports\.expressions\s*:\s*item\.kind !== ["']npc["']/);
+    assert.match(panel, /item\.regenStatus === ["']running["']/);
+    assert.match(panel, /item\.model3dStatus === ["']running["']/);
+    assert.match(panel, /item\.animationStatus === ["']running["']/);
     const open = liftSource(js, 'openDetail');
-    assert.match(open, /item\.supports \? item\.supports\.expressions : item\.kind === 'npc'[\s\S]*refreshExpressions\(item\.id\)/,
+    assert.match(open, /item\.supports\s*\?\s*item\.supports\.expressions\s*:\s*item\.kind === ["']npc["'][\s\S]*refreshExpressions\(item\.id\)/,
         'opening a spaceship still asks its rejected expressions endpoint');
-    assert.match(liftSource(js, 'refreshExpressions'), /item\.supports \? !item\.supports\.expressions : item\.kind !== 'npc'[\s\S]*return/,
+    assert.match(liftSource(js, 'refreshExpressions'), /item\.supports\s*\?\s*!item\.supports\.expressions\s*:\s*item\.kind !== ["']npc["'][\s\S]*return/,
         'a shared poll tick still asks the rejected endpoint for an open spaceship');
 
     for (const name of ['renderRegenPanel', 'renderModel3dPanel', 'renderAnimationPanel']) {
-        assert.match(liftSource(js, name), /item\.expressionStatus === 'running'/,
+        assert.match(liftSource(js, name), /item\.expressionStatus === ["']running["']/,
             `${name} does not disable its action while expressions render`);
     }
 });
@@ -652,7 +658,7 @@ test('the SillyTavern import is explicit and reports target, counts and path', a
     assert.match(panel, /expressionConfiguredBaseError\(view\.importTarget\)/);
     assert.match(panel, /expressionImportFolderError/);
     assert.match(liftSource(js, 'updateExpressionImportTarget'), /view\.importTarget\.path/);
-    const handler = /el\.expressionsImport\.addEventListener\('click'[\s\S]*?\n\}\);/.exec(js);
+    const handler = /el\.expressionsImport\.addEventListener\(["']click["'][\s\S]*?\n\}\);/.exec(js);
     assert.ok(handler, 'no explicit Import button handler');
     assert.match(handler[0], /copied \$\{result\.copied\}, replaced \$\{result\.replaced\}/);
     assert.match(handler[0], /result\.path/);

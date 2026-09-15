@@ -131,7 +131,7 @@ test('the row builder emits the cells rather than wrapping them again', async (t
     // The row carries a scope class and the name cell a pill now (see
     // traitScopeOf in app.js); what this guards is unchanged - the two cells
     // land in the row as traitControlCells emitted them, not wrapped in one.
-    assert.match(js, /<tr class="scope-\$\{scope\}">\$\{cells\}<td>\$\{escapeHtml\(k\)\}\$\{scopePill\(scope\)\}<\/td>`\s*\+ `<td>\$\{escapeHtml\(v\)\}<\/td><\/tr>/,
+    assert.match(js, /<tr class="scope-\$\{scope\}">\$\{cells\}<td>\$\{escapeHtml\(k\)\}\$\{scopePill\(scope\)\}<\/td>`\s*\+\s*`<td>\$\{escapeHtml\(v\)\}<\/td><\/tr>/,
         'the row no longer drops traitControlCells\' two cells in unwrapped');
     // One place in the whole file writes that cell, and it is traitControlCells.
     // A second is the call site wrapping the pair back up, which is the

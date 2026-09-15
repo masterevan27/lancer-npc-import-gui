@@ -86,8 +86,8 @@ test('the copy delegation covers the whole sheet, not just the prompts pane', as
 
     const js = await fetchText(server, '/app.js');
 
-    assert.ok(/el\.overlay\.addEventListener\(\s*'click'/.test(js),
+    assert.ok(/el\.overlay\.addEventListener\(\s*["']click["']/.test(js),
         'no click delegation on the sheet itself, so a copy button outside #detail-prompts does nothing');
-    assert.ok(!/el\.detailPrompts\.addEventListener\(\s*'click'/.test(js),
+    assert.ok(!/el\.detailPrompts\.addEventListener\(\s*["']click["']/.test(js),
         'the copy delegation is still bound to the prompts pane alone');
 });

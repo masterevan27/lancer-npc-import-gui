@@ -101,7 +101,7 @@ test('a regen is announced on a transition, never on a status seen once', async 
     const detect = /function detectRegenFinished\([\s\S]*?\n\}/.exec(js);
     assert.ok(detect, 'detectRegenFinished is no longer a top-level function, so this check is vacuous');
     assert.match(
-        detect[0], /previous !== 'running'/,
+        detect[0], /previous !== ["']running["']/,
         'the scan does not require the previous status to have been running, so it announces stale jobs');
 });
 
@@ -161,7 +161,7 @@ test('the banner announces failures as well as finishes', async (t) => {
         css, /\.banner\.error/,
         'the failure announcement is not visually distinguished from a success');
     assert.match(
-        js, /classList\.toggle\('error'/,
+        js, /classList\.toggle\(["']error["']/,
         'app.js never switches the banner into its failure colours');
 });
 

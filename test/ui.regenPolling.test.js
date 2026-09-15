@@ -42,8 +42,13 @@ async function fetchText(server, p) {
  * so the trick refreshItems() is lifted with does not work on them.
  */
 function liftHandler(js, binding) {
-    const start = js.indexOf(binding);
-    assert.notEqual(start, -1, `app.js no longer binds ${binding}`);
+    // binding is the listener target and method, e.g. "el.regenBtn.addEventListener" -
+    // the quoting of the 'click' argument that follows it varies with formatting,
+    // so that part is matched with a tolerant regex rather than as literal text.
+    const re = new RegExp(`${binding.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\(\\s*["']click["']`);
+    const m = re.exec(js);
+    assert.ok(m, `app.js no longer binds ${binding}`);
+    const start = m.index;
     let depth = 0;
     for (let i = js.indexOf('{', start); i < js.length; i += 1) {
         if (js[i] === '{') depth += 1;
@@ -82,7 +87,7 @@ async function appJs(t) {
 
 test('the Regenerate button starts the poller', async (t) => {
     const js = await appJs(t);
-    const handler = liftHandler(js, "el.regenBtn.addEventListener('click'");
+    const handler = liftHandler(js, 'el.regenBtn.addEventListener');
     assert.match(handler, /startPolling\(\)/,
         'pressing Regenerate queues a job that nothing then watches, so the card keeps its '
         + '"Regenerating…" pill until the page is reloaded');
@@ -90,7 +95,7 @@ test('the Regenerate button starts the poller', async (t) => {
 
 test('the 3D build starts the poller', async (t) => {
     const js = await appJs(t);
-    const handler = liftHandler(js, "el.model3dBtn.addEventListener('click'");
+    const handler = liftHandler(js, 'el.model3dBtn.addEventListener');
     assert.match(handler, /startPolling\(\)/, 'a 3D build is left unwatched');
 });
 
@@ -101,8 +106,8 @@ test('the poller is started before the list reload, not after', async (t) => {
     // try/catch - so a 202 followed by one failing /api/items lands in the
     // catch and skips whatever came after the await. That is precisely the case
     // where a poller is most needed: the job really is running.
-    for (const binding of ["el.regenBtn.addEventListener('click'",
-        "el.model3dBtn.addEventListener('click'"]) {
+    for (const binding of ['el.regenBtn.addEventListener',
+        'el.model3dBtn.addEventListener']) {
         const handler = liftHandler(js, binding);
         const polls = handler.indexOf('startPolling()');
         const reloads = handler.indexOf('await refreshItems()');
@@ -124,10 +129,10 @@ test('a started regen is recorded, so a failure that beats the first poll is sti
     assert.match(js, /function noteRegenStarted\(/,
         'nothing records that this page started a regen, so a spawn failure is silent');
     const note = liftSource(js, 'noteRegenStarted');
-    assert.match(note, /regenSeen\.set\(id, 'running'\)/,
+    assert.match(note, /regenSeen\.set\(id, ["']running["']\)/,
         'noteRegenStarted does not seed the transition gate detectRegenFinished reads');
 
-    const handler = liftHandler(js, "el.regenBtn.addEventListener('click'");
+    const handler = liftHandler(js, 'el.regenBtn.addEventListener');
     assert.match(handler, /noteRegenStarted\(/, 'the Regenerate button records nothing');
     const notes = handler.indexOf('noteRegenStarted(');
     assert.ok(notes < handler.indexOf('await refreshItems()'),
@@ -143,7 +148,7 @@ test('renderRegenPanel does not overwrite a trait-specific message', async (t) =
     const panel = liftSource(js, 'renderRegenPanel');
     assert.match(panel, /state\.regenRunningMessage\s*\r?\n?\s*\|\|/,
         'the running branch writes the generic line over whatever the click said');
-    assert.match(panel, /'Regenerating… this can take a few minutes/,
+    assert.match(panel, /["']Regenerating… this can take a few minutes/,
         'the generic line is gone entirely, so a plain Regenerate now says nothing');
 });
 
