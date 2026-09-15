@@ -74,6 +74,9 @@ const animate = require('./lib/animate');
 const backgrounds = require('./lib/backgrounds');
 const dynamicBackgrounds = require('./lib/dynamicBackgrounds');
 const settings = require('./lib/settings');
+const artStyles = require('./lib/artStyles');
+const secretMode = require('./lib/secretMode');
+const { createGallery } = require('./lib/secretGallery');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -272,6 +275,13 @@ const SILLYTAVERN_CHARACTERS_DIR = typeof config.sillyTavernCharactersDir === 's
 // The kind registry - see lib/kinds.js for what varies between an NPC and a
 // spaceship and why it is resolved here rather than as scattered constants.
 const KINDS = buildKinds(DERIVED_PATHS, config);
+const ART_STYLES_PATH = config.artStylesPath || path.join(path.dirname(DERIVED_PATHS.generateNpcScript), 'art-styles.json');
+const secretAuth = secretMode.createAuth(config.secretMode);
+const secretGallery = createGallery({ config, configFile: CONFIG_FILE, paths: DERIVED_PATHS, artStylesPath: ART_STYLES_PATH });
+function publicStyleArgs(id) {
+    const style = artStyles.select(ART_STYLES_PATH, id || 'default', false);
+    return id ? ['--art-style', style.id, '--art-styles', ART_STYLES_PATH] : [];
+}
 
 /**
  * Resolves a request's kind against the registry, or null if the caller named
@@ -322,7 +332,8 @@ function loadManifest() {
         console.warn(`[${PLUGIN_ID}] ${config.npcManifestPath} is not valid JSON:`, err.message);
         return [];
     }
-    return manifestItemsFrom(parsed);
+    return manifestItemsFrom(parsed).filter(item => !artStyles.hidden(ART_STYLES_PATH, item) && !secretGallery.isPrivate(item.folderPath)
+        && !['portrait', 'token'].some(key => item[key] && secretGallery.isPrivate(path.resolve(item.folderPath, item[key]))));
 }
 
 /**
@@ -433,6 +444,7 @@ function ensureSafeFoundryDirectory(root, directory, label) {
 }
 
 function copySafeFileIntoFoundry(source, dest, relative, label = 'file') {
+    if (secretGallery.isPrivate(source) || secretGallery.isPrivate(dest)) throw new Error('Private files cannot be imported');
     const destinationRoot = ensureSafeFoundryDirectory(
         config.foundryDataRoot, dest, label);
     const target = path.resolve(dest, relative);
@@ -569,7 +581,8 @@ function copyIntoFoundry(item) {
 
 function itemFile(item, which) {
     const name = which === 'portrait' ? item.portrait : item.token;
-    return name ? path.join(item.folderPath, name) : null;
+    const file = name ? path.join(item.folderPath, name) : null;
+    return file && !secretGallery.isPrivate(file) ? file : null;
 }
 
 /**
@@ -2031,6 +2044,8 @@ const dynamicScenes = dynamicBackgrounds.createService({
     script: DERIVED_PATHS.generateBackgroundScript,
     tables: DERIVED_PATHS.dynamicBackgroundTablesPath,
     root: BACKGROUNDS_DIR, executable: config.pythonExecutable, jobs: backgroundJobs,
+    extraArgs: publicStyleArgs,
+    blockedFile: publicBackgroundBlocked,
     onProduced(job, options) {
         if (job.kind !== 'dynamic') return;
         forgetSeen(job.producedIds);
@@ -2127,6 +2142,7 @@ function sillyTavernRecord(rel) {
  */
 function importBackgroundToSillyTavern(rel) {
     const still = backgrounds.resolveInside(BACKGROUNDS_DIR, rel);
+    if (still && publicBackgroundBlocked(still)) return { ok: false, status: 404, error: 'no such background' };
     if (!still) return { ok: false, status: 400, error: 'rel must be a path inside the backgrounds folder' };
     let stillIsFile = false;
     try {
@@ -2142,6 +2158,9 @@ function importBackgroundToSillyTavern(rel) {
     const loop = backgroundAbs(backgrounds.animationFilesFor(rel).webp);
     const copies = [[still, names.still]];
     if (fs.existsSync(loop)) copies.push([loop, names.loop]);
+    if (copies.some(([from, name]) => secretGallery.isPrivate(from) || secretGallery.isPrivate(path.join(SILLYTAVERN_BACKGROUNDS_DIR, name)))) {
+        return { ok: false, status: 404, error: 'no such background' };
+    }
     const copied = [];
     try {
         for (const [from, name] of copies) {
@@ -2228,6 +2247,7 @@ function readCatalogueEntries(file) {
  * card of its own.
  */
 function walkBackgrounds(dir = BACKGROUNDS_DIR, rel = '', depth = 0, out = []) {
+    if (secretGallery.isPrivate(dir)) return out;
     if (depth > BACKGROUND_WALK_DEPTH) return out;
     let entries = [];
     try {
@@ -2237,6 +2257,7 @@ function walkBackgrounds(dir = BACKGROUNDS_DIR, rel = '', depth = 0, out = []) {
     }
     for (const entry of entries) {
         if (entry.name.startsWith('.')) continue;
+        if (publicBackgroundBlocked(path.join(dir, entry.name))) continue;
         const childRel = rel ? `${rel}/${entry.name}` : entry.name;
         if (entry.isDirectory()) {
             walkBackgrounds(path.join(dir, entry.name), childRel, depth + 1, out);
@@ -2254,7 +2275,19 @@ function backgroundAbs(rel) {
     return path.join(BACKGROUNDS_DIR, ...String(rel).split('/'));
 }
 
+function publicBackgroundBlocked(file) {
+    if (secretGallery.isPrivate(file)) return true;
+    if (!backgrounds.IMAGE_EXTENSIONS.includes(path.extname(file).toLowerCase())) return false;
+    const record = dynamicBackgrounds.metadataPath(file);
+    if (secretGallery.isPrivate(record)) return true;
+    try {
+        if (fs.statSync(record).size > 256 * 1024) return true;
+        return artStyles.hidden(ART_STYLES_PATH, JSON.parse(fs.readFileSync(record, 'utf8')));
+    } catch { return false; }
+}
+
 function readBackgroundSidecar(sidecarRel) {
+    if (secretGallery.isPrivate(backgroundAbs(sidecarRel))) return {};
     try {
         return backgrounds.parseSidecar(fs.readFileSync(backgroundAbs(sidecarRel), 'utf8'));
     } catch {
@@ -2268,6 +2301,7 @@ function readBackgroundSidecar(sidecarRel) {
  * the cache-buster /api/animation-image's does.
  */
 function backgroundItemView(rel, mapCache) {
+    if (publicBackgroundBlocked(backgroundAbs(rel))) return null;
     const mtime = fileVersion(backgroundAbs(rel));
     if (mtime === null) return null; // deleted between the walk and here
     const files = backgrounds.animationFilesFor(rel);
@@ -2279,6 +2313,7 @@ function backgroundItemView(rel, mapCache) {
         rel,
         name: backgrounds.displayName(path.basename(rel)),
         scene: dynamicScenes.metadata(rel),
+        artStyle: artStyles.metadata(dynamicScenes.metadata(rel) || {}),
         battlemaps: dynamicScenes.mapsFor(rel, mapCache),
         battlemapJob: dynamicScenes.mapJob(rel),
         mtime,
@@ -2326,6 +2361,7 @@ function backgroundGridItem(rel, mapCache) {
     const files = backgrounds.animationFilesFor(rel);
     return {
         id, kind: BACKGROUND_KIND, name: view.name, callsign: '', traits: {}, seed: null,
+        artStyle: view.artStyle,
         roleCategory: null, when: null, importable: false, imported: false,
         isNew: !isSeen(id), hasRawTraits: false, importedActorUuid: null, importedAt: null,
         jobStatus: null, jobError: null, regenStatus: null, regenError: null,
@@ -2396,7 +2432,7 @@ function backgroundMotionPrompts() {
  * cannot show.
  */
 function startBackgroundRenderJob({
-    catalogue, prefix, variants, seed, width, height, animateWhenDone,
+    catalogue, prefix, variants, seed, width, height, animateWhenDone, artStyle,
 }) {
     if (!fs.existsSync(GENERATE_ART_SCRIPT)) {
         return { ok: false, status: 400, error: `generate-art.py not found at ${GENERATE_ART_SCRIPT}` };
@@ -2412,6 +2448,7 @@ function startBackgroundRenderJob({
             height,
             seed,
         });
+        args.push(...publicStyleArgs(artStyle));
     } catch (err) {
         return { ok: false, status: 400, error: err.message };
     }
@@ -2482,6 +2519,7 @@ function startBackgroundRenderJob({
  */
 function startBackgroundAnimateJob({ rel, description, seedMode, seed, pingpong }) {
     const still = backgrounds.resolveInside(BACKGROUNDS_DIR, rel);
+    if (still && publicBackgroundBlocked(still)) return { ok: false, status: 404, error: 'no such background' };
     if (!still) {
         return { ok: false, status: 400, error: 'rel must be a path inside the backgrounds folder' };
     }
@@ -2888,6 +2926,7 @@ function startCreateJob(kindEntry, opts) {
     }
 
     const args = kindEntry.createArgs(opts);
+    args.push(...publicStyleArgs(opts.artStyle));
 
     // Snapshot before the child can write anything. `produced` and
     // `producedIds` stay null until the run ends and, for a dry run or an
@@ -2971,7 +3010,9 @@ function startCreateJob(kindEntry, opts) {
  *
  * Returns `{ status, body }`, ready to hand straight to sendJson().
  */
-function handleCreateRequest(kindEntry, body) {
+function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
+    try { artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', runner !== startCreateJob); }
+    catch (err) { return { status: 400, body: { error: err.message } }; }
     if (!kindEntry.supports.create) {
         return { status: 400, body: { error: `creating a ${kindEntry.subject} isn't supported yet` } };
     }
@@ -3030,7 +3071,8 @@ function handleCreateRequest(kindEntry, body) {
         }
     }
 
-    const result = startCreateJob(kindEntry, {
+    const result = runner(kindEntry, {
+        artStyle: body.artStyle,
         count,
         seed,
         name: name || null,
@@ -3652,6 +3694,7 @@ function itemView(item) {
         ? expressionFiles.listSprites(item.folderPath).length : 0;
     return {
         id: item.id,
+        artStyle: artStyles.metadata(item),
         kind: item.kind,
         name: item.name,
         callsign: item.callsign,
@@ -3760,7 +3803,7 @@ function serveStatic(req, res, pathname) {
     if (rel.includes('..')) return sendJson(res, 400, { error: 'bad path' });
     const file = path.join(PUBLIC_DIR, rel);
     const type = STATIC_TYPES[path.extname(file)];
-    if (!type || !fs.existsSync(file)) return sendJson(res, 404, { error: 'not found' });
+    if (!type || !fs.existsSync(file) || secretGallery.isPrivate(file)) return sendJson(res, 404, { error: 'not found' });
     res.writeHead(200, { 'Content-Type': type.startsWith('text/') ? `${type}; charset=utf-8` : type });
     fs.createReadStream(file).pipe(res);
 }
@@ -3796,16 +3839,108 @@ function settingsResponse(req, fileConfig) {
         warnings: settings.missingPathWarnings(fileConfig),
         restartRequired: STARTUP_SETTINGS_FINGERPRINT !== null
             && settings.settingsFingerprint(fileConfig) !== STARTUP_SETTINGS_FINGERPRINT,
-        canSave: settings.settingsWriteAllowed({
+        canSave: secretAuth.authenticated(req) || (!secretAuth.configured && !secretGallery.root && settings.settingsWriteAllowed({
             remoteAddress: req.socket.remoteAddress,
             secret: config.secret,
             providedKey: undefined,
-        }),
+        })),
         authEnabled: !!config.secret,
+        requiresSecretLogin: (secretAuth.configured || !!secretGallery.root) && !secretAuth.authenticated(req),
     };
 }
 
+async function handleSecretApi(req, res, url, authenticated) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (!secretMode.sameOrigin(req, config.publicOrigin)) return sendJson(res, 403, { error: 'Same-origin requests required' });
+    const route = url.pathname.slice('/api/secret'.length);
+    if (route === '/session' && req.method === 'GET') return sendJson(res, 200, { authenticated, configured: secretAuth.configured });
+    if (route === '/login' && req.method === 'POST') {
+        try {
+            const body = JSON.parse(await readBody(req, 4096));
+            const token = secretAuth.login(body.username, body.password, req.socket.remoteAddress);
+            if (!token) return sendJson(res, 401, { error: 'Invalid credentials or Secret mode is not configured' });
+            return sendJson(res, 200, { authenticated: true, configured: true }, { 'Set-Cookie': `secret_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(secretAuth.ttl / 1000)}${req.socket.encrypted || String(config.publicOrigin).startsWith('https://') ? '; Secure' : ''}` });
+        } catch (err) { return sendJson(res, err.status || 400, { error: err.message }); }
+    }
+    if (!authenticated) return sendJson(res, 401, { error: 'Secret authentication required' });
+    if (route === '/logout' && req.method === 'POST') {
+        secretAuth.logout(req);
+        return sendJson(res, 200, { authenticated: false, configured: secretAuth.configured }, { 'Set-Cookie': 'secret_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0' });
+    }
+    try {
+        if (route === '/settings') {
+            if (req.method === 'POST') {
+                const body = JSON.parse(await readBody(req, 8192)); secretGallery.setRoot(body.secretImagesDir);
+            } else if (req.method !== 'GET') return sendJson(res, 405, { error: 'Method not allowed' });
+            return sendJson(res, 200, { secretImagesDir: secretGallery.root });
+        }
+        if (route === '/items' && req.method === 'GET') return sendJson(res, 200, { items: secretGallery.items() });
+        if ((route === '/image' || route === '/backgrounds/image') && req.method === 'GET') {
+            if (route === '/backgrounds/image') url.searchParams.set('rel', 'backgrounds/' + (url.searchParams.get('rel') || ''));
+            const file = secretGallery.image(url);
+            if (!file) return sendJson(res, 404, { error: 'Unknown private image' });
+            res.writeHead(200, { 'Content-Type': secretGallery.types[path.extname(file).toLowerCase()] });
+            fs.createReadStream(file).pipe(res); return;
+        }
+        if (['/create-status', '/backgrounds/status'].includes(route) && req.method === 'GET') {
+            const job = secretGallery.jobs.get(url.searchParams.get('jobId'));
+            return sendJson(res, job ? 200 : 404, job ? { ...job, secret: true } : { error: 'unknown job' });
+        }
+        if (route === '/create' && req.method === 'POST') {
+            const body = JSON.parse(await readBody(req, 256 * 1024));
+            const kind = resolveKind(url, body);
+            if (!kind) return sendJson(res, 400, { error: 'Unknown kind' });
+            const result = handleCreateRequest(kind, body, secretGallery.startCreate);
+            return sendJson(res, result.status, result.body);
+        }
+        if (route === '/backgrounds' && req.method === 'GET') {
+            const files = backgroundCatalogueFiles();
+            const entries = await Promise.all(files.map(file => readCatalogueEntries(file)));
+            return sendJson(res, 200, { available: true, dynamicAvailable: secretGallery.root ? secretGallery.scenes().available() : false,
+                bespokeAvailable: files.length > 0, missing: [], dir: secretGallery.root, sillyTavern: { available: false }, motionPrompts: [],
+                catalogues: files.map((file, i) => ({ file, label: backgrounds.catalogueLabel(file), entries: entries[i] })), items: secretGallery.backgroundViews() });
+        }
+        if (route === '/backgrounds/dynamic/catalogue' && req.method === 'GET') return sendJson(res, 200, await secretGallery.scenes().catalogue());
+        if (req.method === 'POST' && ['/backgrounds/dynamic/preview', '/backgrounds/dynamic/render', '/backgrounds/battlemap', '/backgrounds/render'].includes(route)) {
+            const body = JSON.parse(await readBody(req, 256 * 1024));
+            artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', true);
+            if (route === '/backgrounds/render') {
+                if (!backgroundCatalogueFiles().includes(body.catalogue)) return sendJson(res, 400, { error: 'Unknown catalogue' });
+                const entries = await readCatalogueEntries(body.catalogue);
+                if (!entries.some(entry => entry.prefix === body.prefix)) return sendJson(res, 400, { error: 'Unknown catalogue entry' });
+                return sendJson(res, 202, secretGallery.renderCatalogue(body, path.join(BACKGROUND_PROMPTS_DIR, body.catalogue)));
+            }
+            if (route === '/backgrounds/battlemap') return sendJson(res, 202, { ...secretGallery.scenes().battlemap(body), secret: true });
+            const plan = await secretGallery.scenes().preview(body);
+            if (route.endsWith('/preview')) return sendJson(res, 200, plan);
+            return sendJson(res, 202, { ...secretGallery.scenes().render(plan, { artStyle: body.artStyle }), secret: true });
+        }
+        return sendJson(res, 404, { error: 'Private operation unavailable' });
+    } catch (err) { return sendJson(res, 400, { error: err.message }); }
+}
+
 async function handleApi(req, res, url) {
+    const authenticated = secretAuth.authenticated(req);
+    if (url.pathname.startsWith('/api/secret/') || url.pathname === '/api/art-styles') {
+        res.setHeader('Cache-Control', 'no-store');
+        if (!secretMode.sameOrigin(req, config.publicOrigin)) return sendJson(res, 403, { error: 'Same-origin requests required' });
+    }
+    if (url.pathname === '/api/art-styles' && req.method === 'GET') {
+        try { return sendJson(res, 200, { styles: artStyles.list(ART_STYLES_PATH, authenticated) }); }
+        catch (err) { return sendJson(res, 400, { error: err.message }); }
+    }
+    if (url.pathname.startsWith('/api/secret/')) return handleSecretApi(req, res, url, authenticated);
+    if (secretAuth.configured && req.method !== 'GET' && !secretMode.sameOrigin(req, config.publicOrigin)) return sendJson(res, 403, { error: 'Same-origin requests required' });
+    if ((secretAuth.configured || secretGallery.root) && url.pathname === '/api/settings' && req.method === 'POST' && !authenticated) return sendJson(res, 401, { error: 'Secret authentication required to change settings' });
+    if (authenticated && ['/api/create', '/api/create-npc'].includes(url.pathname) && req.method === 'POST') {
+        if (url.pathname === '/api/create-npc') url.searchParams.set('kind', 'npc');
+        url.pathname = '/api/secret/create'; return handleSecretApi(req, res, url, true);
+    }
+    if (authenticated && url.pathname.startsWith('/api/backgrounds')) {
+        url.pathname = url.pathname.replace('/api/backgrounds', '/api/secret/backgrounds'); return handleSecretApi(req, res, url, true);
+    }
+    if (authenticated && !['GET', 'HEAD'].includes(req.method) && !['/api/settings', '/api/seen'].includes(url.pathname)) return sendJson(res, 403, { error: 'Leave Secret mode before changing or importing public items' });
     if (url.pathname === '/api/settings' && req.method === 'GET') {
         let fileConfig;
         try {
@@ -3817,7 +3952,7 @@ async function handleApi(req, res, url) {
     }
 
     if (url.pathname === '/api/settings' && req.method === 'POST') {
-        if (!settings.settingsWriteAllowed({
+        if (!authenticated && !settings.settingsWriteAllowed({
             remoteAddress: req.socket.remoteAddress,
             secret: config.secret,
             providedKey: req.headers['x-import-gui-key'],
@@ -3843,6 +3978,9 @@ async function handleApi(req, res, url) {
             return sendJson(res, 409, { error: `config.json could not be read, so it was not overwritten: ${err.message}` });
         }
         const result = settings.applySettings(fileConfig, body);
+        if (result.next && Object.entries(result.next).some(([key, value]) => key !== 'secretImagesDir' && typeof value === 'string' && path.isAbsolute(value) && secretGallery.isPrivate(value))) {
+            return sendJson(res, 400, { error: 'Public settings cannot point into Secret storage' });
+        }
         if (result.errors) {
             return sendJson(res, 400, { error: 'some settings are invalid', fieldErrors: result.errors });
         }
@@ -4031,6 +4169,7 @@ async function handleApi(req, res, url) {
                 // opens anything: inside the folder, and a file rather than a
                 // directory that happens to end in .png.
                 const still = backgrounds.resolveInside(BACKGROUNDS_DIR, rel);
+                if (still && publicBackgroundBlocked(still)) return { id, deleted: false, reason: 'unknown item' };
                 let isFile = false;
                 try {
                     isFile = !!still && fs.statSync(still).isFile();
@@ -4149,7 +4288,7 @@ async function handleApi(req, res, url) {
             return sendJson(res, 400, { error: 'file must be a classified .webp sprite basename' });
         }
         const resolved = expressionFiles.resolveSprite(item.folderPath, url.searchParams.get('file'));
-        if (resolved.error) return sendJson(res, 404, { error: 'no such expression sprite' });
+        if (resolved.error || secretGallery.isPrivate(resolved.file)) return sendJson(res, 404, { error: 'no such expression sprite' });
         res.writeHead(200, { 'Content-Type': 'image/webp', 'Cache-Control': 'no-store' });
         fs.createReadStream(resolved.file)
             .on('error', () => {
@@ -4286,6 +4425,7 @@ async function handleApi(req, res, url) {
         if (!item) return sendJson(res, 404, { error: 'unknown item' });
         if (!animationSupported(item)) return sendJson(res, 404, { error: 'no such image' });
         const file = animationPaths(item).webp;
+        if (secretGallery.isPrivate(file)) return sendJson(res, 404, { error: 'no such image' });
         if (!fs.existsSync(file)) return sendJson(res, 404, { error: 'no such image' });
         res.writeHead(200, { 'Content-Type': 'image/webp', 'Cache-Control': 'no-store' });
         fs.createReadStream(file).pipe(res);
@@ -4300,11 +4440,12 @@ async function handleApi(req, res, url) {
     if (['/api/backgrounds/dynamic/preview', '/api/backgrounds/dynamic/render', '/api/backgrounds/battlemap'].includes(url.pathname) && req.method === 'POST') {
         try {
             const body = JSON.parse((await readBody(req, 256 * 1024)) || '{}');
+            artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', false);
             if (url.pathname === '/api/backgrounds/battlemap') return sendJson(res, 202, dynamicScenes.battlemap(body));
             const { animateWhenDone, pingpong, ...request } = body;
             const plan = await dynamicScenes.preview(request);
             if (url.pathname.endsWith('/preview')) return sendJson(res, 200, plan);
-            return sendJson(res, 202, dynamicScenes.render(plan, { animateWhenDone, pingpong }));
+            return sendJson(res, 202, dynamicScenes.render(plan, { animateWhenDone, pingpong, artStyle: body.artStyle }));
         } catch (err) { return sendJson(res, /already/.test(err.message) ? 409 : 400, { error: err.message }); }
     }
 
@@ -4345,6 +4486,7 @@ async function handleApi(req, res, url) {
 
     if (url.pathname === '/api/backgrounds/image' && req.method === 'GET') {
         const file = backgrounds.resolveInside(BACKGROUNDS_DIR, url.searchParams.get('rel'));
+        if (file && publicBackgroundBlocked(file)) return sendJson(res, 404, { error: 'no such image' });
         if (!file) return sendJson(res, 400, { error: 'rel must be a path inside the backgrounds folder' });
         const type = BACKGROUND_CONTENT_TYPES[path.extname(file).toLowerCase()];
         // existsSync alone is true for a directory too - backgroundsDir is a
@@ -4425,6 +4567,7 @@ async function handleApi(req, res, url) {
 
         const result = startBackgroundRenderJob({
             catalogue, prefix, variants, seed, width, height,
+            artStyle: body.artStyle,
             animateWhenDone: body.animateWhenDone ? { pingpong: body.pingpong !== false } : null,
         });
         return sendJson(res, result.ok ? 202 : result.status, result);
@@ -4503,6 +4646,7 @@ async function handleApi(req, res, url) {
         const refusal = model3dFileError(item, file);
         if (refusal) return sendJson(res, refusal.status, { error: refusal.error });
         res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
+        if (secretGallery.isPrivate(path.join(model3dDir(item), file))) { res.destroy(); return; }
         fs.createReadStream(path.join(model3dDir(item), file)).pipe(res);
         return;
     }
@@ -5641,6 +5785,7 @@ async function handleApi(req, res, url) {
         }
         if (!entry) return sendJson(res, 404, { error: 'unknown candidate' });
         const full = refImagePath(kind, file, entry.source_image);
+        if (full && secretGallery.isPrivate(full)) return sendJson(res, 404, { error: 'no reference image staged for this candidate' });
         if (!full) return sendJson(res, 404, { error: 'no reference image staged for this candidate' });
         res.writeHead(200, {
             'Content-Type': REF_IMAGE_TYPES[path.extname(full).toLowerCase()],

@@ -36,7 +36,13 @@
   <!-- Outside #tabs on purpose: it opens a dialog rather than a panel, and
        switchTab's button handling must never see it. -->
   <button type="button" class="settings-open" id="settings-open">&#9881; Settings</button>
+  <button type="button" class="danger" id="leave-secret" hidden>Leave Secret</button>
 </header>
+<div id="secret-mode-notice" class="secret-mode-notice" hidden>
+  <strong>Secret mode</strong> — Images created here are saved privately.
+  <span id="secret-mode-status" role="status"></span>
+</div>
+<p id="art-style-error" class="settings-error" role="status" hidden></p>
 
 <!-- One shelf, two announcements, stacked rather than sharing a slot. A regen
      finishing during a generate run would otherwise replace the batch banner,
@@ -66,7 +72,24 @@
 <main>
 
 <section class="tab-panel" id="tab-import">
-  <div class="categories" id="categories"></div>
+  <div class="category-navigation">
+    <div class="categories" id="categories"></div>
+    <div class="categories"><button type="button" id="secret-images" class="secret-pill" hidden>Secret Images</button></div>
+  </div>
+
+  <div id="secret-gallery" hidden>
+    <div class="toolbar">
+      <input id="secret-search" type="search" placeholder="Search secret images…" aria-label="Search secret images" />
+      <label>Type <select id="secret-kind"><option value="">All images</option><option value="npc">NPCs</option><option value="spaceship">Spaceships</option><option value="background">Backgrounds</option></select></label>
+      <label>Sort <select id="secret-sort"><option value="newest">Newest first</option><option value="name">Name (A–Z)</option></select></label>
+      <button type="button" id="secret-refresh">Refresh</button>
+      <span id="secret-gallery-status" role="status"></span>
+    </div>
+    <div class="grid" id="secret-grid"></div>
+    <p class="empty" id="secret-empty">No secret images yet. Create an NPC, spaceship, or background while in Secret mode.</p>
+  </div>
+
+  <div id="public-gallery">
 
   <div class="toolbar">
     <label class="select-all">
@@ -96,10 +119,14 @@
 
   <div class="grid" id="grid"></div>
   <p class="empty" id="empty" hidden>Nothing here yet — run the generator, then reload.</p>
+  </div>
 </section>
 
 <section class="tab-panel" id="tab-create" hidden>
   <div class="create-form">
+    <label class="form-field art-style-field">Art style
+      <select id="create-art-style" data-art-style="npc" disabled><option value="default">Default</option></select>
+    </label>
     <div class="form-grid">
       <label class="form-field">
         Count
@@ -177,6 +204,9 @@
   whichever Ship type is chosen (sizeBlockReason in app.js).
 -->
 <section class="tab-panel" id="tab-shipcreate" hidden>
+  <label class="form-field art-style-field">Art style
+    <select id="create-ship-art-style" data-art-style="spaceship" disabled><option value="default">Default</option></select>
+  </label>
   <div class="create-form">
     <div class="form-grid">
       <label class="form-field">
@@ -252,6 +282,9 @@
 </section>
 
 <section class="tab-panel" id="tab-backgrounds" hidden>
+  <label class="form-field art-style-field">Art style
+    <select id="bg-art-style" data-art-style="background" disabled><option value="default">Default</option></select>
+  </label>
   <p class="regen-status" id="bg-unavailable" hidden></p>
 
   <div class="filter-row">
@@ -554,6 +587,7 @@
       <p class="detail-shortcuts">&larr; &rarr; navigate &middot; Esc close</p>
       <p id="detail-sub"></p>
       <p class="detail-generated" id="detail-generated"></p>
+      <p id="detail-art-style" class="hint"></p>
 
       <!-- Where the art is on disk. Text rather than a link: a browser cannot
            navigate to file:// from an http page, so copying the path into a
@@ -883,6 +917,16 @@
 <div class="detail-overlay" id="settings-overlay" hidden>
   <div class="detail settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <h2 id="settings-title">Settings</h2>
+    <button type="button" id="secret-open" class="danger">Secret</button>
+    <fieldset id="secret-storage" class="settings-group" hidden>
+      <legend>Secret images</legend>
+      <label class="form-field">Private image folder
+        <input type="text" id="secret-storage-path" autocomplete="off" />
+      </label>
+      <p class="hint">Use a separate folder outside shared image libraries. Changing this setting does not move existing images.</p>
+      <button type="button" id="secret-storage-save">Save private folder</button>
+      <span id="secret-storage-status" role="status"></span>
+    </fieldset>
     <p class="settings-intro">Saved to <code>config.json</code>. Blank fields use
       the default shown in grey. Changes take effect after the server is restarted.</p>
     <p class="settings-restart" id="settings-restart" hidden>config.json has
@@ -904,6 +948,30 @@
   </div>
 </div>
 
+<div class="detail-overlay" id="secret-login-overlay" hidden>
+  <form class="detail confirm-dialog" id="secret-login-form" role="dialog" aria-modal="true" aria-labelledby="secret-login-title">
+    <h2 id="secret-login-title">Secret login</h2>
+    <label class="form-field">Username<input id="secret-username" name="username" autocomplete="username" required /></label>
+    <label class="form-field">Password<input id="secret-password" name="password" type="password" autocomplete="current-password" required /></label>
+    <p id="secret-login-error" class="settings-error" role="alert"></p>
+    <div class="confirm-actions">
+      <button type="button" id="secret-login-cancel">Cancel</button>
+      <button type="submit" id="secret-login-submit" class="danger">Log in</button>
+    </div>
+  </form>
+</div>
+<div class="detail-overlay" id="secret-detail-overlay" hidden>
+  <div class="detail" role="dialog" aria-modal="true" aria-labelledby="secret-detail-name">
+    <button type="button" id="secret-detail-close" class="close" aria-label="Close secret image">×</button>
+    <h2 id="secret-detail-name"></h2>
+    <p id="secret-detail-style" class="hint"></p>
+    <div id="secret-detail-images" class="detail-images"></div>
+    <pre id="secret-detail-traits" class="secret-detail-text"></pre>
+    <details><summary>Prompts</summary><pre id="secret-detail-prompts" class="secret-detail-text"></pre></details>
+  </div>
+</div>
+
+<script src="/secret-mode.js"></script>
 <script src="/app.js"></script>
 <script src="/dynamic-backgrounds.js"></script>
 </body>

@@ -102,6 +102,39 @@ body {
   background: var(--bg);
   color: var(--text);
 }
+
+/* Secret mode shares the normal gallery layout and uses red navigation. */
+.category-navigation { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.categories .secret-pill,
+.categories .secret-pill.active,
+.categories .secret-pill:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); color: #fff; }
+.secret-mode-notice { padding: var(--sp-2) var(--sp-5); background: #361a1b; border-bottom: 1px solid var(--danger); color: #f3ccca; }
+.secret-mode-notice[hidden], #secret-storage[hidden], #public-gallery[hidden], #secret-gallery[hidden] { display: none; }
+.art-style-field { max-width: 28rem; margin-bottom: var(--sp-4); }
+.secret-detail-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: var(--fs-sm); }
+.detail-images img.secret-image-expanded { max-height: none; max-width: min(85vw, 1100px); }
+#secret-detail-images { flex-wrap: wrap; }
+#secret-login-form .form-field { margin-bottom: var(--sp-4); }
+#secret-open { margin-bottom: var(--sp-4); }
+#secret-grid .card:focus-visible { box-shadow: var(--focus-ring); }
+.secret-mode #bg-dynamic-animate,
+.secret-mode #bg-animate-btn,
+.secret-mode .bg-st-import,
+.secret-mode label:has(#bg-dynamic-animate),
+.secret-mode label:has(#bg-dynamic-pingpong),
+.secret-mode label:has(#bg-animate-when-done),
+.secret-mode label:has(#bg-chain-pingpong) { display: none; }
+.secret-mode #regen-panel,
+.secret-mode #model3d-panel,
+.secret-mode #animate-panel,
+.secret-mode #expressions-panel,
+.secret-mode #detail-import-sillytavern,
+.secret-mode #detail-save-preset,
+.secret-mode #detail-delete-btn,
+.secret-mode #import-btn,
+.secret-mode #delete-btn,
+.secret-mode .reroll-btn,
+.secret-mode .set-trait-btn { display: none; }
 /* Buttons and inputs otherwise pick up the browser's own control font, which
    on Windows is a different face at 13.33px from the page's. Only the family
    is inherited: sizes are set per rule below so nothing silently grows. */

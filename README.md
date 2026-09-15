@@ -721,6 +721,18 @@ The wire format between the two is fixed and documented in
 before changing any `/importer/*` route — the client ships inside a released
 `module.zip`.
 
+## Art styles and Secret mode
+
+NPC, spaceship, and background creation include an **Art style** selector. The
+generator's `art-styles.json` supplies the choices; **Default** remains available
+when the file is missing or empty. Selected styles appear on image cards and details.
+
+For private generation, configure a username, password hash, and separate image
+folder, then open **Settings → Secret**. Hidden styles only become available after
+login. All images created in Secret mode appear under the red **Secret Images**
+pill, with server authentication protecting the files and metadata. **Leave Secret**
+ends the session. See [configuration and access controls](docs/secret-mode.md).
+
 ## Development
 
 ```bash

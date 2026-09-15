@@ -167,7 +167,10 @@
           setBusy(false);
           el.status.textContent = job.status === 'error' ? `${job.error} (${job.produced || 0} images saved)`
             : `Rendered ${job.produced} scene(s).${job.chain?.length ? ` ${job.chain.length} animation(s) started.` : ''}${job.chainError ? ` ${job.chainError}` : ''}`;
-          if (job.producedIds?.length) announceBatchComplete(job.produced, job.producedIds, 'background');
+          if (job.secret) {
+            el.status.textContent += ' Saved to Secret Images.';
+            root.SecretMode.generated();
+          } else if (job.producedIds?.length) announceBatchComplete(job.produced, job.producedIds, 'background');
           await loadBackgrounds(); watchBackgroundGalleryUntilSettled();
         },
         onStop: () => setBusy(false),

@@ -1,5 +1,9 @@
 /* Import GUI - vanilla JS, no build step. See server.js for the API this talks to. */
 
+// All UI requests share session expiry handling and generation routing. This
+// lexical binding leaves window.fetch intact for the login transport itself.
+const fetch = (...args) => window.SecretMode.fetch(...args);
+
 const CATEGORY_LABELS = {
   npc: "NPCs",
   mech: "Mechs",
@@ -1114,6 +1118,10 @@ function render() {
       ${item.roleCategory ? `<div class="role-category">${escapeHtml(item.roleCategory)}</div>` : ""}
       ${item.traits?.["Ship type"] ? `<div class="role ship-line" title="${escapeHtml(item.traits["Ship type"])}">${escapeHtml(item.traits["Ship type"])}</div>` : ""}
       ${item.traits?.Size ? `<div class="sub ship-line" title="${escapeHtml(item.traits.Size)}">${escapeHtml(item.traits.Size)}</div>` : ""}`;
+    const artStyleLine = document.createElement("div");
+    artStyleLine.className = "sub";
+    artStyleLine.textContent = `Art style: ${item.artStyle?.name || "Default"}`;
+    body.appendChild(artStyleLine);
     card.appendChild(body);
 
     card.addEventListener("click", () => openDetail(item));
@@ -1398,6 +1406,8 @@ function renderDetailHeader(item) {
     .filter(Boolean)
     .join(" — ");
   el.detailGenerated.textContent = formatGeneratedWhen(item.when);
+  const styleLabel = document.getElementById("detail-art-style");
+  if (styleLabel) styleLabel.textContent = `Art style: ${item.artStyle?.name || "Default"}`;
   renderDetailFiles(item);
 }
 
@@ -4814,7 +4824,10 @@ function pollCreateJob(
       // producedIds rides along with the count and comes from the same
       // measurement: the banner's dismiss button clears the New tag, and the
       // only tags it may clear are the ones this run put there.
-      if (!dryRun) announceBatchComplete(made, job.producedIds, job.kind);
+      if (!dryRun && job.secret) {
+        el.status.textContent = `Done — ${made} image(s) saved to Secret Images.`;
+        window.SecretMode.generated();
+      } else if (!dryRun) announceBatchComplete(made, job.producedIds, job.kind);
     } else {
       el.status.textContent = `Failed: ${job.error || "unknown error"}`;
     }
@@ -9179,7 +9192,7 @@ async function startBackgroundRender() {
         elBackgrounds.renderStatus.textContent =
           "The run finished but produced no images.";
       } else {
-        const loops = job.chain.length
+        const loops = job.chain?.length
           ? ` ${job.chain.length} loop${job.chain.length === 1 ? "" : "s"} started.`
           : "";
         const failed = job.chainError ? ` ${job.chainError}.` : "";
@@ -9189,7 +9202,10 @@ async function startBackgroundRender() {
         // is on another one would otherwise say nothing anywhere. The zero
         // and error cases stay on the status line: the banner's own guard
         // would drop a zero, and a failure is not "finished generating".
-        announceBatchComplete(job.produced, job.producedIds, BACKGROUND_KIND);
+        if (job.secret) {
+          elBackgrounds.renderStatus.textContent += " Saved to Secret Images.";
+          window.SecretMode.generated();
+        } else announceBatchComplete(job.produced, job.producedIds, BACKGROUND_KIND);
       }
       loadBackgrounds()
         .then(() => watchBackgroundGalleryUntilSettled())
@@ -9566,12 +9582,14 @@ function renderSettings(view) {
   // Saving from another machine needs the shared secret (the paths here
   // include commands the server runs). With no secret configured it cannot be
   // done at all, and the dialog says so rather than failing on Save.
-  elSettings.keyRow.hidden = view.canSave || !view.authEnabled;
+  elSettings.keyRow.hidden = view.requiresSecretLogin || view.canSave || !view.authEnabled;
   elSettings.locked.hidden = view.canSave;
-  elSettings.locked.textContent = view.authEnabled
+  elSettings.locked.textContent = view.requiresSecretLogin
+    ? "Log in with the Secret button to change server settings."
+    : view.authEnabled
     ? "You are not on the machine running the server. Enter the shared secret below to save."
     : "Settings can only be saved from the machine running the server, because no shared secret is set. You can still view them here.";
-  elSettings.save.disabled = !view.canSave && !view.authEnabled;
+  elSettings.save.disabled = view.requiresSecretLogin || (!view.canSave && !view.authEnabled);
 
   elSettings.groups.innerHTML = "";
   for (const group of view.groups) {

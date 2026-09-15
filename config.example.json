@@ -1,7 +1,15 @@
 {
   "port": 5089,
   "host": "127.0.0.1",
+  "publicOrigin": "",
   "secret": "",
+  "artStylesPath": "",
+  "secretImagesDir": "",
+  "secretMode": {
+    "username": "",
+    "passwordHash": "",
+    "sessionMinutes": 60
+  },
   "npcManifestPath": "G:\\GIT-REPOS\\lancer-art-generator\\.generated-npcs.json",
   "manifestPath": "",
   "foundryDataRoot": "G:\\Programs\\FoundryVTT_v13\\FoundryVTT-Node-13.351\\data\\Data",

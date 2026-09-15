@@ -16,17 +16,26 @@ test('every field key is unique', () => {
     assert.equal(new Set(keys).size, keys.length);
 });
 
-test('every key in config.example.json is editable, apart from the manifest alias', () => {
+test('ordinary config keys are editable and server/private settings stay outside the public form', () => {
     const example = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config.example.json'), 'utf8'));
     const keys = new Set(settings.SETTINGS_FIELDS.map((f) => f.key));
-    const missing = Object.keys(example).filter((k) => k !== 'manifestPath' && !keys.has(k));
+    // Origin and catalog settings are operator configuration; private storage
+    // has its own authenticated form, and credentials never enter a form.
+    const serverOnly = ['publicOrigin', 'artStylesPath', 'secretImagesDir', 'secretMode'];
+    for (const key of serverOnly) assert.equal(keys.has(key), false, `${key} must not appear in public Settings`);
+    const missing = Object.keys(example).filter((k) => k !== 'manifestPath' && !serverOnly.includes(k) && !keys.has(k));
     assert.deepEqual(missing, [], 'a config key with no Settings field cannot be changed from the GUI');
 });
 
 test('the view never carries the secret, only whether one is set', () => {
-    const view = settings.settingsView({ secret: 'hunter2', npcManifestPath: 'M' }, DEFAULTS, {});
+    const view = settings.settingsView({ secret: 'hunter2', npcManifestPath: 'M',
+        secretImagesDir: '/private-location', secretMode: { username: 'private-user', passwordHash: 'private-hash' },
+        artStylesPath: '/private-catalog', publicOrigin: 'https://operator-origin' }, DEFAULTS, {});
     assert.equal(view.secretSet, true);
     assert.ok(!JSON.stringify(view).includes('hunter2'));
+    for (const value of ['private-location', 'private-user', 'private-hash', 'private-catalog', 'operator-origin']) {
+        assert.ok(!JSON.stringify(view).includes(value), `${value} must not be disclosed`);
+    }
 });
 
 test('blank path fields show the path lib/paths.js derives', () => {
