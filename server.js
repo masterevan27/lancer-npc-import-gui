@@ -317,7 +317,7 @@ function resolveKind(url, body) {
  * JSON file rewritten after every NPC, so re-reading it beats trying to keep
  * this process in sync with a script that runs independently of it.
  */
-function loadManifest() {
+function loadManifest(kind = null, id = null) {
     let raw;
     try {
         raw = fs.readFileSync(config.npcManifestPath, 'utf8');
@@ -334,7 +334,7 @@ function loadManifest() {
     }
     let catalog = [];
     try { catalog = artStyles.load(ART_STYLES_PATH); } catch { /* malformed catalogs do not hide public saved art */ }
-    return manifestItemsFrom(parsed).filter(item => !artStyles.hiddenFromCatalog(catalog, item) && !secretGallery.isPrivate(item.folderPath)
+    return manifestItemsFrom(parsed).filter(item => (!kind || item.kind === kind) && (!id || item.id === id) && !artStyles.hiddenFromCatalog(catalog, item) && !secretGallery.isPrivate(item.folderPath)
         && !['portrait', 'token'].some(key => item[key] && secretGallery.isPrivate(path.resolve(item.folderPath, item[key]))));
 }
 
@@ -357,7 +357,7 @@ function manifestItemsFrom(parsed) {
 }
 
 function findItem(id) {
-    return loadManifest().find((item) => item.id === id) || null;
+    return loadManifest(null, id)[0] || null;
 }
 
 /** Path relative to foundryDataRoot, forward-slashed the way Foundry wants it. */
@@ -583,8 +583,7 @@ function copyIntoFoundry(item) {
 
 function itemFile(item, which) {
     const name = which === 'portrait' ? item.portrait : item.token;
-    const file = name ? path.join(item.folderPath, name) : null;
-    return file && !secretGallery.isPrivate(file) ? file : null;
+    return name ? path.join(item.folderPath, name) : null;
 }
 
 /**
@@ -3680,7 +3679,7 @@ function authorised(req, url) {
 
 /* ---- item view for the GUI ---- */
 
-function itemView(item) {
+function itemView(item, includePrompts = false) {
     const job = jobsByItemId.get(item.id);
     const regenJob = regenJobsByItemId.get(item.id);
     const model3dJob = model3dJobsByItemId.get(item.id);
@@ -3769,8 +3768,7 @@ function itemView(item) {
             : null,
         // Full assembled prompt text, saved alongside the individual rolled traits -
         // only present for entries written by a generate-npc.py new enough to record it.
-        portraitPrompt: item.portraitPrompt || null,
-        tokenPrompt: item.tokenPrompt || null,
+        ...(includePrompts ? { portraitPrompt: item.portraitPrompt || null, tokenPrompt: item.tokenPrompt || null } : {}),
         // generate-npc.py --apply-only sets this when a trait edit lands
         // without a render, and clears it on the next real render. The traits
         // and prompts above therefore describe the NPC; the images may not.
@@ -4045,6 +4043,12 @@ async function handleApi(req, res, url) {
         });
     }
 
+    if (url.pathname === '/api/item' && req.method === 'GET') {
+        const item = url.searchParams.get('id') && findItem(url.searchParams.get('id'));
+        if (!item) return sendJson(res, 404, { error: 'unknown item' });
+        return sendJson(res, 200, { item: itemView(item, true) });
+    }
+
     if (url.pathname === '/api/items' && req.method === 'GET') {
         const category = url.searchParams.get('category');
         if (!category) return sendJson(res, 400, { error: 'category is required' });
@@ -4058,9 +4062,8 @@ async function handleApi(req, res, url) {
         if (categoryKind && !categoryKind.supports.manifest) {
             return sendJson(res, 400, { error: `items for ${categoryKind.subject} are not supported` });
         }
-        const items = loadManifest()
-            .filter((item) => item.kind === category)
-            .map(itemView)
+        const items = loadManifest(category)
+            .map((item) => itemView(item))
             .sort((a, b) => a.name.localeCompare(b.name));
         return sendJson(res, 200, { items });
     }
@@ -4950,7 +4953,7 @@ async function handleApi(req, res, url) {
         const fresh = findItem(item.id);
         return sendJson(res, 200, {
             ok: true,
-            item: fresh ? itemView(fresh) : null,
+            item: fresh ? itemView(fresh, true) : null,
             // The generator's own "with Hair colour: 'x' -> 'y'" cascade
             // report, off stderr. It is the only place that says what
             // travelled, and a user who clicked one button and got four new

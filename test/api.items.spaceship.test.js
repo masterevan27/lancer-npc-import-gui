@@ -165,6 +165,22 @@ test('GET /api/image serves a spaceship portrait', async (t) => {
     assert.equal(res.headers.get('content-type'), 'image/png');
 });
 
+test('GET /api/items omits prompts and GET /api/item returns them on demand', async (t) => {
+    const { server } = await startWithLibrary(t);
+    const manifest = JSON.parse(fs.readFileSync(server.manifestPath, 'utf8'));
+    for (const entry of Object.values(manifest)) {
+        entry.portraitPrompt = 'full portrait prompt';
+        entry.tokenPrompt = 'full token prompt';
+    }
+    fs.writeFileSync(server.manifestPath, JSON.stringify(manifest));
+
+    const listing = await getJson(`${server.baseUrl}/api/items?category=spaceship`);
+    assert.ok(listing.body.items.every(item => item.portraitPrompt === undefined && item.tokenPrompt === undefined));
+    const detail = await getJson(`${server.baseUrl}/api/item?id=${encodeURIComponent(NPC_ID)}`);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.item.portraitPrompt, 'full portrait prompt');
+});
+
 test('POST /api/import files a ship under LancerSpaceships, not LancerNPCs, and repoints the manifest', async (t) => {
     const { server, shipAFolder } = await startWithLibrary(t);
 

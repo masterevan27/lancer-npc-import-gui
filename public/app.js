@@ -1662,6 +1662,12 @@ function openDetail(item) {
   renderDetailTraits(item);
   renderDetailPrompts(item);
 
+  api(`/api/item?id=${encodeURIComponent(item.id)}`)
+    .then(({ item: detail }) => {
+      if (state.detailItemId === item.id) renderDetailPrompts(detail);
+    })
+    .catch(() => { /* The grid remains usable if one prompt read fails. */ });
+
   state.detailItemId = item.id;
   state.regenLastStatus = item.regenStatus ?? null;
   // The trait-specific line belongs to one item and one job, and this is
