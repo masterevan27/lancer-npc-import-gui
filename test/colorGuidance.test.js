@@ -9,19 +9,22 @@ test('catalog fallback, hidden entries and invalid entries are enforced', t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guidance-test-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const file = path.join(dir, 'guidance.json');
-    assert.deepEqual(guidance.list(file), [{ id: 'default', name: 'Default' }]);
-    fs.writeFileSync(file, '   '); assert.equal(guidance.load(file).length, 1);
+    const builtins = [{ id: 'default', name: 'Default' }, { id: 'none', name: 'None (no colour guidance)' }];
+    assert.deepEqual(guidance.list(file), builtins);
+    fs.writeFileSync(file, '   '); assert.equal(guidance.load(file).length, 2);
     fs.writeFileSync(file, JSON.stringify({ guidance: [
         { id: 'ochre', name: 'Ochre', prompt: 'Keep the palette to ochre.' },
         { id: 'hidden', name: 'Hidden', prompt: 'private palette', secret: true },
     ] }));
-    assert.deepEqual(guidance.list(file).map(g => g.id), ['default', 'ochre']);
-    assert.deepEqual(guidance.list(file, true).map(g => g.id), ['default', 'ochre', 'hidden']);
+    assert.deepEqual(guidance.list(file).map(g => g.id), ['default', 'none', 'ochre']);
+    assert.deepEqual(guidance.list(file, true).map(g => g.id), ['default', 'none', 'ochre', 'hidden']);
     assert.equal(guidance.select(file, 'ochre').prompt, 'Keep the palette to ochre.');
     assert.equal(guidance.select(file).id, 'default');
+    assert.deepEqual(guidance.select(file, 'none'), { id: 'none', name: 'None (no colour guidance)', prompt: '', hidden: false });
     assert.throws(() => guidance.select(file, 'hidden'), /unavailable/);
     assert.throws(() => guidance.select(file, 'unknown', true), /unavailable/);
-    for (const entry of [{ id: 'default', name: 'Override', prompt: 'override' }, { id: 'x', name: 'X', prompt: '' },
+    for (const entry of [{ id: 'default', name: 'Override', prompt: 'override' }, { id: 'none', name: 'Override', prompt: 'override' },
+        { id: 'x', name: 'X', prompt: '' },
         { id: 'x', name: 'X', prompt: 'x', hidden: 'false' }, { id: '../x', name: 'X', prompt: 'x' }]) {
         fs.writeFileSync(file, JSON.stringify({ guidance: [entry] })); assert.throws(() => guidance.load(file));
     }

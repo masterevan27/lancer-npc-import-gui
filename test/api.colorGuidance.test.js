@@ -72,7 +72,16 @@ async function lastArgv(s) {
 test('the catalog route lists public guidance only', async (t) => {
     const { s } = await startServer(t);
     const { guidance } = await (await fetch(`${s.baseUrl}/api/color-guidance`)).json();
-    assert.deepEqual(guidance, [{ id: 'default', name: 'Default' }, { id: 'ochre', name: 'Ochre' }]);
+    assert.deepEqual(guidance, [{ id: 'default', name: 'Default' }, { id: 'none', name: 'None (no colour guidance)' }, { id: 'ochre', name: 'Ochre' }]);
+});
+
+test('create passes the built-in none guidance through to the generator', async (t) => {
+    const { s, catalog } = await startServer(t);
+    const res = await post(s, '/api/create-npc', { count: 1, dryRun: true, colorGuidance: 'none' });
+    assert.equal(res.status, 202, await res.text());
+    const argv = await lastArgv(s);
+    assert.match(argv, /--color-guidance none/);
+    assert.ok(argv.includes(`--color-guidance-catalog ${catalog}`), argv);
 });
 
 test('create passes the chosen guidance to the generator and refuses unknown or hidden ids', async (t) => {
