@@ -740,6 +740,19 @@ ends the session. See [configuration and access controls](docs/secret-mode.md).
 
 ## Development
 
+### Release versioning
+
+The GUI release version starts at `1.0.0` and is displayed in the top bar on
+every tab. Each component is limited to two digits and uses the conventional
+unpadded form shown in the examples.
+
+Whenever a branch or worktree is merged, increment the version once. Small
+changes, including almost all small fixes, increment the subversion: `1.0.1`.
+Large changes increment the minor version and reset the subversion: `1.1.0`.
+If a subversion increment would move past `99`, increment the major version and
+reset the minor version and subversion. Ask the project owner before making a
+major version increase for any other reason.
+
 ```bash
 node --test --test-concurrency=4 --test-timeout=120000 "test/*.test.js"
 ```

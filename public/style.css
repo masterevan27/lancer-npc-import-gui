@@ -185,6 +185,8 @@ button, a, label, select, input {
   z-index: 5;
 }
 .topbar h1 { font-size: 1.1rem; margin: 0; letter-spacing: 0.02em; white-space: nowrap; }
+.topbar-actions { position: relative; display: flex; align-items: center; gap: 1.5rem; }
+.release-version { position: absolute; right: 100%; margin-right: 0.75rem; color: var(--text-3); font-size: var(--fs-xs); white-space: nowrap; }
 
 .tabs { display: flex; gap: 0.4rem; }
 .tabs button {

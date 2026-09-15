@@ -77,6 +77,7 @@ const settings = require('./lib/settings');
 const artStyles = require('./lib/artStyles');
 const secretMode = require('./lib/secretMode');
 const { createGallery } = require('./lib/secretGallery');
+const { APP_VERSION } = require('./lib/version');
 
 const PLUGIN_ID = 'import-gui-server';
 
@@ -3814,6 +3815,10 @@ function serveStatic(req, res, pathname) {
     const type = STATIC_TYPES[path.extname(file)];
     if (!type || !fs.existsSync(file) || secretGallery.isPrivate(file)) return sendJson(res, 404, { error: 'not found' });
     res.writeHead(200, { 'Content-Type': type.startsWith('text/') ? `${type}; charset=utf-8` : type });
+    if (rel === 'index.html') {
+        const html = fs.readFileSync(file, 'utf8').replace('__APP_VERSION__', APP_VERSION);
+        return res.end(html);
+    }
     fs.createReadStream(file).pipe(res);
 }
 

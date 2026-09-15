@@ -35,8 +35,11 @@
   </nav>
   <!-- Outside #tabs on purpose: it opens a dialog rather than a panel, and
        switchTab's button handling must never see it. -->
-  <button type="button" class="settings-open" id="settings-open">&#9881; Settings</button>
-  <button type="button" class="danger" id="leave-secret" hidden>Leave Secret</button>
+  <div class="topbar-actions">
+    <span class="release-version">Version __APP_VERSION__</span>
+    <button type="button" class="settings-open" id="settings-open">&#9881; Settings</button>
+    <button type="button" class="danger" id="leave-secret" hidden>Leave Secret</button>
+  </div>
 </header>
 <div id="secret-mode-notice" class="secret-mode-notice" hidden>
   <strong>Secret mode</strong> — Images created here are saved privately.
