@@ -58,7 +58,7 @@ async function page(authenticated, privateItems) {
     const fs = require('node:fs'), vm = require('node:vm');
     const html = fs.readFileSync(require.resolve('../public/index.html'), 'utf8');
     class Element {
-        constructor() { this.children = []; this.value = ''; this.hidden = false; this.disabled = false; this.textContent = ''; this.listeners = {}; this.classList = { add() {}, remove() {}, toggle() {} }; }
+        constructor() { this.children = []; this.value = ''; this.hidden = false; this.disabled = false; this.textContent = ''; this.listeners = {}; this.dataset = {}; this.classList = { add() {}, remove() {}, toggle() {} }; }
         addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
         async dispatch(name) { for (const callback of this.listeners[name] || []) await callback({ preventDefault() {}, target: this }); }
         replaceChildren(...children) { this.children = children; }
@@ -68,7 +68,7 @@ async function page(authenticated, privateItems) {
         setAttribute() {}
     }
     const nodes = Object.fromEntries([...html.matchAll(/id="([^"]+)"/g)].map(match => [match[1], new Element()]));
-    const selectors = ['create-art-style', 'create-ship-art-style', 'bg-art-style'].map(id => nodes[id]);
+    const selectors = ['create-art-style', 'create-ship-art-style', 'bg-art-style', 'regen-art-style'].map(id => nodes[id]);
     const document = new Element(); document.body = new Element();
     document.getElementById = id => nodes[id] || null;
     document.createElement = () => new Element();
@@ -99,7 +99,7 @@ async function page(authenticated, privateItems) {
 
 test('logged-out page populates all selectors without hidden names', async () => {
     const { nodes } = await page(false);
-    for (const id of ['create-art-style', 'create-ship-art-style', 'bg-art-style']) {
+    for (const id of ['create-art-style', 'create-ship-art-style', 'bg-art-style', 'regen-art-style']) {
         assert.deepEqual(nodes[id].children.map(option => option.value), ['default', 'ink']);
         assert.equal(nodes[id].value, 'default');
     }

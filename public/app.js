@@ -166,6 +166,7 @@ const el = {
   imageZoom: document.getElementById("image-zoom"),
   imageZoomImg: document.getElementById("image-zoom-img"),
   regenPanel: document.getElementById("regen-panel"),
+  regenArtStyle: document.getElementById("regen-art-style"),
   regenSeedInput: document.getElementById("regen-seed-input"),
   regenCurrentSeed: document.getElementById("regen-current-seed"),
   regenBtn: document.getElementById("regen-btn"),
@@ -1767,6 +1768,11 @@ function renderRegenPanel(item) {
   if (!supported) return;
 
   el.regenCurrentSeed.textContent = `Current seed: ${item.seed}`;
+  const styleId = item.artStyle?.id || "default";
+  el.regenArtStyle.dataset.styleId = styleId;
+  if ([...el.regenArtStyle.options].some((option) => option.value === styleId)) {
+    el.regenArtStyle.value = styleId;
+  }
   // The traits below the panel describe the NPC; the images above it may not.
   // Set by a staged trait edit, cleared by the next real render - so the notice
   // is exactly "there is a Regenerate waiting to be pressed", and the button
@@ -1790,6 +1796,7 @@ function renderRegenPanel(item) {
   ))
     radio.disabled = blocked;
   el.regenSeedInput.disabled = blocked || seedMode !== "specific";
+  el.regenArtStyle.disabled = blocked;
   setTraitGuttersDisabled(blocked);
 
   const justFinished =
@@ -3040,6 +3047,7 @@ el.regenBtn.addEventListener("click", async () => {
     document.querySelector('input[name="regen-seed-mode"]:checked')?.value ||
     "same";
   const body = { id, which, seedMode };
+  body.artStyle = el.regenArtStyle.value || "default";
   if (seedMode === "specific") {
     const seed = Number(el.regenSeedInput.value);
     if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295) {

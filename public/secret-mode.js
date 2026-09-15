@@ -112,7 +112,7 @@
     const data = await json('/api/art-styles');
     const styles = visibleStyles(data.styles, transport.authenticated);
     for (const select of document.querySelectorAll('[data-art-style]')) {
-      const selected = select.value;
+      const selected = select.dataset.styleId || select.value;
       select.replaceChildren(...styles.map(style => new Option(style.name, style.id)));
       select.value = styles.some(style => style.id === selected) ? selected : 'default';
       select.disabled = false;

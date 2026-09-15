@@ -332,7 +332,9 @@ function loadManifest() {
         console.warn(`[${PLUGIN_ID}] ${config.npcManifestPath} is not valid JSON:`, err.message);
         return [];
     }
-    return manifestItemsFrom(parsed).filter(item => !artStyles.hidden(ART_STYLES_PATH, item) && !secretGallery.isPrivate(item.folderPath)
+    let catalog = [];
+    try { catalog = artStyles.load(ART_STYLES_PATH); } catch { /* malformed catalogs do not hide public saved art */ }
+    return manifestItemsFrom(parsed).filter(item => !artStyles.hiddenFromCatalog(catalog, item) && !secretGallery.isPrivate(item.folderPath)
         && !['portrait', 'token'].some(key => item[key] && secretGallery.isPrivate(path.resolve(item.folderPath, item[key]))));
 }
 
@@ -1073,7 +1075,7 @@ const stagingItemIds = new Set();
 // Python leaving the trait gutters disabled until the page is reloaded.
 const STAGE_TIMEOUT_MS = 60000;
 
-function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, release }) {
+function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, release, artStyle }) {
     const existing = regenJobsByItemId.get(item.id);
     if (existing?.status === 'running') return { ok: false, reason: 'already regenerating' };
     // kindFor(), not kindOf(): kindOf() falls back an UNRECOGNISED kind onto
@@ -1123,6 +1125,7 @@ function startRegenJob(item, { which, seedMode, seed, rerollTrait, setTrait, rel
     // cascade, so what actually moves is wider than this list - which is why
     // it prints every trait that travelled rather than counting them.
     if (release && release.length) args.push('--release', release.join(','));
+    args.push(...publicStyleArgs(artStyle));
 
     const job = {
         status: 'running', which, seedMode, seed: newSeed,
@@ -4232,7 +4235,10 @@ async function handleApi(req, res, url) {
             }
         }
 
-        const result = startRegenJob(item, { which, seedMode, seed });
+        let artStyle;
+        try { artStyle = artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', false).id; }
+        catch (err) { return sendJson(res, 400, { error: err.message }); }
+        const result = startRegenJob(item, { which, seedMode, seed, artStyle });
         return sendJson(res, result.ok ? 202 : 409, result);
     }
 
