@@ -767,10 +767,13 @@ ends the session. See [configuration and access controls](docs/secret-mode.md).
 
 While logged in, **Create NPC** grows a **Secret tables** section: every
 `.json` or `.md` table file in `secretTablesDir` with a checkbox per table, and
-a row of default tables to switch off. A ticked table rolls one weighted value
+a checkbox for every default NPC table to switch off, including Backdrop and
+Callsigns. A ticked secret table rolls one weighted value
 per NPC and the values are appended to the prompt; a ticked default table stays
 rolled but its clause leaves the prompt, which is how a table of your own takes
-Stance's place without fighting it. Both are Secret-mode only and the public
+Stance's place without fighting it. Names, callsigns and Theme already add no
+direct prompt text and remain in metadata. Update the generator alongside the
+GUI and restart the GUI server to load its expanded checkbox list. Both are Secret-mode only and the public
 form never sends them.
 
 ## Development

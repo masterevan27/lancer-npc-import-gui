@@ -149,7 +149,7 @@ async function page(authenticated, privateItems, respond = () => undefined) {
 test('secret presets restore fixed table values and collapsing preserves the create request', async () => {
     let saved;
     const { nodes, document, window, requests } = await page(true, [], (path, options) => {
-        if (path === '/api/secret/tables') return { exists: true, dir: '/private/tables', disableable: ['Stance'], files: [
+        if (path === '/api/secret/tables') return { exists: true, dir: '/private/tables', disableable: ['Stance', 'Backdrop', 'Callsigns'], files: [
             { file: 'a.json', tables: [{ name: 'mood', count: 2, values: ['soft light', 'harsh light'] },
                 { name: 'constructor', count: 1, values: ['a jacket'] }] }
         ] };
@@ -166,24 +166,31 @@ test('secret presets restore fixed table values and collapsing preserves the cre
     input.valueSelect.value = 'soft light';
     const randomInput = document.querySelectorAll('[data-secret-table]')[1];
     randomInput.checked = true;
-    document.querySelectorAll('[data-disable-table]')[0].checked = true;
+    const disabledBoxes = document.querySelectorAll('[data-disable-table]');
+    assert.deepEqual(disabledBoxes.map(box => box.dataset.disableTable), ['Stance', 'Backdrop', 'Callsigns']);
+    disabledBoxes[1].checked = true;
+    disabledBoxes[2].checked = true;
     nodes['create-count'].value = '3'; nodes['create-seed'].value = '42';
     nodes['create-art-style'].value = 'private-ink';
     await nodes['secret-preset-save'].dispatch('click');
     assert.deepEqual(saved.settings.extraTables, [{ file: 'a.json', tables: ['mood', 'constructor'], values: { mood: 'soft light' } }]);
     assert.equal(saved.settings.artStyle, 'private-ink');
+    assert.deepEqual(saved.settings.disabledTables, ['Backdrop', 'Callsigns']);
+    for (const box of disabledBoxes) box.checked = false;
     input.checked = false; input.valueSelect.value = '';
     nodes['create-count'].value = '1'; nodes['create-art-style'].value = 'default';
     await nodes['secret-preset-load'].dispatch('click');
     assert.equal(nodes['create-count'].value, '3');
     assert.equal(nodes['create-art-style'].value, 'private-ink');
     assert.equal(input.checked, true); assert.equal(input.valueSelect.value, 'soft light');
+    assert.deepEqual(disabledBoxes.map(box => box.checked), [false, true, true]);
     await nodes['secret-tables-collapse'].dispatch('click');
     assert.equal(nodes['secret-tables-content'].hidden, true);
     assert.equal(nodes['secret-tables-toggle'].focused, true);
     assert.equal(nodes['secret-tables-toggle'].attributes['aria-expanded'], 'false');
     await window.SecretMode.fetch('/api/create-npc', { method: 'POST', body: '{"count":3}' });
     assert.deepEqual(JSON.parse(requests.at(-1).options.body).extraTables, saved.settings.extraTables);
+    assert.deepEqual(JSON.parse(requests.at(-1).options.body).disabledTables, ['Backdrop', 'Callsigns']);
     await nodes['secret-tables-toggle'].dispatch('click');
     assert.equal(nodes['secret-tables-content'].hidden, false);
     assert.equal(input.valueSelect.value, 'soft light');

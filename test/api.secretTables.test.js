@@ -22,7 +22,7 @@ const STUB = [
     '/*',
     'REROLLABLE_TRAITS = ("Gear",)',
     'DISABLEABLE_TABLES = (',
-    '    "Stance", "Weapon",',
+    '    "Stance", "Weapon", "Backdrop", "Callsigns", "Role", "Hair colour",',
     ')',
     '*/',
     'console.log(process.argv.slice(2).join(" "));',
@@ -116,7 +116,7 @@ test('the listing needs a session and reports files, tables, counts, errors and 
     const data = await res.json();
     assert.equal(data.dir, tablesDir);
     assert.equal(data.exists, true);
-    assert.deepEqual(data.disableable, ['Stance', 'Weapon']);
+    assert.deepEqual(data.disableable, ['Stance', 'Weapon', 'Backdrop', 'Callsigns', 'Role', 'Hair colour']);
     assert.deepEqual(data.files.map((f) => f.file), ['a.json', 'b.md', 'bad.json']);
     assert.deepEqual(data.files[0].tables, [{ name: 'one', count: 1, values: ['first'] }, { name: 'two', count: 1, values: ['second'] }]);
     assert.deepEqual(data.files[1].tables, [{ name: 'mood', count: 2, values: ['harsh light', 'soft light'] }]);
@@ -132,6 +132,9 @@ test('a selection becomes --extra-tables, --extra-table and --disable-table on t
     assert.match(whole, /--disable-table Stance/);
     assert.match(whole, /--secret --secret-config/);
 
+    const defaults = await createLog({ disabledTables: ['Backdrop', 'Callsigns', 'Role', 'Hair colour'] });
+    assert.match(defaults, /--disable-table Backdrop --disable-table Callsigns --disable-table Role --disable-table Hair colour/);
+
     // One file narrowed means every wanted table is named, from every file:
     // the generator's --extra-table filters across all loaded files at once.
     const narrowed = await createLog({ extraTables: [{ file: 'a.json', tables: ['two'] }, { file: 'b.md' }] });
@@ -143,7 +146,7 @@ test('a selection becomes --extra-tables, --extra-table and --disable-table on t
     assert.doesNotMatch(plain, /--extra-table|--disable-table/);
 });
 
-test('the public path, an unknown file, a bad file, an unknown table and a structural table are refused', async (t) => {
+test('the public path, an unknown file, a bad file and unknown tables are refused', async (t) => {
     const { call } = await setup(t);
     const publicRes = await call('/api/create-npc', { dryRun: true, count: 1, extraTables: [{ file: 'a.json' }] });
     assert.equal(publicRes.status, 400);
@@ -156,7 +159,7 @@ test('the public path, an unknown file, a bad file, an unknown table and a struc
         [{ extraTables: [{ file: 'bad.json' }] }, /bad.json: not valid JSON/],
         [{ extraTables: [{ file: 'a.json', tables: ['nope'] }] }, /a.json has no table "nope"/],
         [{ extraTables: [{ file: 'a.json', tables: [] }] }, /no tables selected/],
-        [{ disabledTables: ['Role'] }, /cannot disable table "Role"/],
+        [{ disabledTables: ['Unknown'] }, /cannot disable table "Unknown"/],
         [{ kind: 'spaceship', extraTables: [{ file: 'a.json' }] }, /not a spaceship field|isn't supported/],
     ]) {
         const res = await call('/api/secret/create', { dryRun: true, count: 1, ...body }, true);
