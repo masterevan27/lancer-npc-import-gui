@@ -3074,7 +3074,7 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
     // the request, so a name with a separator in it has nowhere to go.
     const extraPicks = Array.isArray(body.extraTables) ? body.extraTables : [];
     const disablePicks = Array.isArray(body.disabledTables) ? body.disabledTables : [];
-    let extraTables = [], extraTableNames = [], extraValues = [], disabledTables = [];
+    let extraTables = [], extraTableNames = [], extraValues = [], extraTargets = [], disabledTables = [];
     if (extraPicks.length || disablePicks.length) {
         if (runner === startCreateJob) {
             return { status: 400, body: { error: 'secret tables and disabled tables are available in Secret mode only' } };
@@ -3084,7 +3084,7 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
         }
         const listing = secretTables.listSecretTables(DERIVED_PATHS.secretTablesDir, { reserved: overrideTablesForKind });
         try {
-            ({ extraTables, extraTableNames, extraValues, disabledTables } = secretTables.validateSelection(
+            ({ extraTables, extraTableNames, extraValues, extraTargets, disabledTables } = secretTables.validateSelection(
                 body, listing, OVERRIDE_DATA_BY_KIND[kindEntry.id].disableable));
         } catch (err) { return { status: 400, body: { error: err.message } }; }
     }
@@ -3127,7 +3127,15 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
         }
     }
 
+    let dimensions;
+    try {
+        dimensions = require('./lib/imageDimensions').normaliseDimensions(body);
+        if (dimensions.width !== undefined && runner === startCreateJob) {
+            return { status: 400, body: { error: 'Custom image dimensions are available in Secret mode only' } };
+        }
+    } catch (err) { return { status: 400, body: { error: err.message } }; }
     const result = runner(kindEntry, {
+        ...dimensions,
         artStyle: body.artStyle,
         workflow: body.workflow,
         colorGuidance: kindEntry.id === DEFAULT_KIND ? body.colorGuidance : undefined,
@@ -3143,6 +3151,7 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
         extraTables,
         extraTableNames,
         extraValues,
+        extraTargets,
         disabledTables,
         server: typeof body.server === 'string' && body.server ? body.server : null,
         dryRun: !!body.dryRun,

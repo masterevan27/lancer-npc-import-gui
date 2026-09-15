@@ -74,7 +74,12 @@ test('Secret authentication protects catalog, files, jobs, and settings', async 
     assert.equal((await call('/api/backgrounds/import', { rel: 'Ordinary.png' })).status, 404);
     assert.deepEqual(fs.readdirSync(sharedBackgrounds), []);
     assert.equal((await call('/api/secret/image?rel=../styles.json', undefined, true)).status, 404);
-    const created = await (await call('/api/secret/create', { artStyle: 'hidden', dryRun: true, count: 1 }, true)).json();
+    for (const dimensions of [{ width: 1920 }, { height: 1080 }, { width: 0, height: 1080 },
+        { width: 1920.5, height: 1080 }, { width: 9000, height: 1080 }, { width: 1919, height: 1080 }]) {
+        assert.equal((await call('/api/secret/create', { ...dimensions, dryRun: true }, true)).status, 400);
+    }
+    assert.equal((await call('/api/create', { width: 1920, height: 1080, dryRun: true })).status, 400);
+    const created = await (await call('/api/secret/create', { artStyle: 'hidden', dryRun: true, count: 1, width: 1920, height: 1080 }, true)).json();
     assert.ok(created.jobId);
     assert.equal((await call('/api/create-status?jobId=' + created.jobId)).status, 404);
     let job;
@@ -85,6 +90,7 @@ test('Secret authentication protects catalog, files, jobs, and settings', async 
     }
     assert.match(job.log, /--secret --secret-config/);
     assert.match(job.log, /--art-style hidden/);
+    assert.match(job.log, /--width 1920 --height 1080/);
     assert.equal((await call('/api/secret/reroll-trait', { id: 'private-id', trait: 'Gear' })).status, 401);
     assert.equal((await call('/api/secret/reroll-trait', { id: 'private-id', trait: 'Unknown' }, true)).status, 400);
     const rerollResponse = await call('/api/secret/reroll-trait', { id: 'private-id', trait: 'Gear' }, true);

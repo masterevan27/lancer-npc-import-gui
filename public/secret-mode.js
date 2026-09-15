@@ -21,6 +21,7 @@
       if (selections.workflows) body.workflow = selections.workflows[kind] || 'default';
       if (create && kind === 'npc' && selections.colorGuidance) body.colorGuidance = selections.colorGuidance[kind] || 'default';
       if (create && authenticated) body.kind = kind;
+      if (create && authenticated && selections.dimensions?.[kind]) Object.assign(body, selections.dimensions[kind]);
       // The Secret tables section is an NPC-only, logged-in-only part of the
       // form, so its picks ride along here rather than in app.js's body.
       if (create && authenticated && kind === 'npc' && selections.secretTables) {
@@ -70,7 +71,14 @@
     workflows: Object.fromEntries(['npc', 'spaceship', 'background'].map(kind =>
       [kind, document.querySelector(`[data-workflow="${kind}"]`)?.value || 'default'])),
     colorGuidance: { npc: document.querySelector('[data-color-guidance="npc"]')?.value || 'default' },
+    dimensions: Object.fromEntries(['npc', 'spaceship'].map(kind => [kind, dimensionPicks(kind)])),
     secretTables: secretTablePicks() });
+
+  function dimensionPicks(kind) {
+    const width = get(`secret-${kind}-width`)?.value || '';
+    const height = get(`secret-${kind}-height`)?.value || '';
+    return width || height ? { width, height } : {};
+  }
 
   // What the Secret tables section has ticked, or null while it is hidden.
   function secretTablePicks() {
@@ -84,6 +92,12 @@
       pick.tables.push(box.dataset.secretTable);
       if (box.valueSelect?.value) Object.defineProperty(pick.values, box.dataset.secretTable,
         { value: box.valueSelect.value, enumerable: true, configurable: true, writable: true });
+      const { portrait, token } = box.targetInputs;
+      if (!portrait.checked || !token.checked) {
+        pick.targets ||= {};
+        Object.defineProperty(pick.targets, box.dataset.secretTable,
+          { value: portrait.checked ? 'portrait' : 'token', enumerable: true, configurable: true, writable: true });
+      }
     }
     return {
       extraTables: [...files].map(([file, pick]) => ({ file, ...pick })),
@@ -123,6 +137,11 @@
     for (const id of ['set-trait-title', 'set-trait-list', 'set-trait-release-label']) get(id).textContent = '';
     get('set-trait-filter').value = '';
     galleryItems = []; visibleItems = []; detailId = null; galleryRequest += 1;
+    for (const kind of ['npc', 'spaceship']) {
+      get(`secret-${kind}-dimensions`).hidden = true;
+      get(`secret-${kind}-width`).value = '';
+      get(`secret-${kind}-height`).value = '';
+    }
     for (const id of ['secret-grid', 'secret-detail-images', 'secret-detail-prompts', 'secret-detail-traits']) get(id)?.replaceChildren();
     for (const id of ['secret-detail-name', 'secret-detail-style', 'secret-storage-path']) {
       const node = get(id); if (node) { node.textContent = ''; if ('value' in node) node.value = ''; }
@@ -197,15 +216,41 @@
         select.setAttribute('aria-label', `${table.name} value (${file.file})`);
         select.replaceChildren(new Option('Random (weighted)', ''), ...(table.values || []).map(value => new Option(value, value)));
         select.disabled = true; input.valueSelect = select;
-        label.append(input, ` ${table.name} `, count); row.append(label, select); box.append(row); inputs.push(input);
-        input.addEventListener('change', () => {
+        const valueField = document.createElement('div'); valueField.className = 'secret-table-value';
+        const preview = document.createElement('p'); preview.className = 'secret-table-value-preview';
+        valueField.append(select, preview);
+        label.append(input, ` ${table.name} `, count); row.append(label, valueField); box.append(row); inputs.push(input);
+        const targets = document.createElement('span'); targets.className = 'secret-table-targets';
+        input.targetInputs = {};
+        for (const target of ['portrait', 'token']) {
+          const targetInput = document.createElement('input'); targetInput.type = 'checkbox';
+          targetInput.checked = true;
+          targetInput.setAttribute('aria-label', `${table.name}: apply to ${target} (${file.file})`);
+          const targetLabel = document.createElement('label');
+          targetLabel.append(targetInput, target === 'portrait' ? ' Portrait' : ' Token');
+          targets.append(targetLabel); input.targetInputs[target] = targetInput;
+          targetInput.addEventListener('change', () => input.syncControls());
+        }
+        row.append(targets);
+        input.syncControls = () => {
           select.disabled = !input.checked;
+          preview.textContent = select.value;
+          preview.hidden = !input.checked || !select.value;
+          select.title = select.value || 'Random (weighted)';
+          const { portrait, token } = input.targetInputs;
+          portrait.disabled = !input.checked || !token.checked;
+          token.disabled = !input.checked || !portrait.checked;
+        };
+        input.syncControls();
+        select.addEventListener('change', () => input.syncControls());
+        input.addEventListener('change', () => {
+          input.syncControls();
           all.checked = inputs.every(other => other.checked);
           all.indeterminate = !all.checked && inputs.some(other => other.checked);
         });
       }
       all.addEventListener('change', () => {
-        for (const input of inputs) { input.checked = all.checked; input.valueSelect.disabled = !all.checked; }
+        for (const input of inputs) { input.checked = all.checked; input.syncControls(); }
         all.indeterminate = false;
       });
       all.secretInputs = inputs;
@@ -244,7 +289,9 @@
         if (!input || ![...input.valueSelect.options].some(option => option.value === value)) {
           throw new Error(`Reload Secret mode: ${pick.file} / ${table} has changed.`);
         }
-        restored.set(input, value);
+        const target = Object.hasOwn(pick.targets || {}, table) ? pick.targets[table] : 'both';
+        if (!['portrait', 'token', 'both'].includes(target)) throw new Error(`Invalid image target for ${table}.`);
+        restored.set(input, { value, target });
       }
     }
     const selectors = [['create-art-style', 'artStyle'], ['create-workflow', 'workflow'], ['create-color-guidance', 'colorGuidance']];
@@ -252,11 +299,16 @@
       if (![...get(id).options].some(option => option.value === settings[key])) throw new Error(`${key} is no longer available.`);
     }
     applyCreateSettings(settings);
+    get('secret-npc-width').value = settings.width ?? '';
+    get('secret-npc-height').value = settings.height ?? '';
     for (const [id, key] of selectors) get(id).value = settings[key];
     for (const input of inputs) {
       input.checked = restored.has(input);
-      input.valueSelect.value = restored.get(input) || '';
-      input.valueSelect.disabled = !input.checked;
+      const { value = '', target = 'both' } = restored.get(input) || {};
+      input.valueSelect.value = value;
+      input.targetInputs.portrait.checked = target !== 'token';
+      input.targetInputs.token.checked = target !== 'portrait';
+      input.syncControls();
     }
     for (const all of document.querySelectorAll('[data-secret-file]')) {
       if (!all.secretInputs) continue;
@@ -476,7 +528,7 @@
       const name = root.prompt('Name this secret preset');
       if (name === null) return;
       const selected = selections();
-      const settings = { ...createFormSettings(), ...secretTablePicks(), artStyle: selected.npc,
+      const settings = { ...createFormSettings(), ...secretTablePicks(), ...selected.dimensions.npc, artStyle: selected.npc,
         workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc };
       const { slug } = await post('/api/secret/presets', { name, settings });
       await loadSecretPresets(slug);
@@ -504,6 +556,7 @@
     get('secret-open').hidden = !!session.authenticated;
     get('secret-mode-notice').hidden = !session.authenticated;
     document.body.classList.toggle('secret-mode', !!session.authenticated);
+    for (const kind of ['npc', 'spaceship']) get(`secret-${kind}-dimensions`).hidden = !session.authenticated;
     get('secret-open').addEventListener('click', () => {
       get('settings-overlay').hidden = true;
       get('secret-login-error').textContent = session.configured ? '' : 'Secret login is not configured. Add credentials to the server config first.';

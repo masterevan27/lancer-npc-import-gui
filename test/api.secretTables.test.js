@@ -68,6 +68,19 @@ async function setup(t) {
     return { call, createLog, tablesDir, server };
 }
 
+test('secret table targets reach the generator and reject invalid selections', async (t) => {
+    const { call, createLog } = await setup(t);
+    const extraTables = [{ file: 'a.json', tables: ['one', 'two'], targets: { one: 'portrait', two: 'token' } }];
+    const log = await createLog({ extraTables });
+    assert.match(log, /--extra-target one=portrait/);
+    assert.match(log, /--extra-target two=token/);
+    for (const targets of [{ one: 'neither' }, { missing: 'portrait' }, { two: 'token' }, [], 'token']) {
+        const res = await call('/api/secret/create', { dryRun: true, extraTables: [{ file: 'a.json', tables: ['one'], targets }] }, true);
+        assert.equal(res.status, 400, JSON.stringify(targets));
+        assert.match((await res.json()).error, /target/i);
+    }
+});
+
 test('fixed secret values reach the generator and invalid values are refused', async (t) => {
     const { call, createLog } = await setup(t);
     const extraTables = [{ file: 'b.md', tables: ['mood'], values: { mood: 'soft light' } }];
@@ -80,8 +93,8 @@ test('fixed secret values reach the generator and invalid values are refused', a
 
 test('secret presets round trip privately and cannot be loaded from public routes', async (t) => {
     const { call, server } = await setup(t);
-    const settings = { count: 3, seed: 42, artStyle: 'default', workflow: 'default', colorGuidance: 'default',
-        extraTables: [{ file: 'b.md', tables: ['mood'], values: { mood: 'soft light' } }], disabledTables: ['Stance'] };
+    const settings = { count: 3, seed: 42, width: 1920, height: 1080, artStyle: 'default', workflow: 'default', colorGuidance: 'default',
+        extraTables: [{ file: 'b.md', tables: ['mood'], values: { mood: 'soft light' }, targets: { mood: 'token' } }], disabledTables: ['Stance'] };
     assert.equal((await call('/api/secret/presets')).status, 401);
     const saved = await call('/api/secret/presets', { name: 'Private recipe', settings }, true);
     assert.equal(saved.status, 200, await saved.clone().text());

@@ -44,6 +44,21 @@ The generator receives `--art-style`, `--art-styles`, `--secret`, and `--secret-
 
 Private browsing and creation are available; public-item editing, animation, and import controls are disabled while in Secret mode. Return to normal mode to use those public operations.
 
+### Custom image dimensions
+
+In Secret mode, **Create NPC** and **Create Spaceship** offer optional **Width (px)**
+and **Height (px)** fields. For a landscape 1920 × 1080 image, enter width `1920`
+and height `1080`. Set both fields; each must be a multiple of 8 from 64 to 8192.
+The size applies to each selected portrait/token output. Leave both blank to use
+the usual portrait and token sizes. Background creation already has its own size
+controls.
+
+Secret NPC presets save these fields, and generated NPCs and ships retain the
+size for regeneration. Update the companion generator together with the GUI for
+the new `--width` and `--height` flags. Custom sizes require a workflow with an
+editable latent canvas; any additional resizing built into a custom workflow
+still applies.
+
 For an HTTPS reverse proxy, configure `publicOrigin` to the exact external origin, such as `https://lancer.example`. This enables HTTPS origin validation and Secure session cookies without trusting spoofable `X-Forwarded-*` request headers. Leave it blank for direct localhost HTTP use. Restart after changing this setting.
 
 See [validation results and remaining verification limits](secret-mode-validation.md).
@@ -68,6 +83,11 @@ After Secret login, **Create NPC** lists every file with a checkbox per table (t
 **Disable default tables** offers an independent checkbox for every default NPC table, including Backdrop, Callsigns, Role, Age, Pronouns, Hair colour and Glow placement. Disabling is prompt-only: the trait is still rolled, so the filters that read it and the seed behave exactly as before, and the detail sheet marks it "left out of the prompt". Tick Stance when one of your tables describes the pose. Backdrop removes the rolled framing and scene, using neutral portrait framing; Hair colour removes its base and colour tail while keeping the hairstyle; Glow placement leaves the colour available with a generic glow description. Age removes maturity and face-age wording, and Pronouns uses neutral narration without the gender description. Names, callsigns and Theme already add no direct prompt text, so those switches preserve their metadata and roll dependencies. The choices come from the configured generator; update it alongside the GUI and restart the GUI server to see the expanded list.
 
 Each enabled table has a value selector. Leave it on **Random (weighted)** to roll as before, or select an exact value to use for every NPC in the batch. The server checks that fixed values still belong to the selected tables. **Collapse secret tables** is available at both ends of the section; the top button expands it again. Collapsing preserves all selections, including disabled default tables.
+
+Value selectors stay within the form width. The full selected entry wraps below
+its selector, so long descriptions remain readable on narrow screens.
+
+The **Portrait** and **Token** checkboxes beside each table choose which image prompts receive its value. Both start ticked; untick either for a portrait-only or token-only table. An enabled table needs at least one target; use its main checkbox to turn the table off. A table used by both images rolls once and shares that value. Secret presets save these targets, and regeneration and trait rerolls preserve them. Older presets and NPCs use both images. Update the companion generator alongside the GUI for the `--extra-target` option.
 
 **Secret presets**, below the section, saves the Create NPC recipe: count, seed, pronouns, generation switches, overrides, art style, workflow, color guidance, selected secret tables, fixed values, and disabled default tables. As with normal Create presets, the character name is not saved and loading never starts generation. Load restores the whole recipe; Delete removes the selected preset. Missing tables or values are reported when loading, rather than silently becoming random rolls.
 

@@ -5,6 +5,19 @@ const assert = require('node:assert/strict');
 // private reply after logout must be discarded before its JSON reaches a view.
 const ui = () => require('../public/secret-mode');
 
+test('custom image dimensions travel only with authenticated NPC and ship creation', () => {
+    for (const kind of ['npc', 'spaceship']) {
+        const options = { method: 'POST', body: JSON.stringify({ kind }) };
+        const selections = { dimensions: { [kind]: { width: 1920, height: 1080 } } };
+        const privateBody = JSON.parse(ui().routeRequest('/api/create', options, true, selections).options.body);
+        assert.equal(privateBody.width, 1920);
+        assert.equal(privateBody.height, 1080);
+        const publicBody = JSON.parse(ui().routeRequest('/api/create', options, false, selections).options.body);
+        assert.equal(publicBody.width, undefined);
+        assert.equal(publicBody.height, undefined);
+    }
+});
+
 test('public selectors discard hidden and secret records and retain Default', () => {
     const styles = [{ id: 'ink', name: 'Ink' }, { id: 'hidden', name: 'Private', hidden: true },
         { id: 'alias', name: 'Alias', secret: true }];
@@ -146,6 +159,37 @@ async function page(authenticated, privateItems, respond = () => undefined) {
     return { nodes, window, document, requests, navigations };
 }
 
+test('secret table selections expose their full text and clear the preview when disabled or random', async () => {
+    const value = 'A long scene description with enough detail to need several lines in a narrow table row. '.repeat(5);
+    const { document, nodes } = await page(true, [], path => {
+        if (path === '/api/secret/tables') return { exists: true, files: [
+            { file: 'scenes.json', tables: [{ name: 'Scene', count: 1, values: [value] }] },
+        ] };
+    });
+    const input = document.querySelectorAll('[data-secret-table]')[0];
+    const preview = nodes['secret-tables-files'].children[0].children[1].children
+        .find(node => node.className === 'secret-table-value')?.children
+        .find(node => node.className === 'secret-table-value-preview');
+    assert.ok(preview, 'each value picker has a readable full-text preview');
+    assert.equal(preview.hidden, true);
+    input.checked = true;
+    await input.dispatch('change');
+    input.valueSelect.value = value;
+    await input.valueSelect.dispatch('change');
+    assert.equal(preview.textContent, value);
+    assert.equal(preview.hidden, false);
+    input.checked = false;
+    await input.dispatch('change');
+    assert.equal(preview.hidden, true);
+    input.checked = true;
+    await input.dispatch('change');
+    assert.equal(preview.hidden, false);
+    input.valueSelect.value = '';
+    await input.valueSelect.dispatch('change');
+    assert.equal(preview.hidden, true);
+    assert.equal(preview.textContent, '');
+});
+
 test('secret presets restore fixed table values and collapsing preserves the create request', async () => {
     let saved;
     const { nodes, document, window, requests } = await page(true, [], (path, options) => {
@@ -163,6 +207,11 @@ test('secret presets restore fixed table values and collapsing preserves the cre
     const input = document.querySelectorAll('[data-secret-table]')[0];
     input.checked = true; await input.dispatch('change');
     assert.equal(input.valueSelect.disabled, false);
+    assert.equal(input.targetInputs.portrait.checked, true);
+    assert.equal(input.targetInputs.token.checked, true);
+    input.targetInputs.token.checked = false;
+    await input.targetInputs.token.dispatch('change');
+    assert.equal(input.targetInputs.portrait.disabled, true, 'keep at least one image target');
     input.valueSelect.value = 'soft light';
     const randomInput = document.querySelectorAll('[data-secret-table]')[1];
     randomInput.checked = true;
@@ -171,18 +220,30 @@ test('secret presets restore fixed table values and collapsing preserves the cre
     disabledBoxes[1].checked = true;
     disabledBoxes[2].checked = true;
     nodes['create-count'].value = '3'; nodes['create-seed'].value = '42';
+    nodes['secret-npc-width'].value = '1920'; nodes['secret-npc-height'].value = '1080';
     nodes['create-art-style'].value = 'private-ink';
     await nodes['secret-preset-save'].dispatch('click');
-    assert.deepEqual(saved.settings.extraTables, [{ file: 'a.json', tables: ['mood', 'constructor'], values: { mood: 'soft light' } }]);
+    assert.deepEqual(saved.settings.extraTables, [{ file: 'a.json', tables: ['mood', 'constructor'], values: { mood: 'soft light' }, targets: { mood: 'portrait' } }]);
     assert.equal(saved.settings.artStyle, 'private-ink');
+    assert.equal(saved.settings.width, '1920');
+    assert.equal(saved.settings.height, '1080');
+    nodes['secret-npc-width'].value = ''; nodes['secret-npc-height'].value = '';
     assert.deepEqual(saved.settings.disabledTables, ['Backdrop', 'Callsigns']);
     for (const box of disabledBoxes) box.checked = false;
     input.checked = false; input.valueSelect.value = '';
+    input.targetInputs.portrait.checked = false;
+    input.targetInputs.token.checked = true;
     nodes['create-count'].value = '1'; nodes['create-art-style'].value = 'default';
     await nodes['secret-preset-load'].dispatch('click');
     assert.equal(nodes['create-count'].value, '3');
+    assert.equal(nodes['secret-npc-width'].value, '1920');
+    assert.equal(nodes['secret-npc-height'].value, '1080');
     assert.equal(nodes['create-art-style'].value, 'private-ink');
     assert.equal(input.checked, true); assert.equal(input.valueSelect.value, 'soft light');
+    assert.equal(input.targetInputs.portrait.checked, true);
+    assert.equal(input.targetInputs.token.checked, false);
+    assert.equal(randomInput.targetInputs.portrait.checked, true);
+    assert.equal(randomInput.targetInputs.token.checked, true);
     assert.deepEqual(disabledBoxes.map(box => box.checked), [false, true, true]);
     await nodes['secret-tables-collapse'].dispatch('click');
     assert.equal(nodes['secret-tables-content'].hidden, true);
@@ -191,12 +252,27 @@ test('secret presets restore fixed table values and collapsing preserves the cre
     await window.SecretMode.fetch('/api/create-npc', { method: 'POST', body: '{"count":3}' });
     assert.deepEqual(JSON.parse(requests.at(-1).options.body).extraTables, saved.settings.extraTables);
     assert.deepEqual(JSON.parse(requests.at(-1).options.body).disabledTables, ['Backdrop', 'Callsigns']);
+    assert.equal(JSON.parse(requests.at(-1).options.body).width, '1920');
+    assert.equal(JSON.parse(requests.at(-1).options.body).height, '1080');
     await nodes['secret-tables-toggle'].dispatch('click');
     assert.equal(nodes['secret-tables-content'].hidden, false);
     assert.equal(input.valueSelect.value, 'soft light');
+    const all = document.querySelectorAll('[data-secret-file]').find(box => box.secretInputs);
+    all.checked = false; await all.dispatch('change');
+    assert.equal(input.targetInputs.token.disabled, true);
+    all.checked = true; await all.dispatch('change');
+    assert.equal(input.targetInputs.portrait.checked, true);
+    assert.equal(input.targetInputs.token.checked, false, 'file toggle preserves targets');
+    assert.equal(input.targetInputs.token.disabled, false);
+    delete saved.settings.extraTables[0].targets;
+    await nodes['secret-preset-load'].dispatch('click');
+    assert.equal(input.targetInputs.portrait.checked, true);
+    assert.equal(input.targetInputs.token.checked, true, 'legacy presets restore both targets');
     await nodes['leave-secret'].dispatch('click');
     assert.equal(nodes['secret-presets-section'].hidden, true);
     assert.equal(nodes['secret-preset-select'].children.length, 0);
+    assert.equal(nodes['secret-npc-dimensions'].hidden, true);
+    assert.equal(nodes['secret-npc-width'].value, '');
 });
 
 test('private detail cycles through filtered items and offers per-trait rerolls', async () => {

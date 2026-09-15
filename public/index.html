@@ -169,6 +169,14 @@
       <label><input type="checkbox" id="create-unarmed" /> Unarmed run <span class="hint">(military and criminal roles keep their weapons)</span></label>
     </div>
 
+    <div id="secret-npc-dimensions" hidden>
+      <h3>Image dimensions <span class="hint">(optional)</span></h3>
+      <div class="form-row">
+        <label class="form-field">Width (px)<input id="secret-npc-width" type="number" min="64" max="8192" step="8" placeholder="Default" /></label>
+        <label class="form-field">Height (px)<input id="secret-npc-height" type="number" min="64" max="8192" step="8" placeholder="Default" /></label>
+      </div>
+      <p class="hint">Leave both blank for default sizes. Set both to use one size for the selected portrait and token images, e.g. width 1920, height 1080. Use multiples of 8 from 64 to 8192 pixels.</p>
+    </div>
     <h3>Set traits <span class="hint">(choose specific values before generation, e.g. Role = a field medic)</span></h3>
     <div class="filter-rows" id="override-rows"></div>
     <button id="add-override" type="button">+ Set trait</button>
@@ -182,7 +190,7 @@
     <div class="secret-tables" id="secret-tables-section" hidden>
       <h3><button id="secret-tables-toggle" type="button" aria-expanded="true" aria-controls="secret-tables-content">Collapse secret tables</button></h3>
       <div id="secret-tables-content">
-        <p class="hint">Enable your own tables and choose a fixed value or Random for a weighted roll.</p>
+        <p class="hint">Enable your own tables and choose a fixed value or Random for a weighted roll. Tick Portrait, Token, or both to choose which image prompts use each table.</p>
         <div id="secret-tables-files"></div>
         <p class="hint" id="secret-tables-status"></p>
         <h3>Disable default tables <span class="hint">(tick any table to omit its contribution to the image prompt; traits are still rolled)</span></h3>
@@ -291,6 +299,14 @@
       <label><input type="checkbox" id="create-ship-keep-raw" /> Keep raw (pre-background-removal) token</label>
     </div>
 
+    <div id="secret-spaceship-dimensions" hidden>
+      <h3>Image dimensions <span class="hint">(optional)</span></h3>
+      <div class="form-row">
+        <label class="form-field">Width (px)<input id="secret-spaceship-width" type="number" min="64" max="8192" step="8" placeholder="Default" /></label>
+        <label class="form-field">Height (px)<input id="secret-spaceship-height" type="number" min="64" max="8192" step="8" placeholder="Default" /></label>
+      </div>
+      <p class="hint">Leave both blank for default sizes. Set both to use one size for the selected portrait and token images, e.g. width 1920, height 1080. Use multiples of 8 from 64 to 8192 pixels.</p>
+    </div>
     <h3>Trait overrides <span class="hint">(force specific rolled traits, e.g. Hull = a scorched patchwork hull)</span></h3>
     <div class="filter-rows" id="ship-override-rows"></div>
     <button id="add-ship-override" type="button">+ Add trait override</button>

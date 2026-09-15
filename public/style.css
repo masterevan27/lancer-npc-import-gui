@@ -408,11 +408,18 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 /* Secret mode's own tables on Create NPC: one fieldset per file, the legend
    box ticking the whole file, and a row of default tables to switch off. */
 .secret-tables { margin-top: 1rem; }
-.secret-tables-file { border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0.75rem; margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; }
-.secret-tables-file legend { font-weight: 600; padding: 0 0.35rem; }
-.secret-tables-file .secret-tables-table { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; width: 100%; min-width: 0; }
+.secret-tables-file { border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0.75rem; margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; min-inline-size: 0; width: 100%; }
+.secret-tables-file legend { font-weight: 600; padding: 0 0.35rem; max-width: 100%; overflow-wrap: anywhere; }
+.secret-tables-file .secret-tables-table { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem; width: 100%; min-width: 0; }
 .secret-tables-table label { flex: 0 1 16rem; overflow-wrap: anywhere; }
-.secret-tables-table select { flex: 1 1 18rem; min-width: 0; max-width: 100%; }
+/* Fieldsets default to a content-based minimum; long native options must not
+   set the form width. The paragraph keeps the selected value readable. */
+.secret-table-value { flex: 1 1 18rem; min-width: 0; max-width: 100%; }
+.secret-table-value select { width: 100%; min-width: 0; max-width: 100%; background: var(--surface); border: 1px solid var(--line-strong); color: var(--text); border-radius: var(--r-md); padding: 0.35rem 0.5rem; font: inherit; }
+.secret-table-value select:disabled { opacity: 0.5; }
+.secret-table-value-preview { margin: 0.35rem 0 0; color: var(--text-4); font-size: var(--fs-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.secret-table-targets { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.secret-table-targets label { flex: none; white-space: nowrap; }
 #secret-presets-section[hidden], #secret-tables-content[hidden] { display: none; }
 #secret-tables-collapse { margin-top: 1rem; }
 .secret-tables-error { color: var(--danger-text); font-weight: normal; }

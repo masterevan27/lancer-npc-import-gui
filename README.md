@@ -784,7 +784,10 @@ The GUI release version starts at `1.0.0` and is displayed in the top bar on
 every tab. Each component is limited to two digits and uses the conventional
 unpadded form shown in the examples.
 
-Whenever a branch or worktree is merged, increment the version once. Small
+Increment the version once for every completed change to the website, including
+changes made or committed directly to `main`, even when no branch or worktree
+is merged. After a merge, ensure its changes include a version increment; do
+not increment twice for the same change. Small
 changes, including almost all small fixes, increment the subversion: `1.0.1`.
 Large changes increment the minor version and reset the subversion: `1.1.0`.
 If a subversion increment would move past `99`, increment the major version and
