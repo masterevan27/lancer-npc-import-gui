@@ -185,3 +185,30 @@ test('keyboard-only hints are hidden on a phone', async (t) => {
     assert.match(block, /\.trait-shortcuts[^{]*\{[^}]*display: none/);
     assert.match(block, /\.regen-row \.hint \{[^}]*display: none/, 'the secret sheet hint mentions hover and Esc');
 });
+
+test('controls are thumb-sized and never zoom the page on focus', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const block = phoneBlock(await fetchText(server, '/style.css'));
+    assert.match(block, /font-size: 16px/, 'Chrome zooms into any field under 16px');
+    assert.match(block, /min-height: 44px/, 'tap targets are at least 44px');
+    assert.match(block, /\.form-grid \{[^}]*grid-template-columns: 1fr/);
+    assert.match(block, /overflow-x: auto/, 'wide tables and prompts scroll inside themselves');
+    assert.match(block, /\.job-log \{[^}]*white-space: pre-wrap/);
+});
+
+test('the shared filter panel and action bar exist', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const css = await fetchText(server, '/style.css');
+    const block = phoneBlock(css);
+    assert.match(block, /\.mobile-action-bar \{[^}]*position: sticky/);
+    assert.match(block, /\.mobile-action-bar \{[^}]*bottom: 0/);
+    assert.match(block, /padding-bottom/, 'a panel leaves room for its own bar');
+    assert.match(css, /\.mobile-filters > summary \{/, 'the wrapper has a summary at every width');
+    const js = await fetchText(server, '/app.js');
+    const sync = extractSource(js, 'syncMobileFilters');
+    assert.match(sync, /isPhone\(\)/, 'closed on a phone, open above the breakpoint');
+    assert.match(sync, /\.open = /);
+    assert.match(js, /onPhoneChange\(syncMobileFilters\)/, 'and it follows the breakpoint');
+});

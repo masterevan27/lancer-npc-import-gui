@@ -478,6 +478,12 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   padding: 0;
 }
 .filter-row .filter-remove:hover { color: var(--text); background: var(--surface-2); }
+
+/* A <details> wrapper the phone layer collapses; see syncMobileFilters. */
+.mobile-filters > summary { cursor: pointer; padding: 0.35rem 0; color: var(--text-3); font-size: var(--fs-sm); }
+.mobile-filters[open] > summary { margin-bottom: var(--sp-2); }
+.mobile-action-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
 /* The three "add a row" buttons share one rule: the two override-row ones on
    the Create tabs shipped with no rule at all and painted as the browser's
    grey default in the middle of a dark form. */
@@ -2807,4 +2813,33 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .detail-nav button { flex: 1; min-height: 44px; }
   .image-zoom { pointer-events: auto; }
   .image-zoom img { max-width: 96vw; max-height: 80vh; }
+
+  /* --- Controls --- */
+  input, select, textarea, button { font-size: 16px; }
+  input, select, textarea { min-height: 44px; }
+  button { min-height: 44px; }
+  .form-grid { grid-template-columns: 1fr; }
+  label { display: block; }
+
+  /* --- Content too wide for 360px --- */
+  #detail-traits,
+  .secret-trait-table,
+  .detail-files pre,
+  .bg-prompt { display: block; max-width: 100%; overflow-x: auto; }
+  .job-log { max-height: 50vh; overflow: auto; white-space: pre-wrap; }
+  main { padding-left: 0.75rem; padding-right: 0.75rem; overflow-x: hidden; }
+
+  /* --- The sticky action bar ---
+     Its panel pays for it in padding, or the bar sits on top of the last
+     field it is meant to submit. */
+  .mobile-action-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    padding: 0.5rem 0;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+  }
+  .mobile-action-bar button { flex: 1 1 45%; }
+  .tab-panel { padding-bottom: 4.5rem; }
 }

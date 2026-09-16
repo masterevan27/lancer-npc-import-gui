@@ -244,6 +244,19 @@ function onPhoneChange(fn) {
   PHONE_QUERY.addEventListener("change", () => fn(isPhone()));
 }
 
+/*
+ * The filter panels collapse on a phone, where four stacked filter rows
+ * push the results themselves off the screen. Above the breakpoint they are
+ * always open, so desktop keeps today's layout exactly.
+ */
+function syncMobileFilters() {
+  const phone = isPhone();
+  for (const panel of document.querySelectorAll(".mobile-filters")) {
+    panel.open = !phone;
+  }
+}
+onPhoneChange(syncMobileFilters);
+
 const elDeleteConfirm = {
   overlay: document.getElementById("delete-confirm-overlay"),
   message: document.getElementById("delete-confirm-message"),
