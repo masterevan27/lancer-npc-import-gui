@@ -116,3 +116,32 @@ test('the phone layer makes every sheet full-screen', async (t) => {
     assert.match(block, /\.detail--background \.detail-images img \{[^}]*max-width: 100%/, 'nor the 44vw one');
     assert.match(block, /\.trait-image-sheet \{[^}]*width: 100%/);
 });
+
+test('opening an overlay adds a history entry and back closes the top one', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    const count = extractSource(js, 'openOverlayCount');
+    assert.match(count, /\.detail-overlay/, 'every sheet counts');
+    assert.match(count, /image-zoom/, 'the zoom counts too');
+    const sync = extractSource(js, 'syncOverlayHistory');
+    assert.match(sync, /history\.pushState/, 'a newly open overlay pushes an entry');
+    assert.match(sync, /history\.go\(-steps\)/, 'an overlay closed from the UI unwinds its entry');
+    assert.match(sync, /overlayHistory\.suspend/, 'closing from popstate does not re-enter');
+    assert.match(js, /new MutationObserver\(syncOverlayHistory\)/, 'visibility is observed, not hooked per call site');
+    assert.match(js, /attributeFilter: \["hidden"\]/);
+    assert.match(js, /addEventListener\("popstate"/, 'back is handled');
+    const back = extractSource(js, 'closeOverlayForBack');
+    assert.match(back, /topmostOverlay\(\)/, 'a stacked sheet closes first');
+    assert.match(back, /el\.overlay\.hidden = true/, 'then the NPC sheet, which topmostOverlay() does not cover');
+    assert.match(extractSource(js, 'topmostOverlay'), /__overlayClosers/, 'secret-mode overlays are closable too');
+});
+
+test('secret mode registers its overlays with the shared closer list', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/secret-mode.js');
+    assert.match(js, /window\.__overlayClosers/, 'it pushes onto the shared list');
+    assert.match(js, /secret-detail-overlay/);
+    assert.match(js, /secret-login-overlay/);
+});

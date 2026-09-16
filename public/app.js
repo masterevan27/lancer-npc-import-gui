@@ -3272,6 +3272,89 @@ function cancelRerollConfirm() {
   elRerollConfirm.cancel.click();
 }
 
+/*
+ * Android's back gesture is how a phone closes things, and a site that
+ * leaves on it is a site that loses your place. Every open overlay gets one
+ * history entry, so back pops the topmost sheet the way Esc does.
+ *
+ * Visibility is observed rather than hooked: overlays are opened and closed
+ * from dozens of call sites here and in secret-mode.js, all of them by
+ * setting `hidden` directly. One MutationObserver over that attribute is the
+ * only way to stay correct without rewriting every one of them.
+ *
+ * #preset-preview is deliberately NOT counted. It is nested inside the
+ * Tables panel rather than being a top-level overlay, so its `hidden`
+ * does not track real visibility - the same caveat topmostOverlay()
+ * documents. Esc still closes it.
+ */
+const OVERLAY_SELECTOR = ".detail-overlay, .image-zoom";
+const overlayHistory = { pushed: 0, unwinding: 0, suspend: false };
+
+/** How many overlays are on screen right now. */
+function openOverlayCount() {
+  let open = 0;
+  for (const node of document.querySelectorAll(".detail-overlay, .image-zoom")) {
+    if (!node.hidden) open += 1;
+  }
+  return open;
+}
+
+/** Make the history stack match what is on screen. */
+function syncOverlayHistory() {
+  if (overlayHistory.suspend) return;
+  const depth = openOverlayCount();
+  while (overlayHistory.pushed < depth) {
+    overlayHistory.pushed += 1;
+    history.pushState({ overlay: overlayHistory.pushed }, "");
+  }
+  if (overlayHistory.pushed > depth) {
+    // Closed from the UI (a ✕, a backdrop tap, Esc): drop the entries it
+    // owned, so back does not have to be pressed twice to leave the page.
+    const steps = overlayHistory.pushed - depth;
+    overlayHistory.pushed = depth;
+    overlayHistory.unwinding += steps;
+    history.go(-steps);
+  }
+}
+
+/*
+ * What a back press closes, in the Esc handler's exact precedence: a
+ * stacked overlay first, then the NPC sheet itself - which
+ * topmostOverlay() deliberately does not cover, because Esc closes that
+ * one through its own branch of the keydown handler.
+ */
+function closeOverlayForBack() {
+  const top = topmostOverlay();
+  if (top) {
+    top.close();
+    return;
+  }
+  if (!el.overlay.hidden) {
+    el.overlay.hidden = true;
+    el.imageZoom.hidden = true;
+  }
+}
+
+window.addEventListener("popstate", () => {
+  if (overlayHistory.unwinding > 0) {
+    // Our own history.go(), not a real back press.
+    overlayHistory.unwinding -= 1;
+    return;
+  }
+  // suspend: closing here must not push the entry back or unwind another.
+  overlayHistory.suspend = true;
+  closeOverlayForBack();
+  overlayHistory.suspend = false;
+  // Resync unconditionally: a back press that closed nothing still consumed
+  // its entry, and a stale `pushed` would unwind history that is not ours.
+  overlayHistory.pushed = openOverlayCount();
+});
+
+const overlayObserver = new MutationObserver(syncOverlayHistory);
+for (const node of document.querySelectorAll(OVERLAY_SELECTOR)) {
+  overlayObserver.observe(node, { attributes: true, attributeFilter: ["hidden"] });
+}
+
 /**
  * The overlays stacked above the NPC detail sheet, innermost first.
  *
@@ -3302,6 +3385,11 @@ function topmostOverlay() {
   if (!elTraits.overlay.hidden) return { close: () => closeTraitDetail() };
   if (!elTraits.imageOverlay.hidden) return { close: () => closeTraitImage() };
   if (!elTables.preview.hidden) return { close: () => cancelPresetPreview() };
+  // secret-mode.js loads first and owns its own sheets; it registers them
+  // here so back and Esc can close them through the one path.
+  for (const extra of window.__overlayClosers ?? []) {
+    if (extra.isOpen()) return { close: () => extra.close() };
+  }
   return null;
 }
 

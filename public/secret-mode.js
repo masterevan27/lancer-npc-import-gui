@@ -614,6 +614,18 @@
       if (event.key !== 'Escape') return;
       closeDetail(); get('secret-login-overlay').hidden = true; get('secret-password').value = '';
     });
+    // Shared with app.js's topmostOverlay(), so Esc and Android back close
+    // these two the same way they close every other sheet.
+    (window.__overlayClosers ||= []).push(
+        { isOpen: () => !get('secret-detail-overlay').hidden, close: () => closeDetail() },
+        {
+            isOpen: () => !get('secret-login-overlay').hidden,
+            close: () => {
+                get('secret-login-overlay').hidden = true;
+                get('secret-password').value = '';
+            },
+        },
+    );
     get('settings-open').addEventListener('click', async () => {
       if (!transport.authenticated) return;
       try { const data = await json('/api/secret/settings'); get('secret-storage-path').value = data.secretImagesDir || ''; }
