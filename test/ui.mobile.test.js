@@ -91,7 +91,7 @@ test('the menu opens, closes on a tab choice, and never adds a second version pl
     assert.match(js, /classList\.toggle\("is-open"/, 'the toggle flips #tabs.is-open');
     assert.match(extractSource(js, 'switchTab'), /closeTabsMenu\(\)/, 'choosing a tab closes the menu');
     assert.match(extractSource(js, 'switchTab'), /elNav\.currentTab\.textContent/, 'choosing a tab updates the label');
-    assert.match(extractSource(js, 'openSettings'), /settingsVersion\.textContent/, 'Settings shows the version text');
+    assert.match(extractSource(js, 'openSettings'), /elSettings\.version\.textContent/, 'Settings shows the version text');
 });
 
 test('the phone layer turns the tab row into a dropdown', async (t) => {

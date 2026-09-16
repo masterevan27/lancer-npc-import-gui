@@ -9658,8 +9658,7 @@ function closeSettings() {
 async function openSettings() {
   elSettings.overlay.hidden = false;
   // Mirrors the top bar's line, which the phone layer hides.
-  const settingsVersion = elSettings.version;
-  settingsVersion.textContent =
+  elSettings.version.textContent =
     document.querySelector(".release-version")?.textContent ?? "";
   elSettings.error.hidden = true;
   elSettings.status.textContent = "";
