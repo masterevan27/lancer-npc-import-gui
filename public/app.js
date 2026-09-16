@@ -3499,6 +3499,17 @@ function attachImageZoom(imgEl) {
   });
 }
 
+attachImageZoom(el.detailPortrait);
+attachImageZoom(el.detailToken);
+
+/*
+ * Deliberately below the attachImageZoom() call sites, not above them:
+ * test/ui.secretMode.test.js slices app.js between `function
+ * attachImageZoom(` and `attachImageZoom(el.detailPortrait)` and evaluates
+ * that span in a bare `new Function('el', ...)`, where `document` and
+ * `window` do not exist. Anything DOM-touching placed in that span breaks
+ * nine tests in that file.
+ */
 // The zoom is pointer-events: none on desktop, where leaving the image is
 // what closes it. On a phone it is tapped, so it must take taps back.
 el.imageZoom.addEventListener("click", () => {
@@ -3570,9 +3581,6 @@ const elDetailNav = {
 elDetailNav.prev.addEventListener("click", () => stepDetail(-1));
 elDetailNav.next.addEventListener("click", () => stepDetail(1));
 attachSwipeNav(document.querySelector("#detail-overlay .detail-images"));
-
-attachImageZoom(el.detailPortrait);
-attachImageZoom(el.detailToken);
 
 el.selectAll.addEventListener("change", () => {
   const notImported = state.visibleItems.filter(

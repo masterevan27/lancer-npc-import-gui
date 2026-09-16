@@ -141,8 +141,16 @@ async function page(authenticated, privateItems, respond = () => undefined) {
     };
     function Option(text, value) { this.textContent = text; this.value = value; }
     const app = fs.readFileSync(require.resolve('../public/app.js'), 'utf8');
-    const zoomCode = app.slice(app.indexOf('function attachImageZoom('), app.indexOf('attachImageZoom(el.detailPortrait)'));
-    const attachImageZoom = new Function('el', zoomCode + '; return attachImageZoom;')({ imageZoom: nodes['image-zoom'], imageZoomImg: nodes['image-zoom-img'] });
+    // The slice starts at CAN_HOVER, not at the function itself: the
+    // listeners close over that const, so leaving it out of the span would
+    // resolve it as an undefined global the moment a listener fires. A
+    // matches: true stub keeps this test's mouseenter/mouseleave simulation
+    // on the "device can hover" branch, same as before the tap path existed.
+    const zoomCode = app.slice(app.indexOf('const CAN_HOVER'), app.indexOf('attachImageZoom(el.detailPortrait)'));
+    const attachImageZoom = new Function('el', 'window', zoomCode + '; return attachImageZoom;')(
+        { imageZoom: nodes['image-zoom'], imageZoomImg: nodes['image-zoom-img'] },
+        { matchMedia: () => ({ matches: true }) },
+    );
     const elSetTrait = Object.fromEntries(['overlay', 'title', 'filter', 'list', 'releaseRow', 'release', 'releaseLabel', 'warning', 'cancel', 'ok']
         .map(key => [key, nodes['set-trait-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())]]));
     const context = vm.createContext({ window, document, Option, Response, console, setTimeout, Date, attachImageZoom, elSetTrait,

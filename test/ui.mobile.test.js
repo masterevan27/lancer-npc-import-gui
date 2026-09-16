@@ -186,6 +186,16 @@ test('keyboard-only hints are hidden on a phone', async (t) => {
     assert.match(block, /\.regen-row \.hint \{[^}]*display: none/, 'the secret sheet hint mentions hover and Esc');
 });
 
+test('the zoom helper stays extractable by the secret-mode test', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    // ui.secretMode.test.js evaluates this exact span in a bare
+    // `new Function('el', ...)`, with no document and no window.
+    const span = js.slice(js.indexOf('function attachImageZoom('), js.indexOf('attachImageZoom(el.detailPortrait)'));
+    assert.doesNotMatch(span, /\bdocument\b/, 'nothing between attachImageZoom and its first call may touch the DOM');
+});
+
 test('controls are thumb-sized and never zoom the page on focus', async (t) => {
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());
