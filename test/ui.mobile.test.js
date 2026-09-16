@@ -103,3 +103,16 @@ test('the phone layer turns the tab row into a dropdown', async (t) => {
     assert.match(block, /\.tabs button \{[^}]*min-height: 48px/, 'menu rows are thumb-sized');
     assert.match(block, /\.release-version \{[^}]*display: none/, 'the version leaves the top bar');
 });
+
+test('the phone layer makes every sheet full-screen', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const block = phoneBlock(await fetchText(server, '/style.css'));
+    assert.match(block, /\.detail \{[^}]*height: 100dvh/, 'a sheet fills the viewport');
+    assert.match(block, /\.detail \{[^}]*border-radius: 0/);
+    assert.match(block, /\.detail-close \{[^}]*position: sticky/, 'the close button stays reachable');
+    assert.match(block, /\.detail-images \{[^}]*flex-direction: column/, 'images stack');
+    assert.match(block, /\.detail-images img \{[^}]*max-width: 100%/, 'no 32vw cap on a phone');
+    assert.match(block, /\.detail--background \.detail-images img \{[^}]*max-width: 100%/, 'nor the 44vw one');
+    assert.match(block, /\.trait-image-sheet \{[^}]*width: 100%/);
+});
