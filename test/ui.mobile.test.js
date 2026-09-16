@@ -122,8 +122,8 @@ test('opening an overlay adds a history entry and back closes the top one', asyn
     t.after(() => server.stop());
     const js = await fetchText(server, '/app.js');
     const count = extractSource(js, 'openOverlayCount');
-    assert.match(count, /\.detail-overlay/, 'every sheet counts');
-    assert.match(count, /image-zoom/, 'the zoom counts too');
+    assert.match(js, /const OVERLAY_SELECTOR = "\.detail-overlay, \.image-zoom"/, 'every sheet counts, and the zoom too');
+    assert.match(count, /OVERLAY_SELECTOR/, 'counted through the one selector, not a second copy of it');
     const sync = extractSource(js, 'syncOverlayHistory');
     assert.match(sync, /history\.pushState/, 'a newly open overlay pushes an entry');
     assert.match(sync, /history\.go\(-steps\)/, 'an overlay closed from the UI unwinds its entry');

@@ -3293,7 +3293,7 @@ const overlayHistory = { pushed: 0, unwinding: 0, suspend: false };
 /** How many overlays are on screen right now. */
 function openOverlayCount() {
   let open = 0;
-  for (const node of document.querySelectorAll(".detail-overlay, .image-zoom")) {
+  for (const node of document.querySelectorAll(OVERLAY_SELECTOR)) {
     if (!node.hidden) open += 1;
   }
   return open;
