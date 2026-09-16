@@ -79,7 +79,9 @@ test('Secret authentication protects catalog, files, jobs, and settings', async 
         assert.equal((await call('/api/secret/create', { ...dimensions, dryRun: true }, true)).status, 400);
     }
     assert.equal((await call('/api/create', { width: 1920, height: 1080, dryRun: true })).status, 400);
-    const created = await (await call('/api/secret/create', { artStyle: 'hidden', dryRun: true, count: 1, width: 1920, height: 1080 }, true)).json();
+    assert.equal((await call('/api/create', { tokenWidth: 768, tokenHeight: 1024, dryRun: true })).status, 400);
+    assert.equal((await call('/api/secret/create', { tokenWidth: 768, dryRun: true }, true)).status, 400);
+    const created = await (await call('/api/secret/create', { artStyle: 'hidden', dryRun: true, count: 1, width: 1920, height: 1080, tokenWidth: 768, tokenHeight: 1024 }, true)).json();
     assert.ok(created.jobId);
     assert.equal((await call('/api/create-status?jobId=' + created.jobId)).status, 404);
     let job;
@@ -91,6 +93,7 @@ test('Secret authentication protects catalog, files, jobs, and settings', async 
     assert.match(job.log, /--secret --secret-config/);
     assert.match(job.log, /--art-style hidden/);
     assert.match(job.log, /--width 1920 --height 1080/);
+    assert.match(job.log, /--token-width 768 --token-height 1024/);
     assert.equal((await call('/api/secret/reroll-trait', { id: 'private-id', trait: 'Gear' })).status, 401);
     assert.equal((await call('/api/secret/reroll-trait', { id: 'private-id', trait: 'Unknown' }, true)).status, 400);
     const rerollResponse = await call('/api/secret/reroll-trait', { id: 'private-id', trait: 'Gear' }, true);

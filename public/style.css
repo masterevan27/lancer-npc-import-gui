@@ -1,4 +1,33 @@
 * { box-sizing: border-box; }
+.prompt-composer { margin: 1.25rem 0; padding: 1.2rem; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--bg-sunken); }
+.prompt-composer[hidden] { display: none; }
+.prompt-composer-heading, .prompt-composer-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .65rem; }
+.prompt-composer-heading h3 { margin: 0; }
+.prompt-composer-heading p { margin: .3rem 0; }
+.prompt-composer-heading label { display: flex; align-items: center; gap: .6rem; }
+.prompt-composer-toolbar { justify-content: flex-start; margin: 1rem 0; }
+.prompt-composer-pills { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .6rem; padding: .5rem 0 1rem; min-height: 4rem; }
+.prompt-pill { max-width: 100%; flex: 0 1 auto; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); padding: .45rem .65rem .65rem; overflow-wrap: anywhere; }
+.prompt-pill-table { border-color: hsl(var(--pill-hue) 35% 39%); background: hsl(var(--pill-hue) 26% 16%); }
+.prompt-pill-header { display: flex; align-items: center; gap: .25rem; margin-bottom: .2rem; }
+.prompt-pill-header span { margin-right: auto; font-size: .72rem; font-weight: 650; color: var(--text-2); }
+.prompt-pill-table .prompt-pill-header span { color: hsl(var(--pill-hue) 65% 78%); }
+.prompt-pill-header button { padding: .1rem .35rem; min-width: 1.65rem; min-height: 1.65rem; background: transparent; color: var(--text-2); border: 1px solid transparent; }
+.prompt-pill-header button:hover, .prompt-pill-header button:focus-visible { border-color: var(--line-hover); background: var(--surface-3); }
+.prompt-pill-header [draggable] { cursor: grab; }
+.prompt-pill.dragging { opacity: .45; }
+.prompt-pill-value { display: block; white-space: pre-wrap; font-size: .9rem; line-height: 1.55; }
+.prompt-pill-prose { border-style: dashed; color: var(--text-2); }
+.prompt-pill-custom { border-color: var(--accent-border); flex-basis: 22rem; }
+.prompt-pill-custom textarea { display: block; width: 100%; resize: vertical; margin: .35rem 0; }
+.prompt-composer-preview { border-top: 1px solid var(--line); padding-top: .8rem; }
+.prompt-composer-preview summary { cursor: pointer; font-weight: 600; color: var(--text-2); }
+.prompt-composer-preview p { white-space: pre-wrap; line-height: 1.75; overflow-wrap: anywhere; }
+.prompt-composer[aria-busy="true"] .prompt-composer-pills { opacity: .65; }
+@media (max-width: 600px) {
+  .prompt-composer { padding: .75rem; }
+  .prompt-pill-header button { min-height: 2.25rem; min-width: 2.25rem; }
+}
 /* ---- Design tokens ----
    One place for every colour, radius, size and timing the sheet uses, so a
    value changes once. Contrast figures are WCAG ratios against the surface
@@ -410,15 +439,17 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .secret-tables { margin-top: 1rem; }
 .secret-tables-file { border: 1px solid var(--line); border-radius: 6px; padding: 0.5rem 0.75rem; margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; min-inline-size: 0; width: 100%; }
 .secret-tables-file legend { font-weight: 600; padding: 0 0.35rem; max-width: 100%; overflow-wrap: anywhere; }
-.secret-tables-file .secret-tables-table { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem; width: 100%; min-width: 0; }
-.secret-tables-table label { flex: 0 1 16rem; overflow-wrap: anywhere; }
+.secret-tables-file .secret-tables-table { display: flex; flex-direction: column; gap: 0.65rem; width: 100%; min-width: 0; padding: 0.75rem; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.secret-table-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
+.secret-table-header .secret-table-enable { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.secret-table-enable input { flex-shrink: 0; }
 /* Fieldsets default to a content-based minimum; long native options must not
    set the form width. The paragraph keeps the selected value readable. */
-.secret-table-value { flex: 1 1 18rem; min-width: 0; max-width: 100%; }
+.secret-table-value { min-width: 0; width: 100%; max-width: 100%; }
 .secret-table-value select { width: 100%; min-width: 0; max-width: 100%; background: var(--surface); border: 1px solid var(--line-strong); color: var(--text); border-radius: var(--r-md); padding: 0.35rem 0.5rem; font: inherit; }
 .secret-table-value select:disabled { opacity: 0.5; }
 .secret-table-value-preview { margin: 0.35rem 0 0; color: var(--text-4); font-size: var(--fs-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.secret-table-targets { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.secret-table-targets { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
 .secret-table-targets label { flex: none; white-space: nowrap; }
 #secret-presets-section[hidden], #secret-tables-content[hidden] { display: none; }
 #secret-tables-collapse { margin-top: 1rem; }

@@ -17,7 +17,7 @@ const { startTestServer } = require('./helpers/testServer');
  * so the disableable list comes from the same parse production uses.
  */
 
-const PORT = 5401;
+const PORT = 5431;
 const STUB = [
     '/*',
     'REROLLABLE_TRAITS = ("Gear",)',
@@ -25,7 +25,8 @@ const STUB = [
     '    "Stance", "Weapon", "Backdrop", "Callsigns", "Role", "Hair colour",',
     ')',
     '*/',
-    'console.log(process.argv.slice(2).join(" "));',
+    'if (process.argv.includes("--prompt-preview")) console.log(JSON.stringify({portrait: [{id: "shot", text: "a portrait", sources: ["Backdrop"]}], token: [], argv: process.argv.slice(2)}));',
+    'else console.log(process.argv.slice(2).join(" "));',
 ].join('\n');
 
 async function setup(t) {
@@ -81,6 +82,37 @@ test('secret table targets reach the generator and reject invalid selections', a
     }
 });
 
+test('prompt preview requires Secret login and uses read-only generator arguments', async t => {
+    const { call } = await setup(t);
+    assert.equal((await call('/api/secret/prompt-preview', {})).status, 401);
+    const response = await call('/api/secret/prompt-preview', { overrides: [{ table: 'Gear', value: 'a tool' }],
+        extraTables: [{ file: 'b.md', tables: ['mood'], values: { mood: 'soft light' } }] }, true);
+    assert.equal(response.status, 200, await response.clone().text());
+    const body = await response.json();
+    assert.equal(body.portrait[0].id, 'shot');
+    assert.ok(body.argv.includes('--prompt-preview'));
+    assert.ok(body.argv.includes('--secret'));
+    assert.ok(body.argv.includes('--tables'));
+    assert.ok(body.argv.includes('mood=soft light'));
+    assert.ok(body.argv.includes('Gear=a tool'));
+    assert.equal((await call('/api/secret/prompt-preview', { kind: 'spaceship' }, true)).status, 400);
+});
+
+test('composition is private, reaches generation, and round trips through presets', async t => {
+    const { call, createLog } = await setup(t);
+    const promptLayout = { portrait: [{ id: 'custom:opening', text: 'My {literal} text.' }, 'extra:mood'], token: ['stance_line'] };
+    assert.match(await createLog({ promptLayout }), /--prompt-layout/);
+    const log = await createLog({ promptLayout });
+    assert.ok(log.includes(JSON.stringify(promptLayout)));
+    assert.equal((await call('/api/create-npc', { promptLayout })).status, 400);
+    assert.equal((await call('/api/secret/create', { promptLayout: { portrait: ['a', 'a'] } }, true)).status, 400);
+    const saved = await call('/api/secret/presets', { name: 'Composition', settings: { promptLayout } }, true);
+    assert.equal(saved.status, 200, await saved.clone().text());
+    const { slug } = await saved.json();
+    const preset = await (await call('/api/secret/presets/export?slug=' + slug, undefined, true)).json();
+    assert.deepEqual(preset.settings.promptLayout, promptLayout);
+});
+
 test('fixed secret values reach the generator and invalid values are refused', async (t) => {
     const { call, createLog } = await setup(t);
     const extraTables = [{ file: 'b.md', tables: ['mood'], values: { mood: 'soft light' } }];
@@ -93,7 +125,7 @@ test('fixed secret values reach the generator and invalid values are refused', a
 
 test('secret presets round trip privately and cannot be loaded from public routes', async (t) => {
     const { call, server } = await setup(t);
-    const settings = { count: 3, seed: 42, width: 1920, height: 1080, artStyle: 'default', workflow: 'default', colorGuidance: 'default',
+    const settings = { count: 3, seed: 42, width: 1920, height: 1080, tokenWidth: 768, tokenHeight: 1024, artStyle: 'default', workflow: 'default', colorGuidance: 'default',
         extraTables: [{ file: 'b.md', tables: ['mood'], values: { mood: 'soft light' }, targets: { mood: 'token' } }], disabledTables: ['Stance'] };
     assert.equal((await call('/api/secret/presets')).status, 401);
     const saved = await call('/api/secret/presets', { name: 'Private recipe', settings }, true);

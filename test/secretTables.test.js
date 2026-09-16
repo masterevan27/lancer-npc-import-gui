@@ -26,6 +26,22 @@ const JSON_SET = JSON.stringify({
 });
 const MD_SET = ['# Mine', '', 'Prose is ignored.', '', '## lighting_mood', '', '- x2 harsh overhead fluorescent light', '- soft window light', '', '## empty', ''].join('\n');
 
+test('markdown categories group values without changing table counts or fixed values', (t) => {
+    const dir = folder(t, { 'poses.md': [
+        '### Before any table', '## Poses', '- x2 standing',
+        '### Kneeling', '- x3 kneeling upright', '- kneeling upright', '- x0 excluded',
+        '### Lying down', '- reclining', '### Empty',
+        '## Other', '- neutral', '## Poses', '- standing again',
+    ].join('\r\n') });
+    assert.deepEqual(listSecretTables(dir).files[0].tables, [
+        { name: 'Poses', count: 5, values: ['standing', 'kneeling upright', 'reclining', 'standing again'],
+            groups: [{ name: '', values: ['standing', 'standing again'] },
+                { name: 'Kneeling', values: ['kneeling upright'] },
+                { name: 'Lying down', values: ['reclining'] }] },
+        { name: 'Other', count: 1, values: ['neutral'] },
+    ]);
+});
+
 test('lists json and md files by name with each table and its row count', (t) => {
     const dir = folder(t, { 'b.md': MD_SET, 'a.json': JSON_SET });
     const listing = listSecretTables(dir);

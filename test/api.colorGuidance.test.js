@@ -84,6 +84,15 @@ test('create passes the built-in none guidance through to the generator', async 
     assert.ok(argv.includes(`--color-guidance-catalog ${catalog}`), argv);
 });
 
+test('create resolves random guidance to a real catalog entry', async (t) => {
+    const { s, catalog } = await startServer(t);
+    const res = await post(s, '/api/create-npc', { count: 1, dryRun: true, colorGuidance: 'random' });
+    assert.equal(res.status, 202, await res.text());
+    const argv = await lastArgv(s);
+    assert.match(argv, /--color-guidance ochre/);
+    assert.ok(argv.includes(`--color-guidance-catalog ${catalog}`), argv);
+});
+
 test('create passes the chosen guidance to the generator and refuses unknown or hidden ids', async (t) => {
     const { s, catalog } = await startServer(t);
     let res = await post(s, '/api/create-npc', { count: 1, dryRun: true, colorGuidance: 'ochre' });

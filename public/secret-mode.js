@@ -28,6 +28,7 @@
         body.extraTables = selections.secretTables.extraTables;
         body.disabledTables = selections.secretTables.disabledTables;
       }
+      if (create && authenticated && kind === 'npc' && selections.promptLayout) body.promptLayout = selections.promptLayout;
       next.body = JSON.stringify(body);
     }
     if (authenticated) {
@@ -66,18 +67,22 @@
     return;
   }
   const get = id => document.getElementById(id);
+  let composer = null;
   const selections = () => ({ ...Object.fromEntries(['npc', 'spaceship', 'background'].map(kind =>
     [kind, document.querySelector(`[data-art-style="${kind}"]`)?.value || 'default'])),
     workflows: Object.fromEntries(['npc', 'spaceship', 'background'].map(kind =>
       [kind, document.querySelector(`[data-workflow="${kind}"]`)?.value || 'default'])),
     colorGuidance: { npc: document.querySelector('[data-color-guidance="npc"]')?.value || 'default' },
     dimensions: Object.fromEntries(['npc', 'spaceship'].map(kind => [kind, dimensionPicks(kind)])),
-    secretTables: secretTablePicks() });
+    secretTables: secretTablePicks(), promptLayout: composer?.getLayout() });
 
   function dimensionPicks(kind) {
     const width = get(`secret-${kind}-width`)?.value || '';
     const height = get(`secret-${kind}-height`)?.value || '';
-    return width || height ? { width, height } : {};
+    const tokenWidth = get(`secret-${kind}-token-width`)?.value || '';
+    const tokenHeight = get(`secret-${kind}-token-height`)?.value || '';
+    return { ...(width || height ? { width, height } : {}),
+      ...(tokenWidth || tokenHeight ? { tokenWidth, tokenHeight } : {}) };
   }
 
   // What the Secret tables section has ticked, or null while it is hidden.
@@ -133,6 +138,7 @@
   const post = (path, body) => json(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
   function clearPrivateView() {
+    composer?.clear();
     if (!get('set-trait-overlay').hidden) get('set-trait-cancel').click();
     for (const id of ['set-trait-title', 'set-trait-list', 'set-trait-release-label']) get(id).textContent = '';
     get('set-trait-filter').value = '';
@@ -141,6 +147,8 @@
       get(`secret-${kind}-dimensions`).hidden = true;
       get(`secret-${kind}-width`).value = '';
       get(`secret-${kind}-height`).value = '';
+      get(`secret-${kind}-token-width`).value = '';
+      get(`secret-${kind}-token-height`).value = '';
     }
     for (const id of ['secret-grid', 'secret-detail-images', 'secret-detail-prompts', 'secret-detail-traits']) get(id)?.replaceChildren();
     for (const id of ['secret-detail-name', 'secret-detail-style', 'secret-storage-path']) {
@@ -211,16 +219,28 @@
         input.dataset.secretTable = table.name; input.dataset.secretFile = file.file;
         const count = document.createElement('span'); count.className = 'hint'; count.textContent = `(${table.count})`;
         const row = document.createElement('div'); row.className = 'secret-tables-table';
+        const header = document.createElement('div'); header.className = 'secret-table-header';
         const label = document.createElement('label');
+        label.className = 'secret-table-enable';
         const select = document.createElement('select');
         select.setAttribute('aria-label', `${table.name} value (${file.file})`);
-        select.replaceChildren(new Option('Random (weighted)', ''), ...(table.values || []).map(value => new Option(value, value)));
+        select.replaceChildren(new Option('Random (weighted)', ''));
+        for (const group of table.groups || [{ name: '', values: table.values || [] }]) {
+          const parent = group.name ? document.createElement('optgroup') : select;
+          if (group.name) { parent.label = group.name; select.append(parent); }
+          parent.append(...group.values.map(value => new Option(value, value)));
+        }
         select.disabled = true; input.valueSelect = select;
         const valueField = document.createElement('div'); valueField.className = 'secret-table-value';
         const preview = document.createElement('p'); preview.className = 'secret-table-value-preview';
         valueField.append(select, preview);
-        label.append(input, ` ${table.name} `, count); row.append(label, valueField); box.append(row); inputs.push(input);
+        label.append(input, ` ${table.name} `, count); header.append(label);
+        row.append(header, valueField); box.append(row); inputs.push(input);
         const targets = document.createElement('span'); targets.className = 'secret-table-targets';
+        targets.setAttribute('role', 'group');
+        targets.setAttribute('aria-label', `${table.name} image targets (${file.file})`);
+        const targetHint = document.createElement('span'); targetHint.className = 'hint'; targetHint.textContent = 'Apply to:';
+        targets.append(targetHint);
         input.targetInputs = {};
         for (const target of ['portrait', 'token']) {
           const targetInput = document.createElement('input'); targetInput.type = 'checkbox';
@@ -231,7 +251,7 @@
           targets.append(targetLabel); input.targetInputs[target] = targetInput;
           targetInput.addEventListener('change', () => input.syncControls());
         }
-        row.append(targets);
+        header.append(targets);
         input.syncControls = () => {
           select.disabled = !input.checked;
           preview.textContent = select.value;
@@ -301,6 +321,8 @@
     applyCreateSettings(settings);
     get('secret-npc-width').value = settings.width ?? '';
     get('secret-npc-height').value = settings.height ?? '';
+    get('secret-npc-token-width').value = settings.tokenWidth ?? '';
+    get('secret-npc-token-height').value = settings.tokenHeight ?? '';
     for (const [id, key] of selectors) get(id).value = settings[key];
     for (const input of inputs) {
       input.checked = restored.has(input);
@@ -316,6 +338,7 @@
       all.indeterminate = !all.checked && all.secretInputs.some(input => input.checked);
     }
     for (const input of document.querySelectorAll('[data-disable-table]')) input.checked = (settings.disabledTables || []).includes(input.dataset.disableTable);
+    composer?.setLayout(settings.promptLayout);
   }
 
   function setSecretTablesCollapsed(collapsed, fromBottom = false) {
@@ -342,7 +365,7 @@
   // saved selection restored where the catalog still offers it.
   async function loadColorGuidance() {
     const data = await json('/api/color-guidance');
-    const entries = visibleStyles(data.guidance, transport.authenticated);
+    const entries = [...visibleStyles(data.guidance, transport.authenticated), { id: 'random', name: 'Random' }];
     for (const select of document.querySelectorAll('[data-color-guidance]')) {
       const selected = select.dataset.guidanceId || select.value;
       select.replaceChildren(...entries.map(entry => new Option(entry.name, entry.id)));
@@ -529,7 +552,7 @@
       if (name === null) return;
       const selected = selections();
       const settings = { ...createFormSettings(), ...secretTablePicks(), ...selected.dimensions.npc, artStyle: selected.npc,
-        workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc };
+        workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc, promptLayout: composer?.getLayout() || {} };
       const { slug } = await post('/api/secret/presets', { name, settings });
       await loadSecretPresets(slug);
       get('secret-preset-status').textContent = `Saved “${name.trim()}”.`;
@@ -557,6 +580,13 @@
     get('secret-mode-notice').hidden = !session.authenticated;
     document.body.classList.toggle('secret-mode', !!session.authenticated);
     for (const kind of ['npc', 'spaceship']) get(`secret-${kind}-dimensions`).hidden = !session.authenticated;
+    if (session.authenticated) {
+      const defaults = { width: '1920', height: '1080', tokenWidth: '1024', tokenHeight: '1280' };
+      for (const [suffix, value] of Object.entries(defaults)) {
+        const input = get(`secret-npc-${suffix.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())}`);
+        if (input && !input.value) input.value = value;
+      }
+    }
     get('secret-open').addEventListener('click', () => {
       get('settings-overlay').hidden = true;
       get('secret-login-error').textContent = session.configured ? '' : 'Secret login is not configured. Add credentials to the server config first.';
@@ -639,7 +669,16 @@
     }
     try { await loadColorGuidance(); }
     catch (err) { get('color-guidance-error').textContent = `Could not load color guidance: ${err.message}`; get('color-guidance-error').hidden = false; }
-    if (session.authenticated) openGallery();
+    if (session.authenticated) {
+      composer = root.PromptComposer.create({ element: get('secret-prompt-composer'), active: () => transport.authenticated,
+        getRequest: () => {
+          const selected = selections();
+          return { ...createRequestBody(true), ...secretTablePicks(), artStyle: selected.npc,
+            workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc };
+        },
+        request: body => post('/api/secret/prompt-preview', body) });
+      openGallery();
+    }
     const verifySession = async () => {
       if (Date.now() - lastFocus < 1000) return; lastFocus = Date.now();
       try {

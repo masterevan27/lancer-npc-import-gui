@@ -56,6 +56,7 @@ const traitCandidateEdit = require('./lib/traitCandidateEdit');
 const presets = require('./lib/presets');
 const createPresets = require('./lib/createPresets');
 const secretPresets = require('./lib/secretPresets');
+const promptComposer = require('./lib/promptComposer');
 const presetFromItem = require('./lib/presetFromItem');
 const { derivePaths } = require('./lib/paths');
 const { buildKinds, kindFor, kindOf, requestKind, available, DEFAULT_KIND } = require('./lib/kinds');
@@ -3036,12 +3037,15 @@ function startCreateJob(kindEntry, opts) {
  * Returns `{ status, body }`, ready to hand straight to sendJson().
  */
 function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
+    let colorGuidanceId;
     try {
         artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', runner !== startCreateJob);
         workflowCatalog.args(body.workflow, runner !== startCreateJob);
         // Colour guidance is an NPC prompt concept; a ship request naming one
         // is refused below with the other person-only fields.
-        if (kindEntry.id === DEFAULT_KIND) colorGuidance.select(COLOR_GUIDANCE_PATH, body.colorGuidance || 'default', runner !== startCreateJob);
+        if (kindEntry.id === DEFAULT_KIND && body.colorGuidance !== undefined && body.colorGuidance !== '') {
+            colorGuidanceId = colorGuidance.select(COLOR_GUIDANCE_PATH, body.colorGuidance, runner !== startCreateJob).id;
+        }
     }
     catch (err) { return { status: 400, body: { error: err.message } }; }
     if (!kindEntry.supports.create) {
@@ -3074,6 +3078,14 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
     // the request, so a name with a separator in it has nowhere to go.
     const extraPicks = Array.isArray(body.extraTables) ? body.extraTables : [];
     const disablePicks = Array.isArray(body.disabledTables) ? body.disabledTables : [];
+    let promptLayout;
+    if (body.promptLayout != null) {
+        if (runner === startCreateJob || kindEntry.id !== DEFAULT_KIND) {
+            return { status: 400, body: { error: 'Prompt composer is available for Secret NPCs only' } };
+        }
+        try { promptLayout = promptComposer.normaliseLayout(body.promptLayout); }
+        catch (err) { return { status: 400, body: { error: err.message } }; }
+    }
     let extraTables = [], extraTableNames = [], extraValues = [], extraTargets = [], disabledTables = [];
     if (extraPicks.length || disablePicks.length) {
         if (runner === startCreateJob) {
@@ -3130,7 +3142,7 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
     let dimensions;
     try {
         dimensions = require('./lib/imageDimensions').normaliseDimensions(body);
-        if (dimensions.width !== undefined && runner === startCreateJob) {
+        if (Object.keys(dimensions).length && runner === startCreateJob) {
             return { status: 400, body: { error: 'Custom image dimensions are available in Secret mode only' } };
         }
     } catch (err) { return { status: 400, body: { error: err.message } }; }
@@ -3138,7 +3150,7 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
         ...dimensions,
         artStyle: body.artStyle,
         workflow: body.workflow,
-        colorGuidance: kindEntry.id === DEFAULT_KIND ? body.colorGuidance : undefined,
+        colorGuidance: kindEntry.id === DEFAULT_KIND ? colorGuidanceId : undefined,
         count,
         seed,
         name: name || null,
@@ -3153,6 +3165,7 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
         extraValues,
         extraTargets,
         disabledTables,
+        promptLayout,
         server: typeof body.server === 'string' && body.server ? body.server : null,
         dryRun: !!body.dryRun,
         // Always passed, kind-independent: npc's createArgs never reads
@@ -4039,6 +4052,17 @@ async function handleSecretApi(req, res, url, authenticated) {
         if (['/create-status', '/backgrounds/status'].includes(route) && req.method === 'GET') {
             const job = secretGallery.jobs.get(url.searchParams.get('jobId'));
             return sendJson(res, job ? 200 : 404, job ? { ...job, secret: true } : { error: 'unknown job' });
+        }
+        if (route === '/prompt-preview' && req.method === 'POST') {
+            const body = JSON.parse(await readBody(req, 256 * 1024));
+            if (body.kind && body.kind !== 'npc') return sendJson(res, 400, { error: 'Prompt composer is available for Secret NPCs only' });
+            let options;
+            const result = handleCreateRequest(KINDS.npc, { ...body, count: 1, seed: body.seed ?? 0, dryRun: true }, (_kind, opts) => {
+                options = opts;
+                return { ok: true };
+            });
+            if (!options) return sendJson(res, result.status, result.body);
+            return sendJson(res, 200, await secretGallery.previewPrompts(KINDS.npc, options));
         }
         if (route === '/create' && req.method === 'POST') {
             const body = JSON.parse(await readBody(req, 256 * 1024));

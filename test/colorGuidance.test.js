@@ -37,3 +37,15 @@ test('saved metadata reads the manifest key and falls back to Default', () => {
     assert.deepEqual(guidance.metadata({}), { id: 'default', name: 'Default' });
     assert.deepEqual(guidance.metadata({ color_guidance: { id: 5 } }), { id: 'default', name: 'Default' });
 });
+
+test('random selects an available guidance and excludes built-in placeholders', t => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guidance-random-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const file = path.join(dir, 'guidance.json');
+    fs.writeFileSync(file, JSON.stringify({ guidance: [
+        { id: 'ochre', name: 'Ochre', prompt: 'Keep it ochre.' },
+        { id: 'hidden', name: 'Hidden', prompt: 'Private.', hidden: true },
+    ] }));
+    for (let i = 0; i < 20; i++) assert.equal(guidance.select(file, 'random').id, 'ochre');
+    assert.ok(['ochre', 'hidden'].includes(guidance.select(file, 'random', true).id));
+});

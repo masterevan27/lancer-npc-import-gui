@@ -172,10 +172,14 @@
     <div id="secret-npc-dimensions" hidden>
       <h3>Image dimensions <span class="hint">(optional)</span></h3>
       <div class="form-row">
-        <label class="form-field">Width (px)<input id="secret-npc-width" type="number" min="64" max="8192" step="8" placeholder="Default" /></label>
-        <label class="form-field">Height (px)<input id="secret-npc-height" type="number" min="64" max="8192" step="8" placeholder="Default" /></label>
+        <label class="form-field">Portrait width (px)<input id="secret-npc-width" type="number" min="64" max="8192" step="8" placeholder="Default" /></label>
+        <label class="form-field">Portrait height (px)<input id="secret-npc-height" type="number" min="64" max="8192" step="8" placeholder="Default" /></label>
       </div>
-      <p class="hint">Leave both blank for default sizes. Set both to use one size for the selected portrait and token images, e.g. width 1920, height 1080. Use multiples of 8 from 64 to 8192 pixels.</p>
+      <div class="form-row">
+        <label class="form-field">Token width (px)<input id="secret-npc-token-width" type="number" min="64" max="8192" step="8" placeholder="Follow portrait / default" /></label>
+        <label class="form-field">Token height (px)<input id="secret-npc-token-height" type="number" min="64" max="8192" step="8" placeholder="Follow portrait / default" /></label>
+      </div>
+      <p class="hint">Set both width and height for each custom size. Blank token fields follow the portrait size when set, otherwise the usual token size. Leave all fields blank for default sizes. Use multiples of 8 from 64 to 8192 pixels.</p>
     </div>
     <h3>Set traits <span class="hint">(choose specific values before generation, e.g. Role = a field medic)</span></h3>
     <div class="filter-rows" id="override-rows"></div>
@@ -199,6 +203,17 @@
         <button id="secret-tables-collapse" type="button">Collapse secret tables</button>
       </div>
     </div>
+    <section class="prompt-composer" id="secret-prompt-composer" hidden aria-labelledby="prompt-composer-title">
+      <div class="prompt-composer-heading">
+        <div><h3 id="prompt-composer-title">Prompt composer</h3><p class="hint">Arrange the words that shape your NPC.</p></div>
+        <label>Image <select data-composer-target aria-label="Prompt image"><option value="portrait">Portrait</option><option value="token">Token</option></select></label>
+      </div>
+      <p class="hint">Drag a snippet by its grip, use the arrow buttons, or focus its grip and press ← / →. Table labels identify each source; random choices stay as placeholders. Change table choices above to add or remove their snippets.</p>
+      <div class="prompt-composer-toolbar"><button type="button" data-composer-add disabled>+ Add your text</button><button type="button" data-composer-reset disabled>Reset portrait</button><span class="hint">Order and custom text are included in Secret presets.</span></div>
+      <div class="prompt-composer-pills" data-composer-pills role="list" aria-label="Ordered prompt snippets"></div>
+      <details class="prompt-composer-preview" open><summary>Read as a prompt</summary><p data-composer-prose></p></details>
+      <p class="hint" data-composer-status role="status" aria-live="polite"></p>
+    </section>
     <div class="create-presets" id="secret-presets-section" hidden>
       <div class="create-presets-row">
         <label for="secret-preset-select">Secret presets</label>
@@ -302,10 +317,14 @@
     <div id="secret-spaceship-dimensions" hidden>
       <h3>Image dimensions <span class="hint">(optional)</span></h3>
       <div class="form-row">
-        <label class="form-field">Width (px)<input id="secret-spaceship-width" type="number" min="64" max="8192" step="8" placeholder="Default" /></label>
-        <label class="form-field">Height (px)<input id="secret-spaceship-height" type="number" min="64" max="8192" step="8" placeholder="Default" /></label>
+        <label class="form-field">Portrait width (px)<input id="secret-spaceship-width" type="number" min="64" max="8192" step="8" placeholder="Default" /></label>
+        <label class="form-field">Portrait height (px)<input id="secret-spaceship-height" type="number" min="64" max="8192" step="8" placeholder="Default" /></label>
       </div>
-      <p class="hint">Leave both blank for default sizes. Set both to use one size for the selected portrait and token images, e.g. width 1920, height 1080. Use multiples of 8 from 64 to 8192 pixels.</p>
+      <div class="form-row">
+        <label class="form-field">Token width (px)<input id="secret-spaceship-token-width" type="number" min="64" max="8192" step="8" placeholder="Follow portrait / default" /></label>
+        <label class="form-field">Token height (px)<input id="secret-spaceship-token-height" type="number" min="64" max="8192" step="8" placeholder="Follow portrait / default" /></label>
+      </div>
+      <p class="hint">Set both width and height for each custom size. Blank token fields follow the portrait size when set, otherwise the usual token size. Leave all fields blank for default sizes. Use multiples of 8 from 64 to 8192 pixels.</p>
     </div>
     <h3>Trait overrides <span class="hint">(force specific rolled traits, e.g. Hull = a scorched patchwork hull)</span></h3>
     <div class="filter-rows" id="ship-override-rows"></div>
@@ -1054,6 +1073,7 @@
   </div>
 </div>
 
+<script src="/prompt-composer.js"></script>
 <script src="/secret-mode.js"></script>
 <script src="/app.js"></script>
 <script src="/dynamic-backgrounds.js"></script>

@@ -8,13 +8,16 @@ const ui = () => require('../public/secret-mode');
 test('custom image dimensions travel only with authenticated NPC and ship creation', () => {
     for (const kind of ['npc', 'spaceship']) {
         const options = { method: 'POST', body: JSON.stringify({ kind }) };
-        const selections = { dimensions: { [kind]: { width: 1920, height: 1080 } } };
+        const selections = { dimensions: { [kind]: { width: 1920, height: 1080, tokenWidth: 768, tokenHeight: 1024 } } };
         const privateBody = JSON.parse(ui().routeRequest('/api/create', options, true, selections).options.body);
         assert.equal(privateBody.width, 1920);
         assert.equal(privateBody.height, 1080);
+        assert.equal(privateBody.tokenWidth, 768);
+        assert.equal(privateBody.tokenHeight, 1024);
         const publicBody = JSON.parse(ui().routeRequest('/api/create', options, false, selections).options.body);
         assert.equal(publicBody.width, undefined);
         assert.equal(publicBody.height, undefined);
+        assert.equal(publicBody.tokenWidth, undefined);
     }
 });
 
@@ -120,6 +123,12 @@ async function page(authenticated, privateItems, respond = () => undefined) {
         : (query.includes('data-workflow') ? workflows : selectors)[['npc', 'spaceship', 'background'].findIndex(kind => query.includes(`"${kind}"`))] || null;
     const requests = [], navigations = [];
     const window = new Element();
+    // Composer rendering has its own tests; this harness isolates Secret
+    // routing and passes the same state boundary the browser module exposes.
+    window.PromptComposer = { create() {
+        let layout = {};
+        return { getLayout: () => layout, setLayout: value => { layout = value || {}; }, clear: () => { layout = {}; } };
+    } };
     window.location = { replace: path => navigations.push(path) };
     window.setInterval = () => 1;
     window.setTimeout = callback => setImmediate(callback);
@@ -158,6 +167,47 @@ async function page(authenticated, privateItems, respond = () => undefined) {
     await new Promise(resolve => setImmediate(resolve));
     return { nodes, window, document, requests, navigations };
 }
+
+test('markdown categories label dropdown groups while exact choices keep their original values', async () => {
+    const { document, window, requests } = await page(true, [], path => {
+        if (path === '/api/secret/tables') return { exists: true, files: [
+            { file: 'poses.md', tables: [{ name: 'Poses', count: 3,
+                values: ['standing', 'kneeling upright', 'reclining'], groups: [
+                    { name: '', values: ['standing'] },
+                    { name: 'Kneeling', values: ['kneeling upright'] },
+                    { name: 'Lying down', values: ['reclining'] },
+                ] }] },
+        ] };
+    });
+    const input = document.querySelectorAll('[data-secret-table]')[0];
+    const options = input.valueSelect.children;
+    assert.equal(options[0].textContent, 'Random (weighted)');
+    assert.equal(options[1].value, 'standing');
+    assert.equal(options[2].label, 'Kneeling');
+    assert.equal(options[2].children[0].value, 'kneeling upright');
+    assert.equal(options[3].label, 'Lying down');
+    input.checked = true;
+    await input.dispatch('change');
+    input.valueSelect.value = 'kneeling upright';
+    await input.valueSelect.dispatch('change');
+    await window.SecretMode.fetch('/api/create-npc', { method: 'POST', body: '{}' });
+    assert.deepEqual(JSON.parse(requests.at(-1).options.body).extraTables,
+        [{ file: 'poses.md', tables: ['Poses'], values: { Poses: 'kneeling upright' } }]);
+});
+
+test('colour guidance selectors expose Random', async () => {
+    const { nodes } = await page(false, []);
+    assert.equal(nodes['create-color-guidance'].children.at(-1).value, 'random');
+    assert.equal(nodes['regen-color-guidance'].children.at(-1).value, 'random');
+});
+
+test('Secret NPC creation starts with the requested image dimensions', async () => {
+    const { nodes } = await page(true, []);
+    assert.equal(nodes['secret-npc-width'].value, '1920');
+    assert.equal(nodes['secret-npc-height'].value, '1080');
+    assert.equal(nodes['secret-npc-token-width'].value, '1024');
+    assert.equal(nodes['secret-npc-token-height'].value, '1280');
+});
 
 test('secret table selections expose their full text and clear the preview when disabled or random', async () => {
     const value = 'A long scene description with enough detail to need several lines in a narrow table row. '.repeat(5);
@@ -221,13 +271,17 @@ test('secret presets restore fixed table values and collapsing preserves the cre
     disabledBoxes[2].checked = true;
     nodes['create-count'].value = '3'; nodes['create-seed'].value = '42';
     nodes['secret-npc-width'].value = '1920'; nodes['secret-npc-height'].value = '1080';
+    nodes['secret-npc-token-width'].value = '768'; nodes['secret-npc-token-height'].value = '1024';
     nodes['create-art-style'].value = 'private-ink';
     await nodes['secret-preset-save'].dispatch('click');
     assert.deepEqual(saved.settings.extraTables, [{ file: 'a.json', tables: ['mood', 'constructor'], values: { mood: 'soft light' }, targets: { mood: 'portrait' } }]);
     assert.equal(saved.settings.artStyle, 'private-ink');
     assert.equal(saved.settings.width, '1920');
     assert.equal(saved.settings.height, '1080');
+    assert.equal(saved.settings.tokenWidth, '768');
+    assert.equal(saved.settings.tokenHeight, '1024');
     nodes['secret-npc-width'].value = ''; nodes['secret-npc-height'].value = '';
+    nodes['secret-npc-token-width'].value = ''; nodes['secret-npc-token-height'].value = '';
     assert.deepEqual(saved.settings.disabledTables, ['Backdrop', 'Callsigns']);
     for (const box of disabledBoxes) box.checked = false;
     input.checked = false; input.valueSelect.value = '';
@@ -238,6 +292,8 @@ test('secret presets restore fixed table values and collapsing preserves the cre
     assert.equal(nodes['create-count'].value, '3');
     assert.equal(nodes['secret-npc-width'].value, '1920');
     assert.equal(nodes['secret-npc-height'].value, '1080');
+    assert.equal(nodes['secret-npc-token-width'].value, '768');
+    assert.equal(nodes['secret-npc-token-height'].value, '1024');
     assert.equal(nodes['create-art-style'].value, 'private-ink');
     assert.equal(input.checked, true); assert.equal(input.valueSelect.value, 'soft light');
     assert.equal(input.targetInputs.portrait.checked, true);
@@ -273,6 +329,7 @@ test('secret presets restore fixed table values and collapsing preserves the cre
     assert.equal(nodes['secret-preset-select'].children.length, 0);
     assert.equal(nodes['secret-npc-dimensions'].hidden, true);
     assert.equal(nodes['secret-npc-width'].value, '');
+    assert.equal(nodes['secret-npc-token-width'].value, '');
 });
 
 test('private detail cycles through filtered items and offers per-trait rerolls', async () => {
@@ -350,7 +407,7 @@ test('logged-out page populates all selectors without hidden names', async () =>
         assert.equal(nodes[id].value, 'default');
     }
     for (const id of ['create-color-guidance', 'regen-color-guidance']) {
-        assert.deepEqual(nodes[id].children.map(option => option.value), ['default', 'ochre']);
+        assert.deepEqual(nodes[id].children.map(option => option.value), ['default', 'ochre', 'random']);
         assert.equal(nodes[id].value, 'default');
         assert.equal(nodes[id].disabled, false);
     }
