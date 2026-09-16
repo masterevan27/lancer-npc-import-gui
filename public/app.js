@@ -3453,17 +3453,94 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+/*
+ * Zoom an image. A mouse hovers; a phone has no hover, so the same image
+ * takes a tap instead - and a second tap anywhere on the zoom closes it.
+ * Gated on the media query rather than on isPhone(), because what matters
+ * is whether the device can hover at all, not how wide it is.
+ */
+const CAN_HOVER = window.matchMedia("(hover: hover)");
+
 function attachImageZoom(imgEl) {
-  imgEl.addEventListener("mouseenter", () => {
+  const show = () => {
     if (!imgEl.src) return;
     el.imageZoomImg.src = imgEl.src;
     el.imageZoomImg.alt = imgEl.alt;
     el.imageZoom.hidden = false;
+  };
+  const hide = () => {
+    el.imageZoom.hidden = true;
+  };
+  imgEl.addEventListener("mouseenter", () => {
+    if (!CAN_HOVER.matches) return;
+    show();
   });
   imgEl.addEventListener("mouseleave", () => {
-    el.imageZoom.hidden = true;
+    if (!CAN_HOVER.matches) return;
+    hide();
+  });
+  imgEl.addEventListener("click", () => {
+    if (CAN_HOVER.matches) return;
+    if (el.imageZoom.hidden) show();
+    else hide();
   });
 }
+
+// The zoom is pointer-events: none on desktop, where leaving the image is
+// what closes it. On a phone it is tapped, so it must take taps back.
+el.imageZoom.addEventListener("click", () => {
+  el.imageZoom.hidden = true;
+});
+
+/*
+ * Swipe left/right through the grid order, the touch twin of the arrow
+ * keys. Only on the image strip, and only for a clearly horizontal drag:
+ * a sheet is tall, and flipping NPCs while someone scrolls it would be
+ * worse than having no swipe at all.
+ */
+const SWIPE_MIN_X = 60;
+
+function attachSwipeNav(element) {
+  let startX = 0;
+  let startY = 0;
+  let tracking = false;
+  element.addEventListener(
+    "touchstart",
+    (e) => {
+      if (e.touches.length !== 1) return;
+      tracking = true;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+    },
+    { passive: true },
+  );
+  element.addEventListener(
+    "touchend",
+    (e) => {
+      if (!tracking) return;
+      tracking = false;
+      // Never while something is stacked on the sheet - arrowing the list
+      // out from under a delete confirmation is the same hazard the
+      // keydown handler already refuses.
+      if (topmostOverlay()) return;
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+      if (Math.abs(dx) < SWIPE_MIN_X || Math.abs(dx) < Math.abs(dy) * 2) return;
+      stepDetail(dx < 0 ? 1 : -1);
+    },
+    { passive: true },
+  );
+}
+
+const elDetailNav = {
+  prev: document.getElementById("detail-prev"),
+  next: document.getElementById("detail-next"),
+};
+elDetailNav.prev.addEventListener("click", () => stepDetail(-1));
+elDetailNav.next.addEventListener("click", () => stepDetail(1));
+attachSwipeNav(document.querySelector("#detail-overlay .detail-images"));
+
 attachImageZoom(el.detailPortrait);
 attachImageZoom(el.detailToken);
 

@@ -147,3 +147,39 @@ test('secret mode registers its overlays with the shared closer list', async (t)
     assert.match(js, /secret-detail-overlay/);
     assert.match(js, /secret-login-overlay/);
 });
+
+test('the NPC sheet can be navigated and zoomed without a keyboard', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const html = await fetchText(server, '/');
+    const js = await fetchText(server, '/app.js');
+    assert.match(html, /id="detail-prev"/, 'the sheet has a Previous button');
+    assert.match(html, /id="detail-next"/, 'and a Next button');
+    const zoom = extractSource(js, 'attachImageZoom');
+    // CAN_HOVER is declared once, above the function, not inside it - so the
+    // media query itself is checked against the whole file, and only its
+    // use (CAN_HOVER.matches) is checked against the function body.
+    assert.match(js, /CAN_HOVER = window\.matchMedia\("\(hover: hover\)"\)/, 'hover-to-zoom is only for devices that hover');
+    assert.match(zoom, /CAN_HOVER\.matches/, 'the zoom checks hover capability before showing');
+    assert.match(zoom, /addEventListener\("click"/, 'a tap zooms on the rest');
+    const swipe = extractSource(js, 'attachSwipeNav');
+    assert.match(swipe, /touchstart/);
+    assert.match(swipe, /stepDetail\(/, 'a swipe moves through the grid order');
+    // SWIPE_MIN_X is declared once, above the function, not inside it.
+    assert.match(js, /SWIPE_MIN_X = 60/, 'a swipe needs real horizontal travel');
+    assert.match(swipe, /SWIPE_MIN_X/, 'the function uses that threshold');
+    assert.match(js, /elDetailNav\.prev\.addEventListener\("click", \(\) => stepDetail\(-1\)\)/);
+});
+
+test('keyboard-only hints are hidden on a phone', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const block = phoneBlock(await fetchText(server, '/style.css'));
+    // .detail-shortcuts and .trait-shortcuts share a rule body with
+    // .regen-row .hint (comma-grouped selectors), so only the last of the
+    // three is immediately followed by "{" - these two look past the
+    // other selector names for the shared "{ display: none".
+    assert.match(block, /\.detail-shortcuts[^{]*\{[^}]*display: none/);
+    assert.match(block, /\.trait-shortcuts[^{]*\{[^}]*display: none/);
+    assert.match(block, /\.regen-row \.hint \{[^}]*display: none/, 'the secret sheet hint mentions hover and Esc');
+});

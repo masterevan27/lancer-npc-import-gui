@@ -734,6 +734,7 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .detail-images figure { margin: 0; text-align: center; }
 .detail-images img { max-height: 40vh; max-width: 32vw; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--bg-sunken); cursor: zoom-in; }
 .detail-images figcaption { font-size: var(--fs-xs); color: var(--text-3); margin-top: var(--sp-2); }
+.detail-nav { display: flex; gap: 0.5rem; margin: 0 0 var(--sp-3); }
 
 .image-zoom {
   position: fixed;
@@ -2798,4 +2799,12 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .trait-image-sheet { width: 100%; }
   .detail-info h2 { font-size: var(--fs-xl); }
   .detail-title-row { flex-wrap: wrap; gap: 0.4rem; }
+
+  /* --- Touch instead of hover and arrow keys --- */
+  .detail-shortcuts,
+  .trait-shortcuts,
+  .regen-row .hint { display: none; }
+  .detail-nav button { flex: 1; min-height: 44px; }
+  .image-zoom { pointer-events: auto; }
+  .image-zoom img { max-width: 96vw; max-height: 80vh; }
 }
