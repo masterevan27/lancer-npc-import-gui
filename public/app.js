@@ -3288,7 +3288,7 @@ function cancelRerollConfirm() {
  * documents. Esc still closes it.
  */
 const OVERLAY_SELECTOR = ".detail-overlay, .image-zoom";
-const overlayHistory = { pushed: 0, unwinding: 0, suspend: false };
+const overlayHistory = { pushed: 0, unwinding: 0 };
 
 /** How many overlays are on screen right now. */
 function openOverlayCount() {
@@ -3301,7 +3301,6 @@ function openOverlayCount() {
 
 /** Make the history stack match what is on screen. */
 function syncOverlayHistory() {
-  if (overlayHistory.suspend) return;
   const depth = openOverlayCount();
   while (overlayHistory.pushed < depth) {
     overlayHistory.pushed += 1;
@@ -3335,20 +3334,33 @@ function closeOverlayForBack() {
   }
 }
 
-window.addEventListener("popstate", () => {
+/*
+ * One back press: return the history stack to matching what is on screen,
+ * whether or not the closer actually closed anything.
+ */
+function handleOverlayBack() {
   if (overlayHistory.unwinding > 0) {
     // Our own history.go(), not a real back press.
     overlayHistory.unwinding -= 1;
     return;
   }
-  // suspend: closing here must not push the entry back or unwind another.
-  overlayHistory.suspend = true;
+  const before = openOverlayCount();
   closeOverlayForBack();
-  overlayHistory.suspend = false;
-  // Resync unconditionally: a back press that closed nothing still consumed
-  // its entry, and a stale `pushed` would unwind history that is not ours.
-  overlayHistory.pushed = openOverlayCount();
-});
+  const after = openOverlayCount();
+  // A closer may decline: closeSettings() refuses while there are unsaved
+  // changes and the user cancels the prompt. The browser has already
+  // consumed our entry, so put one back - otherwise `pushed` claims an
+  // entry we no longer own, and the next real close unwinds someone
+  // else's, navigating off the app.
+  if (after === before && after > 0) history.pushState({ overlay: after }, "");
+  // Resync unconditionally. This - not a flag - is what makes the
+  // MutationObserver callback queued by the close above harmless: it runs
+  // as a microtask after this returns and finds `pushed` already equal to
+  // the depth, so neither branch of syncOverlayHistory fires.
+  overlayHistory.pushed = after;
+}
+
+window.addEventListener("popstate", handleOverlayBack);
 
 const overlayObserver = new MutationObserver(syncOverlayHistory);
 for (const node of document.querySelectorAll(OVERLAY_SELECTOR)) {

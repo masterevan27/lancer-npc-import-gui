@@ -127,13 +127,15 @@ test('opening an overlay adds a history entry and back closes the top one', asyn
     const sync = extractSource(js, 'syncOverlayHistory');
     assert.match(sync, /history\.pushState/, 'a newly open overlay pushes an entry');
     assert.match(sync, /history\.go\(-steps\)/, 'an overlay closed from the UI unwinds its entry');
-    assert.match(sync, /overlayHistory\.suspend/, 'closing from popstate does not re-enter');
     assert.match(js, /new MutationObserver\(syncOverlayHistory\)/, 'visibility is observed, not hooked per call site');
     assert.match(js, /attributeFilter: \["hidden"\]/);
     assert.match(js, /addEventListener\("popstate"/, 'back is handled');
     const back = extractSource(js, 'closeOverlayForBack');
     assert.match(back, /topmostOverlay\(\)/, 'a stacked sheet closes first');
     assert.match(back, /el\.overlay\.hidden = true/, 'then the NPC sheet, which topmostOverlay() does not cover');
+    const handle = extractSource(js, 'handleOverlayBack');
+    assert.match(handle, /history\.pushState/, 'a closer that declines gets its entry put back');
+    assert.match(handle, /overlayHistory\.pushed = after/, 'and the stack resyncs to what is actually open');
     assert.match(extractSource(js, 'topmostOverlay'), /__overlayClosers/, 'secret-mode overlays are closable too');
 });
 

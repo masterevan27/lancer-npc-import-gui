@@ -614,9 +614,11 @@
       if (event.key !== 'Escape') return;
       closeDetail(); get('secret-login-overlay').hidden = true; get('secret-password').value = '';
     });
-    // Shared with app.js's topmostOverlay(), so Esc and Android back close
-    // these two the same way they close every other sheet.
+    // Shared with app.js's topmostOverlay(), so Android back closes these
+    // the same way Esc does. Same precedence as the keydown handler above:
+    // the set-trait picker sits on top of the detail sheet, so it goes first.
     (window.__overlayClosers ||= []).push(
+        { isOpen: () => !get('set-trait-overlay').hidden, close: () => get('set-trait-cancel').click() },
         { isOpen: () => !get('secret-detail-overlay').hidden, close: () => closeDetail() },
         {
             isOpen: () => !get('secret-login-overlay').hidden,
