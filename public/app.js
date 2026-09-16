@@ -3503,27 +3503,44 @@ const SWIPE_MIN_X = 60;
 function attachSwipeNav(element) {
   let startX = 0;
   let startY = 0;
-  let tracking = false;
+  let touchId = null;
   element.addEventListener(
     "touchstart",
     (e) => {
-      if (e.touches.length !== 1) return;
-      tracking = true;
+      // A second finger means a pinch or a two-finger scroll, never a
+      // swipe: drop the gesture rather than pairing the first finger's
+      // start point with whichever finger happens to lift first.
+      if (e.touches.length !== 1) {
+        touchId = null;
+        return;
+      }
+      touchId = e.touches[0].identifier;
       startX = e.touches[0].clientX;
       startY = e.touches[0].clientY;
+    },
+    { passive: true },
+  );
+  // An interrupted gesture ends nothing.
+  element.addEventListener(
+    "touchcancel",
+    () => {
+      touchId = null;
     },
     { passive: true },
   );
   element.addEventListener(
     "touchend",
     (e) => {
-      if (!tracking) return;
-      tracking = false;
+      if (touchId === null) return;
+      const touch = Array.from(e.changedTouches).find(
+        (t) => t.identifier === touchId,
+      );
+      if (!touch) return;
+      touchId = null;
       // Never while something is stacked on the sheet - arrowing the list
       // out from under a delete confirmation is the same hazard the
       // keydown handler already refuses.
       if (topmostOverlay()) return;
-      const touch = e.changedTouches[0];
       const dx = touch.clientX - startX;
       const dy = touch.clientY - startY;
       if (Math.abs(dx) < SWIPE_MIN_X || Math.abs(dx) < Math.abs(dy) * 2) return;

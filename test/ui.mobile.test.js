@@ -168,6 +168,8 @@ test('the NPC sheet can be navigated and zoomed without a keyboard', async (t) =
     // SWIPE_MIN_X is declared once, above the function, not inside it.
     assert.match(js, /SWIPE_MIN_X = 60/, 'a swipe needs real horizontal travel');
     assert.match(swipe, /SWIPE_MIN_X/, 'the function uses that threshold');
+    assert.match(swipe, /identifier/, 'only the finger that started the gesture can end it');
+    assert.match(swipe, /touchcancel/, 'an interrupted gesture is dropped');
     assert.match(js, /elDetailNav\.prev\.addEventListener\("click", \(\) => stepDetail\(-1\)\)/);
 });
 
