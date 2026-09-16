@@ -2784,10 +2784,12 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .detail-close {
     position: sticky;
     top: 0;
-    float: right;
     z-index: 1;
+    display: flex;
+    margin-left: auto;
     min-width: 44px;
     min-height: 44px;
+    background: var(--surface);
   }
   .detail-images { flex-direction: column; gap: 0.6rem; }
   .detail-images img { max-width: 100%; max-height: 55vh; }
