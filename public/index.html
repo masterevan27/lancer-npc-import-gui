@@ -10,6 +10,12 @@
 <body>
 <header class="topbar">
   <h1>NHP Uplink</h1>
+  <!-- Phone-only, hidden above the breakpoint. Deliberately outside #tabs,
+       exactly as the Settings button is: switchTab() loops over
+       '#tabs button' and would otherwise treat the toggle as a tab. -->
+  <button type="button" class="tabs-toggle" id="tabs-toggle"
+          aria-controls="tabs" aria-expanded="false" aria-label="Menu">&#9776;</button>
+  <span class="current-tab" id="current-tab">Import Generated Art</span>
   <nav class="tabs" id="tabs">
     <button type="button" data-tab="import" class="active">Import Generated Art</button>
     <button type="button" data-tab="create">Create NPC</button>
@@ -982,6 +988,10 @@
      the server reads it only at startup, so changes apply after a restart. -->
 <div class="detail-overlay" id="settings-overlay" hidden>
   <div class="detail settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <!-- The version lives in the top bar on desktop, which the phone layer
+         hides. app.js copies the text across on open rather than templating
+         it twice: server.js's version placeholder is only ever replaced once. -->
+    <p class="settings-version" id="settings-version"></p>
     <h2 id="settings-title">Settings</h2>
     <button type="button" id="secret-open" class="danger">Secret</button>
     <fieldset id="secret-storage" class="settings-group" hidden>

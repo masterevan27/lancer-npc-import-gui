@@ -3668,6 +3668,35 @@ function startPolling() {
 /* Tabs                                                                  */
 /* ==================================================================== */
 
+const elNav = {
+  toggle: document.getElementById("tabs-toggle"),
+  tabs: document.getElementById("tabs"),
+  currentTab: document.getElementById("current-tab"),
+};
+
+/** Shut the phone tab menu, if it is open. */
+function closeTabsMenu() {
+  elNav.tabs.classList.remove("is-open");
+  elNav.toggle.setAttribute("aria-expanded", "false");
+}
+
+elNav.toggle.addEventListener("click", () => {
+  const open = elNav.tabs.classList.toggle("is-open");
+  elNav.toggle.setAttribute("aria-expanded", String(open));
+});
+
+// A tap anywhere else closes it. Capture, so it still fires when a handler
+// on the target stops propagation.
+document.addEventListener(
+  "click",
+  (e) => {
+    if (!elNav.tabs.classList.contains("is-open")) return;
+    if (elNav.tabs.contains(e.target) || elNav.toggle.contains(e.target)) return;
+    closeTabsMenu();
+  },
+  true,
+);
+
 const tabState = { current: "import" };
 
 for (const btn of document.querySelectorAll("#tabs button")) {
@@ -3687,6 +3716,9 @@ function switchTab(tab) {
   for (const btn of document.querySelectorAll("#tabs button")) {
     btn.classList.toggle("active", btn.dataset.tab === tab);
   }
+  const active = document.querySelector(`#tabs button[data-tab="${tab}"]`);
+  if (active) elNav.currentTab.textContent = active.textContent.trim();
+  closeTabsMenu();
   for (const panel of document.querySelectorAll(".tab-panel")) {
     panel.hidden = panel.id !== `tab-${tab}`;
   }
@@ -9608,6 +9640,7 @@ const elSettings = {
   status: document.getElementById("settings-status"),
   cancel: document.getElementById("settings-cancel"),
   save: document.getElementById("settings-save"),
+  version: document.getElementById("settings-version"),
 };
 
 const settingsState = { view: null, dirty: false };
@@ -9624,6 +9657,10 @@ function closeSettings() {
 
 async function openSettings() {
   elSettings.overlay.hidden = false;
+  // Mirrors the top bar's line, which the phone layer hides.
+  const settingsVersion = elSettings.version;
+  settingsVersion.textContent =
+    document.querySelector(".release-version")?.textContent ?? "";
   elSettings.error.hidden = true;
   elSettings.status.textContent = "";
   elSettings.groups.innerHTML = '<p class="hint">Loading…</p>';
