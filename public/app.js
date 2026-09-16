@@ -227,6 +227,23 @@ const el = {
   detailDeleteBtn: document.getElementById("detail-delete-btn"),
 };
 
+/*
+ * The phone breakpoint, shared with style.css's phone layer. Layout belongs
+ * in the stylesheet; this exists only for behaviour CSS cannot express -
+ * which handlers to attach, and what a control defaults to.
+ */
+const PHONE_QUERY = window.matchMedia("(max-width: 700px)");
+
+function isPhone() {
+  return PHONE_QUERY.matches;
+}
+
+/** Run `fn` now and again whenever the phone breakpoint is crossed. */
+function onPhoneChange(fn) {
+  fn(isPhone());
+  PHONE_QUERY.addEventListener("change", () => fn(isPhone()));
+}
+
 const elDeleteConfirm = {
   overlay: document.getElementById("delete-confirm-overlay"),
   message: document.getElementById("delete-confirm-message"),

@@ -1,0 +1,68 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { startTestServer } = require('./helpers/testServer');
+
+// The phone layer: one max-width 700px block in style.css plus the JS that
+// backs it. Source assertions over index.html, app.js, style.css and
+// secret-mode.js, as the other ui.* files. See
+// docs/superpowers/specs/2026-09-15-mobile-layout-design.md.
+const PORT = 5270;
+const TABLES_FIXTURE = ['## Pronouns', '- she/her/her/woman', ''].join('\n');
+
+async function fetchText(server, p) {
+    const res = await fetch(`${server.baseUrl}${p}`);
+    assert.equal(res.status, 200, `${p} should be served`);
+    return res.text();
+}
+
+/** Pull one top-level function's source (brace-balanced) out of app.js, unevaluated. */
+function extractSource(js, name) {
+    const start = js.search(new RegExp(`(?:async )?function ${name}\\(`));
+    assert.notEqual(start, -1, `app.js no longer defines ${name}`);
+    let depth = 0;
+    let end = -1;
+    for (let i = js.indexOf('{', start); i < js.length; i += 1) {
+        if (js[i] === '{') depth += 1;
+        if (js[i] === '}') {
+            depth -= 1;
+            if (depth === 0) { end = i + 1; break; }
+        }
+    }
+    assert.notEqual(end, -1, `could not find the end of ${name}`);
+    return js.slice(start, end);
+}
+
+/** The text of the one phone block, which every phone rule must live inside. */
+function phoneBlock(css) {
+    const marker = '/* === Phone layer (<=700px) === */';
+    const start = css.indexOf(marker);
+    assert.notEqual(start, -1, 'style.css has no phone layer marker comment');
+    return css.slice(start);
+}
+
+test('the page declares a device-width viewport', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const html = await fetchText(server, '/');
+    assert.match(html, /<meta name="viewport" content="width=device-width, initial-scale=1"/);
+});
+
+test('style.css carries one phone layer at the 700px breakpoint', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const css = await fetchText(server, '/style.css');
+    const block = phoneBlock(css);
+    assert.match(block, /@media \(max-width: 700px\)/, 'the phone layer opens with the 700px query');
+});
+
+test('app.js exposes the phone breakpoint to behaviour that needs it', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    assert.match(js, /matchMedia\("\(max-width: 700px\)"\)/, 'PHONE_QUERY uses the same breakpoint as the CSS');
+    const source = extractSource(js, 'isPhone');
+    assert.match(source, /PHONE_QUERY\.matches/);
+    assert.match(js, /PHONE_QUERY\.addEventListener\("change"/, 'onPhoneChange re-runs when the breakpoint is crossed');
+});
+
+module.exports = { PORT, TABLES_FIXTURE, fetchText, extractSource, phoneBlock };

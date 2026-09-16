@@ -2715,3 +2715,13 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 #bg-map-results a { display: grid; gap: .5rem; max-width: 240px; }
 #bg-map-results img { width: 100%; max-height: 180px; object-fit: contain; }
 @media (max-width: 640px) { .bg-trait-row { flex-wrap: wrap; } .bg-trait-value { flex-basis: 100%; } }
+
+/* === Phone layer (<=700px) === */
+/*
+ * Everything a portrait phone needs, in one block, grouped by component.
+ * The breakpoint matches PHONE_QUERY in app.js - when one moves, both move.
+ * Rules above this point are the desktop layout and must stay untouched:
+ * this layer only ever overrides, never rewrites.
+ */
+@media (max-width: 700px) {
+}
