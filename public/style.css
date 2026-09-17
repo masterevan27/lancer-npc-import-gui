@@ -2206,6 +2206,12 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   border-radius: var(--r-sm);
   padding: 0 0.3rem;
 }
+/* The <details> wrapper renderBulletFlags folds the strip behind. Above
+   700px it carries .mobile-filters too, which the base rules there (this
+   file, near .filter-row) make display: contents with a hidden summary, so
+   the strip stays a plain sibling of the bullet row exactly as before this
+   wrapper existed. This is only the summary's own look. */
+.bullet-flags-details > summary { cursor: pointer; color: var(--text-4); font-size: var(--fs-xs); }
 
 @media (max-width: 700px) {
   .table-bullet-flags { margin-left: 0.6rem; }
@@ -2948,4 +2954,29 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .tables-back { display: inline-flex; align-items: center; min-height: 44px; margin-bottom: var(--sp-2); }
   .tables-layout.is-bullets .table-heading-list { display: none; }
   .tables-layout:not(.is-bullets) .table-bullet-panel { display: none; }
+
+  /* --- Tables: bullet rows, gates, forms --- */
+  /* The enable checkbox and weight input share the first line; the bullet's
+     own text (.table-bullet-text, not a class named .bullet-text) is given
+     flex-basis: 100% so it wraps to a line of its own rather than being
+     squeezed down to a sliver beside them. */
+  .table-bullet-row { flex-wrap: wrap; align-items: flex-start; }
+  .table-bullet-row .table-bullet-text { flex-basis: 100%; }
+  .table-bullet-row input[type="checkbox"] { width: 22px; height: 22px; }
+  .weight-input { max-width: 5rem; }
+  /* The flag checkbox strip (the vocabulary boxes, e.g. gun/mil) goes two
+     columns instead of one long wrapped line. */
+  .table-bullet-flags { display: grid; grid-template-columns: repeat(2, 1fr); margin-left: 0; }
+  /* .gate-list carries both the id and the class (index.html), so this reaches
+     every checkbox label inside the gate panel: the per-bucket category
+     label and every Role label under it. */
+  .gate-list label { display: flex; align-items: center; min-height: 44px; }
+  /* The category and Role checkboxes under one gate (renderGateRow's
+     .gate-bucket-roles lists) go two columns instead of one wrapped line. */
+  .gate-bucket-roles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.35rem; }
+  .table-add-form,
+  .gate-add-form,
+  .presets-panel { display: flex; flex-direction: column; gap: 0.5rem; }
+  .table-add-form input,
+  .gate-add-form input { width: 100%; }
 }

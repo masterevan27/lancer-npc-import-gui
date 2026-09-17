@@ -8179,7 +8179,34 @@ function renderBulletFlags(table, bullet) {
       renderRoleGateControls(bulletBody(table.name, bullet.text)),
     );
   }
-  return strip;
+  // Backdrop carries fifteen gate flags, so a bullet's checkbox row is a
+  // wall at any width and unreachable at 360px. Folded behind a summary
+  // that says how many are set, which is the part you scan for.
+  //
+  // Also carries the desktop-invisible .mobile-filters class: above 700px
+  // the shared rules make this <details> display: contents with a hidden
+  // summary, so the strip stays a plain flex item exactly where it sat
+  // before this wrapper existed, and desktop does not change. `.open` is
+  // set here, at creation, rather than left to syncMobileFilters - this row
+  // is rebuilt on every render, and that helper only runs at load and when
+  // the breakpoint is crossed.
+  const countSet = () =>
+    strip.querySelectorAll('input[type="checkbox"]:checked').length;
+  const details = document.createElement("details");
+  details.className = "bullet-flags-details mobile-filters";
+  details.open = !isPhone();
+  const summary = document.createElement("summary");
+  const describeFlags = (n) => (n ? `Flags (${n} set)` : "Flags");
+  summary.textContent = describeFlags(countSet());
+  details.appendChild(summary);
+  details.appendChild(strip);
+  // setBulletFlag() patches bullet.text in place rather than re-rendering
+  // this row, so without this the summary's count would go stale the
+  // moment a checkbox is ticked.
+  strip.addEventListener("change", () => {
+    summary.textContent = describeFlags(countSet());
+  });
+  return details;
 }
 
 /* ==================================================================== */

@@ -390,3 +390,52 @@ test('the Tables tab is two screens on a phone', async (t) => {
     assert.match(extractSource(js, 'showTableBullets'), /headingsScroll = window\.scrollY/, 'the heading list remembers its place');
     assert.match(extractSource(js, 'showTableHeadings'), /window\.scrollTo\(0, tablesState\.headingsScroll/, 'and back returns to it');
 });
+
+test('bullet flags collapse behind a summary that counts them', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    const flags = extractSource(js, 'renderBulletFlags');
+    assert.match(flags, /createElement\("details"\)/, 'a bullet with ten flags is a wall of checkboxes');
+    assert.match(flags, /Flags/, 'the summary says what is inside');
+    // Controller ruling (a): the wrapper also carries .mobile-filters, and its
+    // open state is set at creation (not left to syncMobileFilters, which only
+    // runs at load and on a breakpoint crossing) because this row is rebuilt
+    // on every render.
+    assert.match(flags, /bullet-flags-details mobile-filters/, 'desktop keeps the flags inline: the wrapper is display: contents above 700px');
+    assert.match(flags, /\.open = !isPhone\(\)/, 'open on desktop, closed on a phone, from the moment it is built');
+
+    const block = phoneBlock(await fetchText(server, '/style.css'));
+    assert.match(block, /\.table-bullet-row \{[^}]*flex-wrap: wrap/);
+    // Corrected from the brief: the bullet's text span is .table-bullet-text
+    // (app.js's renderTableBullets), not .bullet-text.
+    assert.match(block, /\.table-bullet-row \.table-bullet-text \{[^}]*flex-basis: 100%/, 'the enable checkbox and weight input share the first line; the text wraps below');
+    assert.match(block, /\.weight-input \{[^}]*max-width: 5rem/);
+    // #gate-list carries the class "gate-list" too (index.html), so this
+    // selector does reach every checkbox label in the gate panel.
+    assert.match(block, /\.gate-list label \{[^}]*min-height: 44px/);
+    // Controller ruling (c): the category/Role checkboxes under one gate
+    // (renderGateRow's .gate-bucket-roles lists) become a two-column grid.
+    assert.match(block, /grid-template-columns: repeat\(2, 1fr\)/, 'gate checkboxes are two columns on a phone');
+    assert.match(block, /\.gate-bucket-roles \{[^}]*grid-template-columns: repeat\(2, 1fr\)/);
+    // .table-add-form, .gate-add-form and .presets-panel are comma-grouped
+    // onto one shared rule body, so only the last is immediately followed by
+    // "{" - these look past the other selector names for it, as the phone
+    // layer's own .detail-shortcuts/.trait-shortcuts test does above.
+    assert.match(block, /\.table-add-form[^{]*\{[^}]*flex-direction: column/);
+    assert.match(block, /\.gate-add-form[^{]*\{[^}]*flex-direction: column/);
+    assert.match(block, /\.presets-panel[^{]*\{[^}]*flex-direction: column/);
+});
+
+test('a stale flag summary is kept current after a toggle, since setBulletFlag does not re-render the row', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    // setBulletFlag() only patches bullet.text and queues odds - it never
+    // calls renderTableBullets() or renderBulletFlags() again - so the
+    // summary text would otherwise go stale the moment a box is ticked.
+    assert.doesNotMatch(extractSource(js, 'setBulletFlag'), /renderTableBullets\(\)|renderBulletFlags\(/, 'confirms the row is not re-rendered on a flag write');
+    const flags = extractSource(js, 'renderBulletFlags');
+    assert.match(flags, /strip\.addEventListener\("change"/, 'the strip recounts its own checked boxes instead');
+    assert.match(flags, /summary\.textContent = describeFlags\(countSet\(\)\)/);
+});
