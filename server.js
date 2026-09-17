@@ -3148,6 +3148,7 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
     } catch (err) { return { status: 400, body: { error: err.message } }; }
     const result = runner(kindEntry, {
         ...dimensions,
+        presetName: typeof body.presetName === 'string' ? body.presetName.trim() : '',
         artStyle: body.artStyle,
         workflow: body.workflow,
         colorGuidance: kindEntry.id === DEFAULT_KIND ? colorGuidanceId : undefined,
@@ -3780,6 +3781,7 @@ function itemView(item, includePrompts = false) {
     return {
         id: item.id,
         artStyle: artStyles.metadata(item),
+        presetName: typeof item.presetName === 'string' ? item.presetName : null,
         colorGuidance: colorGuidance.metadata(item),
         kind: item.kind,
         name: item.name,

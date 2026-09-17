@@ -779,6 +779,13 @@ form never sends them. Private tables can be gated with `#tag`s on bullets and
 
 ## Development
 
+Images generated after loading, importing, or saving a Create preset show
+**Preset: name** on their cards, including Secret images and spaceships. The
+name records the starting preset even if you adjust the form afterward, and
+survives preset deletion and image regeneration. Older images without recorded
+preset metadata stay unlabeled. Update the generator alongside the GUI for the
+new `--preset-name` option.
+
 ### Release versioning
 
 The GUI release version starts at `1.0.0` and is displayed in the top bar on

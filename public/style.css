@@ -141,8 +141,6 @@ body {
 .secret-mode-notice[hidden], #secret-storage[hidden], #public-gallery[hidden], #secret-gallery[hidden] { display: none; }
 .art-style-field { max-width: 28rem; margin-bottom: var(--sp-4); }
 .secret-detail-text { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: var(--fs-sm); }
-.detail-images img.secret-image-expanded { max-height: none; max-width: min(85vw, 1100px); }
-#secret-detail-images { flex-wrap: wrap; }
 .secret-trait-table { width: 100%; table-layout: fixed; }
 #secret-detail-traits td { padding: var(--sp-2); vertical-align: top; overflow-wrap: anywhere; }
 #secret-detail-traits td:nth-child(-n+2) { width: 5rem; white-space: nowrap; }
@@ -614,6 +612,7 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .card .body { padding: var(--sp-2) 10px 10px; }
 .card .name { font-weight: 600; font-size: 0.92rem; line-height: var(--lh-tight); }
 .card .sub { font-size: 0.78rem; line-height: 1.35; color: var(--text-3); margin-top: 2px; }
+.card .preset-label { color: var(--text-2); font-weight: 600; overflow-wrap: anywhere; }
 .card .role-category {
   display: inline-block;
   margin-top: var(--sp-2);
@@ -768,9 +767,10 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   cursor: pointer;
 }
 .detail-close:hover { background: var(--surface-2); color: var(--text); }
-.detail-images { display: flex; gap: 1rem; margin-bottom: 1rem; }
+.detail-images { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
 .detail-images figure { margin: 0; text-align: center; }
 .detail-images img { max-height: 40vh; max-width: 32vw; border-radius: var(--r-lg); border: 1px solid var(--line); background: var(--bg-sunken); cursor: zoom-in; }
+.detail-images img.image-expanded { max-height: none; max-width: min(85vw, 1100px); cursor: zoom-out; }
 .detail-images figcaption { font-size: var(--fs-xs); color: var(--text-3); margin-top: var(--sp-2); }
 
 .image-zoom {

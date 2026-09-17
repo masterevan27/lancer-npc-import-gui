@@ -27,6 +27,21 @@ const { startTestServer } = require('./helpers/testServer');
 // isNew once the run's own ids have been cleared.
 const PORT = 5208;
 
+test('card data includes stored preset names and leaves legacy images unlabeled', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    fs.writeFileSync(server.manifestPath, JSON.stringify({
+        [path.join(server.dir, 'named')]: { id: 'named', name: 'Named', kind: 'npc', presetName: 'Dock crew' },
+        [path.join(server.dir, 'legacy')]: { id: 'legacy', name: 'Legacy', kind: 'npc' },
+        [path.join(server.dir, 'ship')]: { id: 'ship', name: 'Ship', kind: 'spaceship', presetName: 'Fleet' },
+    }));
+    const { items } = await (await fetch(`${server.baseUrl}/api/items?category=npc`)).json();
+    assert.equal(items.find(item => item.id === 'named').presetName, 'Dock crew');
+    assert.equal(items.find(item => item.id === 'legacy').presetName, null);
+    const ships = await (await fetch(`${server.baseUrl}/api/items?category=spaceship`)).json();
+    assert.equal(ships.items.find(item => item.id === 'ship').presetName, 'Fleet');
+});
+
 const TABLES_FIXTURE = [
     '## Pronouns',
     '- she/her/her/woman',

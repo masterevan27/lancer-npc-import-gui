@@ -17,6 +17,13 @@ const TABLES_FIXTURE = [
 // running this test (startTestServer runs it via process.execPath).
 const STUB = 'console.log(process.argv.slice(2).join(" "));\n';
 
+test('creation carries the loaded preset name to the generator', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: 5193, generatorSource: STUB });
+    t.after(() => server.stop());
+    const log = await runCreate(server, { presetName: 'Dock crew', dryRun: true });
+    assert.match(log, /--preset-name=Dock crew/);
+});
+
 async function runCreate(server, body) {
     const res = await fetch(`${server.baseUrl}/api/create-npc`, {
         method: 'POST',

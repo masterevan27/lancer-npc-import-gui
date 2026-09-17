@@ -150,14 +150,14 @@ async function page(authenticated, privateItems, respond = () => undefined) {
     };
     function Option(text, value) { this.textContent = text; this.value = value; }
     const app = fs.readFileSync(require.resolve('../public/app.js'), 'utf8');
-    const zoomCode = app.slice(app.indexOf('function attachImageZoom('), app.indexOf('attachImageZoom(el.detailPortrait)'));
+    const zoomCode = app.slice(app.indexOf('function attachImageZoom('), app.indexOf('attachImageZoom(el.detailPortrait'));
     const attachImageZoom = new Function('el', zoomCode + '; return attachImageZoom;')({ imageZoom: nodes['image-zoom'], imageZoomImg: nodes['image-zoom-img'] });
     const elSetTrait = Object.fromEntries(['overlay', 'title', 'filter', 'list', 'releaseRow', 'release', 'releaseLabel', 'warning', 'cancel', 'ok']
         .map(key => [key, nodes['set-trait-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())]]));
     const context = vm.createContext({ window, document, Option, Response, console, setTimeout, Date, attachImageZoom, elSetTrait,
         elCreate: Object.fromEntries(['count', 'seed', 'name', 'pronouns', 'server', 'portrait', 'token', 'keepRaw', 'unarmed']
             .map(key => [key, nodes['create-' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())]])),
-        createState: { overrides: [] }, renderOverrideRows() {},
+        createState: { overrides: [] }, shipCreateState: {}, renderOverrideRows() {},
         fetch: (...args) => window.SecretMode.fetch(...args), escapeHtml: text => String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;') });
     vm.runInContext(app.slice(app.indexOf('function createFormSettings('), app.indexOf('function setPresetStatus(')), context);
     vm.runInContext(app.slice(app.indexOf('function groupChoices('), app.indexOf('function traitControlCells('))
@@ -168,6 +168,15 @@ async function page(authenticated, privateItems, respond = () => undefined) {
     await new Promise(resolve => setImmediate(resolve));
     return { nodes, window, document, requests, navigations };
 }
+
+test('private cards show the recorded preset name as literal text', async () => {
+    const presetName = 'Dock <crew> & pilots';
+    const { nodes } = await page(true, [{ id: 'preset-npc', kind: 'npc', name: 'Pilot', presetName }]);
+    const body = nodes['secret-grid'].children[0].children[1];
+    assert.ok(body.children.some(line => line.textContent === `Preset: ${presetName}`));
+    const legacy = await page(true, [{ id: 'legacy', kind: 'npc', name: 'Pilot' }]);
+    assert.ok(!legacy.nodes['secret-grid'].children[0].children[1].children.some(line => line.textContent.startsWith('Preset:')));
+});
 
 test('markdown categories label dropdown groups while exact choices keep their original values', async () => {
     const { document, window, requests } = await page(true, [], path => {
@@ -344,6 +353,17 @@ test('private detail cycles through filtered items and offers per-trait rerolls'
     assert.equal(nodes['secret-detail-name'].textContent, 'Beta');
     await document.dispatch('keydown', { key: 'ArrowLeft' });
     assert.equal(nodes['secret-detail-name'].textContent, 'Alpha');
+});
+
+test('clicking the Secret backdrop closes detail, while clicking inside keeps it open', async () => {
+    const { nodes } = await page(true);
+    await nodes['secret-grid'].children[0].dispatch('click');
+    await nodes['secret-detail-overlay'].dispatch('click', { target: nodes['secret-detail-name'] });
+    assert.equal(nodes['secret-detail-overlay'].hidden, false);
+    nodes['image-zoom'].hidden = false;
+    await nodes['secret-detail-overlay'].dispatch('click');
+    assert.equal(nodes['secret-detail-overlay'].hidden, true);
+    assert.equal(nodes['image-zoom'].hidden, true);
 });
 
 test('Secret Set opens the shared picker, saves its exact value and refreshes the detail', async () => {

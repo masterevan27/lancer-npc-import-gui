@@ -138,6 +138,8 @@
   const post = (path, body) => json(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
   function clearPrivateView() {
+    createState.presetName = '';
+    shipCreateState.presetName = '';
     composer?.clear();
     if (!get('set-trait-overlay').hidden) get('set-trait-cancel').click();
     for (const id of ['set-trait-title', 'set-trait-list', 'set-trait-release-label']) get(id).textContent = '';
@@ -375,7 +377,7 @@
     get('secret-presets-section').hidden = false;
   }
 
-  function applySecretSettings(settings) {
+  function applySecretSettings(settings, presetName = '') {
     // Check every saved choice before changing any form fields.
     const inputs = [...document.querySelectorAll('[data-secret-table]')];
     const restored = new Map();
@@ -395,7 +397,7 @@
     for (const [id, key] of selectors) {
       if (![...get(id).options].some(option => option.value === settings[key])) throw new Error(`${key} is no longer available.`);
     }
-    applyCreateSettings(settings);
+    applyCreateSettings(settings, presetName);
     get('secret-npc-width').value = settings.width ?? '';
     get('secret-npc-height').value = settings.height ?? '';
     get('secret-npc-token-width').value = settings.tokenWidth ?? '';
@@ -490,7 +492,8 @@
       img.src = item.portraitUrl || item.tokenUrl || ''; img.alt = item.name; card.append(img);
       const body = document.createElement('div'); body.className = 'body';
       for (const [className, text] of [['name', item.name], ['sub', item.callsign], ['role', item.traits?.Role],
-        ['sub', `Art style: ${item.artStyle?.name || 'Default'}`]]) {
+        ['sub', `Art style: ${item.artStyle?.name || 'Default'}`],
+        ['sub preset-label', item.presetName ? `Preset: ${item.presetName}` : '']]) {
         if (!text) continue;
         const line = document.createElement('div'); line.className = className; line.textContent = text; body.append(line);
       }
@@ -515,8 +518,7 @@
       if (!url) continue;
       const figure = document.createElement('figure'), img = document.createElement('img'), caption = document.createElement('figcaption');
       img.src = url; img.alt = `${item.name} — ${label}`; caption.textContent = label;
-      if (typeof attachImageZoom === 'function') attachImageZoom(img);
-      img.addEventListener('click', () => img.classList.toggle('secret-image-expanded'));
+      if (typeof attachImageZoom === 'function') attachImageZoom(img, true);
       figure.append(img, caption); images.append(figure);
     }
     const traits = item.background?.scene?.traits || item.traits || {};
@@ -632,6 +634,7 @@
       const settings = { ...createFormSettings(), ...secretTablePicks(), ...selected.dimensions.npc, artStyle: selected.npc,
         workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc, promptLayout: composer?.getLayout() || {} };
       const { slug } = await post('/api/secret/presets', { name, settings });
+      createState.presetName = name.trim();
       await loadSecretPresets(slug);
       get('secret-preset-status').textContent = `Saved “${name.trim()}”.`;
     }));
@@ -639,7 +642,7 @@
       const slug = get('secret-preset-select').value;
       if (!transport.authenticated || !slug) return;
       const preset = await json('/api/secret/presets/export?slug=' + encodeURIComponent(slug));
-      applySecretSettings(preset.settings);
+      applySecretSettings(preset.settings, preset.name);
       get('secret-preset-status').textContent = `Loaded “${preset.name}”.`;
     }));
     get('secret-preset-delete').addEventListener('click', () => presetAction(async () => {
@@ -698,6 +701,9 @@
     get('secret-refresh').addEventListener('click', () => loadGallery().catch(err => { get('secret-gallery-status').textContent = err.message; }));
     for (const id of ['secret-search', 'secret-kind', 'secret-sort']) get(id).addEventListener('input', renderGallery);
     get('secret-detail-close').addEventListener('click', closeDetail);
+    get('secret-detail-overlay').addEventListener('click', event => {
+      if (event.target === get('secret-detail-overlay')) closeDetail();
+    });
     get('secret-detail-prev').addEventListener('click', () => stepDetail(-1));
     get('secret-detail-next').addEventListener('click', () => stepDetail(1));
     get('secret-regen-seed-mode').addEventListener('change', () => { get('secret-regen-seed').disabled = get('secret-regen-seed-mode').value !== 'specific'; });
