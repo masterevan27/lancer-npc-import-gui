@@ -288,3 +288,11 @@ test('Create NPC sticks its generate buttons to the bottom on a phone', async (t
     assert.doesNotMatch(block, /#override-rows \.filter-row button/, 'a descendant selector would also stretch the nested Clear button');
     assert.doesNotMatch(block, /\.create-presets-row \.create-preset-status/, 'the status line is a sibling of the row, so that selector matches nothing');
 });
+
+test('Create Spaceship gets the same phone treatment as Create NPC', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const html = await fetchText(server, '/');
+    const ship = html.slice(html.indexOf('id="tab-shipcreate"'), html.indexOf('id="tab-backgrounds"'));
+    assert.match(ship, /class="form-row create-actions mobile-action-bar"/);
+});
