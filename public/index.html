@@ -209,6 +209,13 @@
       those covers the same ground. Filled by secret-mode.js after login and
       emptied on logout; the public form never sees it.
     -->
+    <div class="secret-prompt" id="secret-prompt-section" hidden>
+      <label>Secret prompt
+        <select id="secret-prompt-select" aria-describedby="secret-prompt-status"><option value="">None</option></select>
+      </label>
+      <p class="hint" id="secret-prompt-status"></p>
+      <p class="hint" id="secret-prompt-summary" hidden></p>
+    </div>
     <div class="secret-tables" id="secret-tables-section" hidden>
       <h3><button id="secret-tables-toggle" type="button" aria-expanded="true" aria-controls="secret-tables-content">Collapse secret tables</button></h3>
       <div id="secret-tables-content">

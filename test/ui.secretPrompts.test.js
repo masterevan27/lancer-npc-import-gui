@@ -85,3 +85,56 @@ test('locking ignores a saved layout without losing it', async () => {
     view.controller.setLayout(layout); await view.flush();
     assert.equal(view.node('pills').querySelectorAll('textarea').length, 1);
 });
+
+test('a logged-in NPC create carries the secret prompt and drops the composition fields', () => {
+    const options = { method: 'POST', body: JSON.stringify({ count: 1 }) };
+    const pick = { file: 'explicit-v1.md', name: 'random' };
+    const picks = { extraTables: [{ file: 'a.json', tables: ['one'] }], disabledTables: ['Stance'] };
+    const npc = ui().routeRequest('/api/create-npc', options, true, { npc: 'ink', secretTables: picks, promptLayout: { portrait: ['shot'] }, secretPrompt: pick });
+    assert.equal(npc.path, '/api/secret/create');
+    assert.deepEqual(JSON.parse(npc.options.body), { count: 1, kind: 'npc', artStyle: 'ink', secretPrompt: pick });
+    const none = ui().routeRequest('/api/create-npc', options, true, { npc: 'ink', secretTables: picks, secretPrompt: null });
+    assert.deepEqual(JSON.parse(none.options.body), { count: 1, kind: 'npc', artStyle: 'ink', ...picks });
+    const ship = ui().routeRequest('/api/create', { method: 'POST', body: '{"kind":"spaceship"}' }, true, { secretPrompt: pick });
+    assert.deepEqual(JSON.parse(ship.options.body), { kind: 'spaceship', artStyle: 'default' });
+    const loggedOut = ui().routeRequest('/api/create-npc', options, false, { secretPrompt: pick });
+    assert.deepEqual(JSON.parse(loggedOut.options.body), { count: 1, artStyle: 'default' });
+});
+
+test('the markup ships the select hidden, just before the secret tables section', () => {
+    const html = read('index.html');
+    const section = html.indexOf('id="secret-prompt-section"');
+    assert.notEqual(section, -1);
+    assert.match(html.slice(section, section + 60), /hidden/);
+    assert.ok(section > html.indexOf('id="add-override"'));
+    assert.ok(section < html.indexOf('id="secret-tables-section"'));
+    for (const id of ['secret-prompt-select', 'secret-prompt-status', 'secret-prompt-summary']) assert.ok(html.includes(`id="${id}"`), id);
+});
+
+test('secret-mode.js fills the select from the listing, locks pins, labels the gallery and clears on logout', () => {
+    const js = read('secret-mode.js');
+    assert.match(js, /json\('\/api\/secret\/prompts'\)/);
+    assert.match(js, /Random from \$\{/);
+    assert.match(js, /locked: \(\) => !!promptPick/);
+    assert.match(js, /Pinned by the selected secret prompt|locked: true/);
+    assert.match(js, /Secret prompt: \$\{item\.secretPrompt\.name\}/);
+    assert.match(js, /secretPrompt: secretPromptPick\(\)/);
+    assert.match(js, /Reload Secret mode: secret prompt/);
+    const clear = js.slice(js.indexOf('function clearPrivateView'), js.indexOf('function expire'));
+    assert.match(clear, /promptPick = null/);
+    assert.match(clear, /secret-prompt-section'\)\.hidden = true|secret-prompt-section'\)\) get\('secret-prompt-section'\)\.hidden = true/);
+    // The detail sheet offers Re-roll on a slot table the record can re-roll.
+    const detail = js.slice(js.indexOf('function openDetail'), js.indexOf('function stepDetail'));
+    assert.match(detail, /item\.extraTraits[\s\S]*rerollable[\s\S]*includes\(key\)/);
+});
+
+test('app.js renders locked override rows and keeps them out of requests and presets', () => {
+    const js = read('app.js');
+    const rows = js.slice(js.indexOf('function renderOverrideRows'), js.indexOf('function createRequestBody'));
+    assert.match(rows, /override\.locked/);
+    assert.match(rows, /Pinned by the selected secret prompt/);
+    const body = js.slice(js.indexOf('function createRequestBody'), js.indexOf('async function startCreateJob'));
+    assert.match(body, /!o\.locked/);
+    const settings = js.slice(js.indexOf('function createFormSettings'), js.indexOf('function applyCreateSettings'));
+    assert.match(settings, /!o\.locked/);
+});

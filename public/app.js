@@ -5024,6 +5024,20 @@ function renderOverrideRows() {
     });
     row.appendChild(remove);
 
+    // A row pinned by the selected secret prompt: shown, disabled, and kept
+    // out of the request (the template pins it) - see createRequestBody.
+    if (override.locked) {
+      row.classList.add("filter-row-locked");
+      tableSelect.disabled = true;
+      search.hidden = true;
+      valueSelect.disabled = true;
+      valueInput.disabled = true;
+      valueInput.hidden = false;
+      for (const button of row.querySelectorAll("button")) button.disabled = true;
+      note.textContent = "Pinned by the selected secret prompt.";
+      note.hidden = false;
+    }
+
     elCreate.overrideRows.appendChild(row);
   });
 }
@@ -5096,7 +5110,7 @@ function createRequestBody(dryRun) {
     noToken: !elCreate.token.checked,
     keepRawToken: elCreate.keepRaw.checked,
     unarmed: elCreate.unarmed.checked,
-    overrides: createState.overrides.filter((o) => o.table && o.value.trim()),
+    overrides: createState.overrides.filter((o) => o.table && o.value.trim() && !o.locked),
     dryRun,
   };
 }
@@ -5263,7 +5277,7 @@ function createFormSettings() {
     keepRawToken: elCreate.keepRaw.checked,
     unarmed: elCreate.unarmed.checked,
     overrides: createState.overrides
-      .filter((o) => o.table && String(o.value).trim())
+      .filter((o) => o.table && String(o.value).trim() && !o.locked)
       .map((o) => ({ table: o.table, value: o.value, custom: !!o.custom })),
   };
 }

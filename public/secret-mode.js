@@ -29,6 +29,12 @@
         body.disabledTables = selections.secretTables.disabledTables;
       }
       if (create && authenticated && kind === 'npc' && selections.promptLayout) body.promptLayout = selections.promptLayout;
+      if (create && authenticated && kind === 'npc' && selections.secretPrompt) {
+        // The template decides what appears: the picker's tables, the
+        // disabled list and the composer's order do not travel with it.
+        body.secretPrompt = selections.secretPrompt;
+        delete body.extraTables; delete body.disabledTables; delete body.promptLayout;
+      }
       next.body = JSON.stringify(body);
     }
     if (authenticated) {
@@ -74,7 +80,7 @@
       [kind, document.querySelector(`[data-workflow="${kind}"]`)?.value || 'default'])),
     colorGuidance: { npc: document.querySelector('[data-color-guidance="npc"]')?.value || 'default' },
     dimensions: Object.fromEntries(['npc', 'spaceship'].map(kind => [kind, dimensionPicks(kind)])),
-    secretTables: secretTablePicks(), promptLayout: composer?.getLayout() });
+    secretTables: secretTablePicks(), promptLayout: composer?.getLayout(), secretPrompt: secretPromptPick() });
 
   function dimensionPicks(kind) {
     const width = get(`secret-${kind}-width`)?.value || '';
@@ -115,6 +121,8 @@
     .then(session => { transport.setAuthenticated(session.authenticated); return session; })
     .catch(() => ({ authenticated: false, configured: false }));
   let galleryItems = [], galleryRequest = 0, lastFocus = 0;
+  let promptListing = null, promptPick = null, savedPronouns = null;
+  function secretPromptPick() { return promptPick ? { file: promptPick.file, name: promptPick.name } : null; }
   let visibleItems = [], detailId = null, detailBusy = false;
   const sessionChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('lancer-secret-session');
 
@@ -169,6 +177,10 @@
     get('secret-roll-order-list')?.replaceChildren();
     if (get('secret-roll-order-summary')) get('secret-roll-order-summary').textContent = 'Roll order and gates';
     if (get('secret-tables-section')) get('secret-tables-section').hidden = true;
+    promptListing = null; promptPick = null; savedPronouns = null;
+    get('secret-prompt-select')?.replaceChildren(new Option('None', ''));
+    if (get('secret-prompt-summary')) get('secret-prompt-summary').hidden = true;
+    if (get('secret-prompt-section')) get('secret-prompt-section').hidden = true;
     get('secret-preset-select')?.replaceChildren();
     if (get('secret-presets-section')) get('secret-presets-section').hidden = true;
     if (get('secret-preset-status')) get('secret-preset-status').textContent = '';
@@ -363,7 +375,83 @@
     }
     refreshGates();
     section.hidden = false;
+    await loadSecretPrompts();
     await loadSecretPresets();
+  }
+
+  // The Secret prompt select: None, one "Random from <file>" per valid
+  // file, then every template grouped by file. Broken files are named in
+  // the status line and cannot be picked.
+  async function loadSecretPrompts() {
+    const section = get('secret-prompt-section');
+    if (!section) return;
+    if (!transport.authenticated) { section.hidden = true; return; }
+    promptListing = await json('/api/secret/prompts');
+    const select = get('secret-prompt-select');
+    select.replaceChildren(new Option('None', ''));
+    const valid = (promptListing.files || []).filter(file => !file.error);
+    for (const file of valid) select.append(new Option(`Random from ${file.file}`, `random\n${file.file}`));
+    for (const file of valid) {
+      const group = document.createElement('optgroup'); group.label = file.file;
+      group.append(...(file.templates || []).map(template => new Option(template.name, `${template.name}\n${file.file}`)));
+      select.append(group);
+    }
+    const broken = (promptListing.files || []).filter(file => file.error).map(file => file.error);
+    get('secret-prompt-status').textContent = promptListing.error ? promptListing.error
+      : !promptListing.exists ? `Folder not found: ${promptListing.dir}. Create it, or point secretPromptsDir at yours in Settings.`
+      : broken.length ? broken.join(' ') : valid.length ? `From ${promptListing.dir}.` : `No .md template files in ${promptListing.dir}.`;
+    section.hidden = false;
+    select.value = '';
+    applySecretPrompt();
+  }
+
+  function applySecretPrompt() {
+    const value = get('secret-prompt-select').value;
+    const [name, file] = value ? value.split('\n') : [null, null];
+    const entry = file && (promptListing?.files || []).find(candidate => candidate.file === file && !candidate.error);
+    promptPick = entry ? { file, name } : null;
+    const templates = !entry ? [] : name === 'random' ? entry.templates || [] : (entry.templates || []).filter(template => template.name === name);
+    // With Random, only a pin every template of the file agrees on locks a picker.
+    const pins = {};
+    for (const [table, pinned] of Object.entries(templates[0]?.pins || {})) {
+      if (templates.every(template => template.pins?.[table] === pinned)) pins[table] = pinned;
+    }
+    const slots = [...new Set(templates.flatMap(template => template.secretSlots || []))];
+    const summary = get('secret-prompt-summary');
+    summary.hidden = !promptPick;
+    summary.textContent = !promptPick ? '' : `${name === 'random' ? `Rolled per NPC from ${templates.length} template${templates.length === 1 ? '' : 's'}. ` : ''}`
+      + `Pins: ${Object.entries(pins).map(([table, pinned]) => `${table} = ${pinned}`).join(', ') || 'none'}. Slot tables: ${slots.join(', ') || 'none'}.`;
+    const collapsed = get('secret-tables-toggle').getAttribute('aria-expanded') === 'false';
+    get('secret-tables-content').hidden = !!promptPick || collapsed;
+    get('secret-tables-toggle').disabled = !!promptPick;
+    lockPins(pins);
+    composer?.refresh();
+  }
+
+  // Trait pickers a pin covers are locked to the pinned value. Rows the user
+  // made keep their own value under the lock and get it back on None; rows
+  // added for a pin are removed again.
+  function lockPins(pins) {
+    for (const row of createState.overrides) {
+      if (row.locked && row.pinned) { Object.assign(row, row.pinned); delete row.pinned; }
+      delete row.locked;
+    }
+    createState.overrides = createState.overrides.filter(row => !row.added);
+    for (const [table, pinned] of Object.entries(pins)) {
+      if (table === 'Pronouns') continue;
+      const row = createState.overrides.find(candidate => candidate.table === table);
+      if (row) { row.pinned = { value: row.value, custom: row.custom }; Object.assign(row, { value: pinned, custom: true, locked: true }); }
+      else createState.overrides.push({ table, value: pinned, custom: true, locked: true, added: true, search: '' });
+    }
+    const pronouns = elCreate.pronouns;
+    if (Object.hasOwn(pins, 'Pronouns')) {
+      if (!pronouns.disabled) savedPronouns = pronouns.value;
+      pronouns.value = pins.Pronouns.split('/')[0].trim();
+      pronouns.disabled = true;
+    } else if (pronouns.disabled && savedPronouns !== null) {
+      pronouns.value = savedPronouns; pronouns.disabled = false; savedPronouns = null;
+    }
+    renderOverrideRows();
   }
 
   async function loadSecretPresets(wanted = '') {
@@ -397,6 +485,11 @@
     for (const [id, key] of selectors) {
       if (![...get(id).options].some(option => option.value === settings[key])) throw new Error(`${key} is no longer available.`);
     }
+    const select = get('secret-prompt-select');
+    const wanted = settings.secretPrompt ? `${settings.secretPrompt.name}\n${settings.secretPrompt.file}` : '';
+    if (wanted && ![...select.options].some(option => option.value === wanted)) {
+      throw new Error(`Reload Secret mode: secret prompt ${settings.secretPrompt.name} in ${settings.secretPrompt.file} has changed.`);
+    }
     applyCreateSettings(settings, presetName);
     get('secret-npc-width').value = settings.width ?? '';
     get('secret-npc-height').value = settings.height ?? '';
@@ -419,11 +512,12 @@
     }
     for (const input of document.querySelectorAll('[data-disable-table]')) input.checked = (settings.disabledTables || []).includes(input.dataset.disableTable);
     composer?.setLayout(settings.promptLayout);
+    select.value = wanted; applySecretPrompt();
   }
 
   function setSecretTablesCollapsed(collapsed, fromBottom = false) {
     const toggle = get('secret-tables-toggle');
-    get('secret-tables-content').hidden = collapsed;
+    get('secret-tables-content').hidden = collapsed || !!promptPick;
     toggle.setAttribute('aria-expanded', String(!collapsed));
     toggle.textContent = collapsed ? 'Expand secret tables' : 'Collapse secret tables';
     if (fromBottom) { toggle.scrollIntoView({ block: 'center' }); toggle.focus(); }
@@ -493,7 +587,8 @@
       const body = document.createElement('div'); body.className = 'body';
       for (const [className, text] of [['name', item.name], ['sub', item.callsign], ['role', item.traits?.Role],
         ['sub', `Art style: ${item.artStyle?.name || 'Default'}`],
-        ['sub preset-label', item.presetName ? `Preset: ${item.presetName}` : '']]) {
+        ['sub preset-label', item.presetName ? `Preset: ${item.presetName}` : ''],
+        ['sub secret-prompt-label', item.secretPrompt ? `Secret prompt: ${item.secretPrompt.name}` : '']]) {
         if (!text) continue;
         const line = document.createElement('div'); line.className = className; line.textContent = text; body.append(line);
       }
@@ -512,7 +607,7 @@
     get('secret-detail-prev').disabled = position <= 0;
     get('secret-detail-next').disabled = position < 0 || position >= visibleItems.length - 1;
     get('secret-detail-name').textContent = item.name;
-    get('secret-detail-style').textContent = `Art style: ${item.artStyle?.name || 'Default'}`;
+    get('secret-detail-style').textContent = `Art style: ${item.artStyle?.name || 'Default'}${item.secretPrompt ? ` · Secret prompt: ${item.secretPrompt.name}` : ''}`;
     const images = get('secret-detail-images'); images.replaceChildren();
     for (const [label, url] of [['Portrait', item.portraitUrl], ['Token', item.tokenUrl]]) {
       if (!url) continue;
@@ -545,10 +640,17 @@
       text.textContent = (item.disabledTables || []).includes(key) ? `${value} (left out of the prompt)` : value;
       row.append(control, setControl, name, text); traitRows.append(row);
     }
-    // The secret tables' rolled values, after the defaults. Not re-rollable
-    // from here: the values were drawn from a file the entry does not name.
+    // The secret tables' rolled values, after the defaults. A slot table of
+    // a secret prompt is re-rollable (it names its own slot table to roll
+    // again); the rest were drawn from a file the entry does not name.
     for (const [key, value] of Object.entries(item.extraTraits || {})) {
       const row = document.createElement('tr'), control = document.createElement('td'), name = document.createElement('td'), text = document.createElement('td');
+      if ((item.rerollable || []).includes(key)) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'reroll-btn'; button.textContent = 'Re-roll';
+        button.disabled = detailBusy || item.regenStatus === 'running';
+        button.addEventListener('click', () => mutateDetail('/api/secret/reroll-trait', { id: item.id, trait: key }));
+        control.append(button);
+      }
       row.className = 'secret-extra-trait'; name.textContent = key; text.textContent = value;
       row.append(control, document.createElement('td'), name, text); traitRows.append(row);
     }
@@ -619,6 +721,7 @@
     // A phone starts with the section folded (the disable-tables list is inside it too). isPhone() is
     // app.js's, a global by the time this event fires; absent (as in a bare test), nothing changes.
     if (typeof root.isPhone === 'function' && root.isPhone()) setSecretTablesCollapsed(true);
+    get('secret-prompt-select').addEventListener('change', applySecretPrompt);
     get('secret-preset-select').addEventListener('change', () => {
       const chosen = !!get('secret-preset-select').value;
       get('secret-preset-load').disabled = !chosen;
@@ -635,7 +738,8 @@
       if (name === null) return;
       const selected = selections();
       const settings = { ...createFormSettings(), ...secretTablePicks(), ...selected.dimensions.npc, artStyle: selected.npc,
-        workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc, promptLayout: composer?.getLayout() || {} };
+        workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc, promptLayout: composer?.getLayout() || {},
+        secretPrompt: secretPromptPick() };
       const { slug } = await post('/api/secret/presets', { name, settings });
       createState.presetName = name.trim();
       await loadSecretPresets(slug);
@@ -767,6 +871,8 @@
       catch (err) {
         if (get('secret-tables-status')) get('secret-tables-status').textContent = `Could not load secret tables: ${err.message}`;
         if (get('secret-tables-section')) get('secret-tables-section').hidden = false;
+        if (get('secret-prompt-status')) get('secret-prompt-status').textContent = `Could not load secret prompts: ${err.message}`;
+        if (get('secret-prompt-section')) get('secret-prompt-section').hidden = false;
       }
     }
     try { await loadColorGuidance(); }
@@ -779,7 +885,8 @@
             workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc };
         },
         request: body => post('/api/secret/prompt-preview', body).then(preview =>
-          root.SecretGates.markGatedSources(preview, gateOrder.filter(entry => entry.when).map(entry => entry.name))) });
+          root.SecretGates.markGatedSources(preview, gateOrder.filter(entry => entry.when).map(entry => entry.name))),
+        locked: () => !!promptPick });
       openGallery();
     }
     const verifySession = async () => {
