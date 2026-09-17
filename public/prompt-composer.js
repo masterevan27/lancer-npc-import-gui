@@ -44,7 +44,7 @@
         const status = query('[data-composer-status]');
         const prose = query('[data-composer-prose]');
         const label = () => target === 'portrait' ? 'Portrait' : 'Token';
-        function visible() { return ordered(data[target], layout[target]); }
+        function visible() { return locked() ? data[target] : ordered(data[target], layout[target]); }
         function updateProse() {
             const parts = visible();
             prose.textContent = join(parts, !!layout[target]?.length && !locked());

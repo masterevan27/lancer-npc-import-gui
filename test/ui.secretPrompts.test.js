@@ -64,3 +64,24 @@ test('a locked composer previews the filled template read-only', async () => {
     assert.equal(view.node('pills').querySelectorAll('[data-handle]').length, 2);
     assert.equal(view.node('add').disabled, false);
 });
+
+test('locking ignores a saved layout without losing it', async () => {
+    let locked = false;
+    const view = composerPage(() => locked); await view.flush();
+    const layout = { portrait: ['secret:Poses', 'npc:identity', { id: 'custom:extra', text: 'Extra pill.' }] };
+    view.controller.setLayout(layout); await view.flush();
+    assert.equal(view.node('pills').children.length, 3);
+    assert.equal(view.node('pills').querySelectorAll('textarea').length, 1);
+    assert.equal(view.node('pills').children[0].dataset.partId, 'secret:Poses');
+    locked = true;
+    // setLayout re-renders at once, with the same layout, so nothing but locked() changes.
+    view.controller.setLayout(layout); await view.flush();
+    assert.equal(view.node('pills').children.length, 2);
+    assert.equal(view.node('pills').querySelectorAll('textarea').length, 0);
+    assert.equal(view.node('pills').children[0].dataset.partId, 'npc:identity');
+    assert.equal(view.node('pills').children[1].dataset.partId, 'secret:Poses');
+    assert.deepEqual(Object.keys(view.controller.getLayout()), []);
+    locked = false;
+    view.controller.setLayout(layout); await view.flush();
+    assert.equal(view.node('pills').querySelectorAll('textarea').length, 1);
+});
