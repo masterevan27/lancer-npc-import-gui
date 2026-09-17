@@ -190,10 +190,13 @@ test('the zoom helper stays extractable by the secret-mode test', async (t) => {
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());
     const js = await fetchText(server, '/app.js');
-    // ui.secretMode.test.js evaluates this exact span in a bare
-    // `new Function('el', ...)`, with no document and no window.
-    const span = js.slice(js.indexOf('function attachImageZoom('), js.indexOf('attachImageZoom(el.detailPortrait)'));
-    assert.doesNotMatch(span, /\bdocument\b/, 'nothing between attachImageZoom and its first call may touch the DOM');
+    // ui.secretMode.test.js slices this exact span, from `const CAN_HOVER`
+    // to `attachImageZoom(el.detailPortrait)`, and evaluates it in a bare
+    // `new Function('el', 'window', ...)` bound to a stubbed window whose
+    // only member is matchMedia. This span must stay identical to that one.
+    const span = js.slice(js.indexOf('const CAN_HOVER'), js.indexOf('attachImageZoom(el.detailPortrait)'));
+    assert.doesNotMatch(span, /\bdocument\b/, 'nothing in this span may touch document');
+    assert.doesNotMatch(span.replace(/window\.matchMedia/g, ''), /\bwindow\b/, 'the only window use allowed here is matchMedia, the one thing the stub provides');
 });
 
 test('controls are thumb-sized and never zoom the page on focus', async (t) => {
