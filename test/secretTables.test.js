@@ -154,7 +154,15 @@ test('gate errors are reported against the file that holds the gate', (t) => {
     assert.equal(errors['c.md'], "table 'T' has an empty (when:)");
     assert.equal(errors['d.md'], "table 'H' is repeated with a different (when:)");
     assert.match(errors['e.json'], /tags that are not a list of letters, digits, - and _/);
-    assert.equal(errors['f.md'], "gated table 'Lonely' has no table in the folder carrying its tags (when: nobody)");
+    // e.json is unreadable, so nothing in the folder can be said for sure to
+    // carry no tag at all (F4) - Lonely's own "nothing carries #nobody" is
+    // suppressed rather than blaming it while a sibling file is broken.
+    assert.equal(errors['f.md'], undefined);
+});
+
+test('a heading that is only a (when:) clause is refused, not silently blank-named', (t) => {
+    const dir = folder(t, { 'g.md': '## (when: m)\n- x\n' });
+    assert.equal(listSecretTables(dir).files[0].error, 'a table name must be non-blank text');
 });
 
 test('validateSelection refuses impossible gate selections with the generator texts', (t) => {

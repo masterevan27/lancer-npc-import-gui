@@ -69,14 +69,31 @@
 
   function orderErrors(files) {
     const order = rollOrder(files);
+    // An errored file may be the one that would have carried a tag, so no
+    // "not carried" conclusion (whole-gate or per-tag) can be trusted while
+    // any file in the folder failed to parse. The "comes before" check does
+    // not depend on what an errored file might hold, so it still runs.
+    const errored = files.some(file => file.error);
     const errors = new Map();
     order.forEach((entry, index) => {
-      if (!entry.when || entry.openers.length || errors.has(entry.file)) return;
+      if (!entry.when || errors.has(entry.file)) return;
       const label = entry.when.join(', ');
-      const later = order.slice(index + 1).find(other => other.rows.some(row => hasTag(row, entry.when)));
-      errors.set(entry.file, later
-        ? `gated table '${entry.name}' comes before '${later.name}', the table that opens it (when: ${label})`
-        : `gated table '${entry.name}' has no table in the folder carrying its tags (when: ${label})`);
+      if (!entry.openers.length) {
+        const later = order.slice(index + 1).find(other => other.rows.some(row => hasTag(row, entry.when)));
+        if (later) {
+          errors.set(entry.file, `gated table '${entry.name}' comes before '${later.name}', the table that opens it (when: ${label})`);
+        } else if (!errored) {
+          errors.set(entry.file, `gated table '${entry.name}' has no table in the folder carrying its tags (when: ${label})`);
+        }
+        return;
+      }
+      if (errored) return;
+      // Opened via at least one tag, but a sibling tag in the same (when:)
+      // may still be a misspelling nothing in the folder carries.
+      const missingTag = entry.when.find(tag => !order.some(other => other.rows.some(row => hasTag(row, [tag]))));
+      if (missingTag) {
+        errors.set(entry.file, `gated table '${entry.name}' has no table in the folder carrying #${missingTag} (when: ${label})`);
+      }
     });
     return errors;
   }
@@ -156,11 +173,14 @@
         const earlier = selected.slice(0, selected.indexOf(entry)).filter(other => state.get(other.key) !== 'closed');
         const could = earlier.filter(other => rows.get(other.key).some(row => hasTag(row, entry.when)));
         if (!could.length) {
-          const carrier = earlier.find(other => fixed.has(other.key) && !fixed.get(other.key).by && other.rows.some(row => hasTag(row, entry.when)));
+          const fixedCarrier = earlier.find(other => fixed.has(other.key) && !fixed.get(other.key).by && other.rows.some(row => hasTag(row, entry.when)));
+          const narrowedCarrier = !fixedCarrier && earlier.find(other => fixed.has(other.key) && fixed.get(other.key).by && other.rows.some(row => hasTag(row, entry.when)));
           current = 'closed';
-          text = `closed — ${carrier
-            ? `'${carrier.name}' is fixed to '${rows.get(carrier.key)[0].value}', which is not ${tagList(entry.when)}`
-            : `nothing selected can open it (when: ${entry.when.join(', ')})`}`;
+          text = `closed — ${fixedCarrier
+            ? `'${fixedCarrier.name}' is fixed to '${rows.get(fixedCarrier.key)[0].value}', which is not ${tagList(entry.when)}`
+            : narrowedCarrier
+              ? `'${narrowedCarrier.name}' is limited to ${tagList(fixed.get(narrowedCarrier.key).need)} by '${fixed.get(narrowedCarrier.key).by}'`
+              : `nothing selected can open it (when: ${entry.when.join(', ')})`}`;
         } else if (could.some(other => state.get(other.key) === 'rolls' && rows.get(other.key).every(row => hasTag(row, entry.when)))) {
           current = 'rolls';
         } else {

@@ -153,6 +153,21 @@ test('secret presets round trip privately and cannot be loaded from public route
     assert.deepEqual((await (await call('/api/secret/presets', undefined, true)).json()).presets, []);
 });
 
+test('a saved preset with a now-conflicting fixed value still loads', async (t) => {
+    const { call, server } = await setup(t);
+    const dir = path.join(server.dir, 'presets', 'secret-presets');
+    fs.mkdirSync(dir, { recursive: true });
+    const slug = 'conflicting-preset';
+    fs.writeFileSync(path.join(dir, slug + '.json'), JSON.stringify({
+        name: 'Conflicting preset', kind: 'secret-create-form', created: new Date().toISOString(),
+        settings: { extraTables: [{ file: 'c.md', tables: ['style', 'beard'], values: { style: 'elegant', beard: 'stubble' } }] },
+    }));
+    const res = await call('/api/secret/presets/export?slug=' + slug, undefined, true);
+    assert.equal(res.status, 200, await res.clone().text());
+    const preset = await res.json();
+    assert.deepEqual(preset.settings.extraTables[0].values, { style: 'elegant', beard: 'stubble' });
+});
+
 test('the listing needs a session and reports files, tables, counts, errors and the disableable set', async (t) => {
     const { call, tablesDir } = await setup(t);
     assert.equal((await call('/api/secret/tables')).status, 401);

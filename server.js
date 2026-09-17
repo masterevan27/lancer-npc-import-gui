@@ -3968,7 +3968,11 @@ async function handleSecretApi(req, res, url, authenticated) {
                 const preset = slug && createPresets.readCreatePreset(dir, slug);
                 if (!preset || preset.kind !== secretPresets.KIND) return sendJson(res, 404, { error: 'unknown secret preset' });
                 const listing = secretTables.listSecretTables(DERIVED_PATHS.secretTablesDir, { reserved: OVERRIDE_DATA_BY_KIND[DEFAULT_KIND].tables });
-                const normalized = secretPresets.normaliseSettings(preset.settings, listing, OVERRIDE_DATA_BY_KIND[DEFAULT_KIND]);
+                // Loading/exporting a saved preset stays lenient about gate
+                // conflicts (a fixed value can go stale once a table gains a
+                // `(when:)` after the preset was saved) - the create path
+                // below keeps the strict check.
+                const normalized = secretPresets.normaliseSettings(preset.settings, listing, OVERRIDE_DATA_BY_KIND[DEFAULT_KIND], { checkGates: false });
                 return sendJson(res, 200, { ...preset, settings: normalized });
             }
             if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });

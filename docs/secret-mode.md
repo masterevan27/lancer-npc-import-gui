@@ -131,7 +131,9 @@ earlier carries one of its tags.
 ```
 
 - `#tag`s at the very end of a bullet are removed from the value and name the
-  gates it opens (letters, digits, `-`, `_`; case-insensitive).
+  gates it opens (letters, digits, `-`, `_`; case-insensitive). Any trailing
+  `#word` is a tag, digits included - `Jersey number #7` rolls as `Jersey
+  number`; put such text earlier in the line or drop the space before the `#`.
 - `(when: a, b)` at the end of a heading gates the table; it opens on *any*
   listed tag. The table's name is the heading without the suffix, so
   `--extra-value "Men's Attributes=broad shoulders"`.
@@ -157,8 +159,11 @@ In Create NPC:
 - **Roll order and gates**, a closed panel at the top of the section, lists
   every table in roll order with its gate, what its tags open, and its live
   status.
-- The folder is checked as a whole: a gated table above its opener, or a tag
-  that no table in the folder carries, marks that file with the error.
+- The folder is checked as a whole: a gated table above its opener marks that
+  file with the error. Each `when:` tag is checked individually, and a tag no
+  table in the folder carries also marks the file - unless a file in the
+  folder has an error, in which case that check is skipped, since the missing
+  tag might be inside the unreadable file.
 
 After Secret login, **Create NPC** lists every file with a checkbox per table (the file's own box ticks them all) and shows the row count beside each. A ticked table rolls one value per NPC by weight; the values are appended to both prompts as one sentence after the line naming what the NPC carries, recorded on the private manifest entry as `extraTraits`, shown on the detail sheet, and reproduced by Regenerate. Nothing ticked is an ordinary private roll. A file the generator would refuse - not valid JSON, a table with no rows, a weight that is not a positive number, a table named like a default one - is listed with its reason and cannot be selected. Markdown bullets are taken whole: `|| flag` and `=> Name` mean nothing to a private table.
 

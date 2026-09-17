@@ -69,6 +69,24 @@ test('order errors: a gate above its opener, and a tag nothing in the folder car
     assert.equal(gates.orderErrors([STYLES]).size, 0);
 });
 
+test('order errors: a misspelt tag in a multi-tag when is caught even though another tag is carried', () => {
+    const errors = gates.orderErrors([
+        { file: 'x.md', tables: [
+            { name: 'Styles', count: 1, values: ['a'], tags: { a: ['man'] } },
+            { name: 'G', count: 1, values: ['g'], when: ['man', 'womn'] },
+        ] },
+    ]);
+    assert.equal(errors.get('x.md'), "gated table 'G' has no table in the folder carrying #womn (when: man, womn)");
+});
+
+test('order errors skip the not-carried checks when any file in the folder has an error', () => {
+    const errors = gates.orderErrors([
+        { file: 'a.json', tables: [], error: 'not valid JSON' },
+        { file: 'b.md', tables: [{ name: 'G', count: 1, values: ['g'], when: ['m'] }] },
+    ]);
+    assert.equal(errors.size, 0);
+});
+
 test('with everything Random, gated tables may roll and say what opens them', () => {
     const { error, status } = gates.resolveGates(gates.rollOrder([STYLES]), picks(ALL));
     assert.equal(error, null);
@@ -84,6 +102,12 @@ test('a fixed opener opens its gates and closes the others', () => {
     assert.equal(status.get(key("Men's Attributes")).state, 'rolls');
     assert.deepEqual(status.get(key('Jewellery')), { state: 'closed', limited: false,
         text: "closed — 'Styles' is fixed to 'Sharp-suited broker', which is not #woman or #noble" });
+});
+
+test('a closed gate names a narrowed carrier rather than saying nothing can open it', () => {
+    const { status } = gates.resolveGates(gates.rollOrder([STYLES]), picks({ ...ALL, "Men's Attributes": 'broad shoulders' }));
+    assert.deepEqual(status.get(key('Jewellery')), { state: 'closed', limited: false,
+        text: "closed — 'Styles' is limited to #man by 'Men's Attributes'" });
 });
 
 test('unticked tables are not selected and open nothing', () => {
