@@ -3912,7 +3912,7 @@ document.addEventListener(
   true,
 );
 
-const tabState = { current: "import" };
+const tabState = { current: "import", scroll: {} };
 
 for (const btn of document.querySelectorAll("#tabs button")) {
   btn.addEventListener("click", () => switchTab(btn.dataset.tab));
@@ -3927,6 +3927,10 @@ function switchTab(tab) {
   // Dismiss it explicitly on the way out.
   if (tabState.current === "tables" && !elTables.preview.hidden)
     cancelPresetPreview();
+  // The page scrolls at the document, so every tab shares one offset. Keep
+  // one per tab instead: coming back to a tab should find it where it was
+  // left, not wherever the last tab happened to be scrolled.
+  tabState.scroll[tabState.current] = window.scrollY;
   tabState.current = tab;
   for (const btn of document.querySelectorAll("#tabs button")) {
     btn.classList.toggle("active", btn.dataset.tab === tab);
@@ -3937,6 +3941,10 @@ function switchTab(tab) {
   for (const panel of document.querySelectorAll(".tab-panel")) {
     panel.hidden = panel.id !== `tab-${tab}`;
   }
+  // A tab never visited in this page load starts at the top. Restored now,
+  // with the panel already showing; a tab whose content is still loading may
+  // be shorter than it was, and the browser then stops at its bottom.
+  window.scrollTo(0, tabState.scroll[tab] ?? 0);
   if (tab === "create" && !createState.tablesLoaded) loadOverrideTables();
   // ensureShipCreateForm() calls ensureVocab('spaceship') itself first - the
   // one part of this the detail sheet also needs - before loading the form's

@@ -250,3 +250,21 @@ test('the phone layer reflows the galleries', async (t) => {
     assert.match(block, /\.categories \{[^}]*flex-wrap: nowrap/, 'category pills scroll sideways');
     assert.match(block, /\.card \.check \{[^}]*width: 24px/, 'the card checkbox gets a real tap target');
 });
+
+test('each tab comes back at its own scroll position', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    assert.match(js, /const tabState = \{[^}]*scroll: \{\}/, 'tabState keeps one offset per tab');
+    const source = extractSource(js, 'switchTab');
+    // The page scrolls at the document, so the offset is shared unless
+    // switchTab saves it on the way out and restores it on the way in.
+    assert.match(source, /tabState\.scroll\[tabState\.current\] = window\.scrollY/, 'the tab being left records where it was');
+    assert.match(source, /window\.scrollTo\(0, tabState\.scroll\[tab\] \?\? 0\)/, 'the tab being opened returns there, or to the top');
+    const save = source.indexOf('tabState.scroll[tabState.current] = window.scrollY');
+    const assign = source.indexOf('tabState.current = tab');
+    const restore = source.indexOf('window.scrollTo(0, tabState.scroll[tab]');
+    const unhide = source.indexOf('panel.hidden = panel.id !== `tab-${tab}`');
+    assert.ok(save !== -1 && save < assign, 'save before tabState.current moves to the new tab');
+    assert.ok(unhide !== -1 && restore > unhide, 'restore only after the new panel is showing, or there is nothing to scroll');
+});
