@@ -163,6 +163,9 @@
     for (const node of document.querySelectorAll('[data-workflow]')) node.replaceChildren(new Option(DEFAULT.name, DEFAULT.id));
     for (const id of ['secret-tables-files', 'secret-disable-tables']) get(id)?.replaceChildren();
     gateOrder = []; gateFileErrors = [];
+    if (get('secret-tables-gate-error')) { get('secret-tables-gate-error').textContent = ''; get('secret-tables-gate-error').hidden = true; }
+    get('secret-roll-order-list')?.replaceChildren();
+    if (get('secret-roll-order-summary')) get('secret-roll-order-summary').textContent = 'Roll order and gates';
     if (get('secret-tables-section')) get('secret-tables-section').hidden = true;
     get('secret-preset-select')?.replaceChildren();
     if (get('secret-presets-section')) get('secret-presets-section').hidden = true;
@@ -219,7 +222,37 @@
     renderRollOrder(result);
   }
 
-  function renderRollOrder() { /* Task 7 */ }
+  function renderRollOrder(result) {
+    const list = get('secret-roll-order-list');
+    if (!list) return;
+    const view = root.SecretGates.rollOrderView(gateOrder, result, gateFileErrors);
+    get('secret-roll-order-summary').textContent = view.summary;
+    list.replaceChildren(...view.items.map(item => {
+      const li = document.createElement('li'); li.className = 'secret-roll-order-item';
+      li.style.setProperty('--gate-depth', String(item.depth));
+      const title = document.createElement('strong'); title.textContent = item.title;
+      const file = document.createElement('span'); file.className = 'hint'; file.textContent = ` ${item.file}`;
+      li.append(title, file);
+      for (const [className, text] of [['secret-roll-order-gate', item.gate], ['secret-roll-order-opens', item.opens], ['secret-roll-order-status', item.status]]) {
+        if (!text) continue;
+        const line = document.createElement('div'); line.className = className; line.textContent = text;
+        li.append(line);
+      }
+      return li;
+    }));
+  }
+
+  // Whether the panel is open is a per-viewer convenience only.
+  const ROLL_ORDER_OPEN_KEY = 'secretRollOrderOpen';
+  function initRollOrderPanel() {
+    const panel = get('secret-roll-order');
+    if (!panel || panel.dataset.ready) return;
+    panel.dataset.ready = '1';
+    try { panel.open = root.localStorage.getItem(ROLL_ORDER_OPEN_KEY) === '1'; } catch { panel.open = false; }
+    panel.addEventListener('toggle', () => {
+      try { root.localStorage.setItem(ROLL_ORDER_OPEN_KEY, panel.open ? '1' : '0'); } catch { /* storage unavailable */ }
+    });
+  }
 
   // The Secret tables section of Create NPC: one fieldset per file in the
   // secret-tables folder with a checkbox per table (the legend's box ticks
@@ -232,6 +265,7 @@
     const data = await json('/api/secret/tables');
     gateOrder = root.SecretGates.rollOrder(data.files || []);
     gateFileErrors = (data.files || []).filter(file => file.error).map(({ file, error }) => ({ file, error }));
+    initRollOrderPanel();
     const filesNode = get('secret-tables-files'); filesNode.replaceChildren();
     for (const file of data.files || []) {
       const box = document.createElement('fieldset'); box.className = 'secret-tables-file';

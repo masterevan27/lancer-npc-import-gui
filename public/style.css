@@ -460,6 +460,12 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .secret-tables-error { color: var(--danger-text); font-weight: normal; }
 .secret-disable-tables { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; }
 .secret-extra-trait td:nth-child(2) { color: var(--text-4); }
+.secret-roll-order { margin: 0.5rem 0; border: 1px solid var(--line); border-radius: var(--r-md); padding: 0.5rem 0.75rem; background: var(--surface); }
+.secret-roll-order summary { cursor: pointer; font-weight: 600; }
+.secret-roll-order-list { margin: 0.5rem 0 0; padding-left: 1.5rem; }
+.secret-roll-order-item { margin: 0.35rem 0 0.35rem calc(var(--gate-depth, 0) * 1.25rem); overflow-wrap: anywhere; }
+.secret-roll-order-item > div { color: var(--text-3); font-size: 0.85rem; }
+.secret-roll-order-status { color: var(--text-2); }
 .filter-row {
   display: flex;
   align-items: center;
