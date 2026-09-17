@@ -513,6 +513,9 @@
   document.addEventListener('DOMContentLoaded', async () => {
     get('secret-tables-toggle').addEventListener('click', () => setSecretTablesCollapsed(!get('secret-tables-content').hidden));
     get('secret-tables-collapse').addEventListener('click', () => setSecretTablesCollapsed(true, true));
+    // A phone starts with the section folded (the disable-tables list is inside it too). isPhone() is
+    // app.js's, a global by the time this event fires; absent (as in a bare test), nothing changes.
+    if (typeof root.isPhone === 'function' && root.isPhone()) setSecretTablesCollapsed(true);
     get('secret-preset-select').addEventListener('change', () => {
       const chosen = !!get('secret-preset-select').value;
       get('secret-preset-load').disabled = !chosen;
@@ -602,6 +605,7 @@
     document.addEventListener('keydown', event => {
       if (event.defaultPrevented) return;
       if (!get('set-trait-overlay').hidden) {
+        // Dead for a plain Escape: app.js's keydown handler runs first, closes the picker via __overlayClosers and calls preventDefault (only Ctrl/Alt/Meta+Esc get here).
         if (event.key === 'Escape') { event.preventDefault(); get('set-trait-cancel').click(); }
         return;
       }

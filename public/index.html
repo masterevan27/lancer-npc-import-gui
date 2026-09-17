@@ -43,7 +43,9 @@
        switchTab's button handling must never see it. -->
   <div class="topbar-actions">
     <span class="release-version">Version __APP_VERSION__</span>
-    <button type="button" class="settings-open" id="settings-open">&#9881; Settings</button>
+    <!-- The word is its own span so a phone can show the gear alone; the
+         aria-label keeps the button named either way. -->
+    <button type="button" class="settings-open" id="settings-open" aria-label="Settings">&#9881; <span class="settings-label">Settings</span></button>
     <button type="button" class="danger" id="leave-secret" hidden>Leave Secret</button>
   </div>
 </header>

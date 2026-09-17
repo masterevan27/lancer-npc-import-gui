@@ -118,6 +118,9 @@ body {
 #secret-detail-traits td { padding: var(--sp-2); vertical-align: top; overflow-wrap: anywhere; }
 #secret-detail-traits td:nth-child(-n+2) { width: 5rem; white-space: nowrap; }
 #secret-detail-traits td:nth-child(3) { width: 8rem; color: var(--text-3); }
+/* The Set... picker opens over the NPC sheet and the Secret sheet (both
+   .detail-overlay, z-index 10), but comes before #secret-detail-overlay in
+   the DOM - at an equal z-index it would paint underneath that sheet. */
 #set-trait-overlay { z-index: 15; }
 #secret-login-form .form-field { margin-bottom: var(--sp-4); }
 #secret-open { margin-bottom: var(--sp-4); }
@@ -205,7 +208,9 @@ button, a, label, select, input {
 .tabs button.active { background: var(--surface-2); border-color: var(--accent-border); color: var(--text); }
 .tabs-toggle,
 .current-tab { display: none; }
-.settings-version { margin: 0 0 var(--sp-2); color: var(--text-3); font-size: var(--fs-xs); }
+/* Phone-only: desktop already shows the version in the top bar. The phone
+   layer hides that one and shows this. */
+.settings-version { display: none; margin: 0 0 var(--sp-2); color: var(--text-3); font-size: var(--fs-xs); }
 
 /* Sits between .topbar and <main>, outside every .tab-panel, so a finished run
    is announced on whichever tab the user is standing on. Sticky under the
@@ -2766,6 +2771,17 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .topbar { gap: 0.6rem; padding: 0.5rem 0.75rem; position: sticky; }
   .topbar h1 { font-size: 0.95rem; }
   .release-version { display: none; }
+  .settings-version { display: block; }
+  /* The spec's gear alone, and a compact Leave Secret: at 360px the full
+     labels pushed the bar past the screen. The bar sits outside main, so
+     main's overflow clip cannot hide that. The actions may shrink, down to
+     their min-content (Leave Secret wraps onto two lines) and no further:
+     min-width: 0 here would let them spill past the right edge instead. The
+     current-tab label takes the rest of the squeeze and ellipsizes. */
+  .settings-label { display: none; }
+  .settings-open { padding: 0; min-width: 44px; }
+  #leave-secret { padding: 0 0.6rem; font-size: var(--fs-sm); }
+  .topbar-actions { flex-shrink: 1; gap: 0.5rem; }
   .tabs-toggle {
     display: inline-flex;
     align-items: center;
@@ -2815,7 +2831,16 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
     border-radius: 0;
     padding: 0.9rem;
     overflow-y: auto;
+    overscroll-behavior: contain;
   }
+  /* The one base width rule at id specificity (1,1,0), which a bare .detail
+     cannot beat. The class-level ones (.settings-dialog, .confirm-dialog,
+     .set-trait-dialog, .trait-image-sheet) tie with .detail and lose to
+     this later block. */
+  #trait-detail-overlay .detail { width: 100vw; max-width: 100vw; }
+  /* The sticky Save row's offsets match the sheet's padding, 0.9rem here,
+     not the desktop 24px it is based on. */
+  .settings-dialog .confirm-actions { bottom: -0.9rem; margin-bottom: -0.9rem; }
   .detail-close {
     position: sticky;
     top: 0;
@@ -2923,8 +2948,8 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 
   /* --- Trait Imports ---
      No new buttons: the row's checkbox is what the Space shortcut toggles
-     and the row itself is what Enter opens (app.js:6365). Both only need
-     to survive a thumb. */
+     and the row itself is what Enter opens (traitKeyAction and
+     runTraitAction in app.js). Both only need to survive a thumb. */
   .trait-row { flex-wrap: wrap; align-items: flex-start; row-gap: 0.3rem; padding: 0.6rem 0.5rem; }
   .trait-row input[type="checkbox"] { width: 24px; height: 24px; }
   .trait-row .trait-bullet { flex-basis: 100%; }
@@ -2937,7 +2962,6 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
      not the desktop 4px. */
   .bg-render .filter-row.mobile-action-bar { flex-direction: row; gap: 0.5rem; }
   .bg-prompt { white-space: pre-wrap; max-height: 40vh; overflow-y: auto; }
-  .bg-traits { grid-template-columns: 1fr; }
   #bg-dynamic-roll-bar,
   #bg-dynamic-copy { display: inline-flex; align-items: center; justify-content: center; }
   /* Id specificity beats .mobile-action-bar button's flex: 1 1 45%: three
@@ -2963,7 +2987,6 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .table-bullet-row { flex-wrap: wrap; align-items: flex-start; }
   .table-bullet-row .table-bullet-text { flex-basis: 100%; }
   .table-bullet-row input[type="checkbox"] { width: 22px; height: 22px; }
-  .weight-input { max-width: 5rem; }
   /* The flag checkbox strip (the vocabulary boxes, e.g. gun/mil) goes two
      columns instead of one long wrapped line. */
   .table-bullet-flags { display: grid; grid-template-columns: repeat(2, 1fr); margin-left: 0; }
@@ -2976,9 +2999,10 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .gate-bucket-roles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.35rem; }
   .table-add-form,
   .gate-add-form,
-  .presets-panel { display: flex; flex-direction: column; gap: 0.5rem; }
+  .presets-panel { display: flex; flex-direction: column; align-items: stretch; gap: 0.5rem; }
   .table-add-form input,
   .gate-add-form input { width: 100%; }
+  .gate-add-form input { max-width: none; }
 
   /* --- Secret mode sheet ---
      The spec keeps the Prev/Next nav "at the bottom of the sheet". It sits

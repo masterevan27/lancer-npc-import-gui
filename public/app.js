@@ -3303,6 +3303,12 @@ function cancelRerollConfirm() {
 const OVERLAY_SELECTOR = ".detail-overlay, .image-zoom";
 const overlayHistory = { pushed: 0, unwinding: 0 };
 
+// The app places the scroll itself: each tab comes back at its own offset
+// (switchTab) and the Tables headings screen at its own (showTableHeadings).
+// With "auto", every history.go() that closes an overlay would let the
+// browser put back whatever offset that entry was pushed at, over ours.
+if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+
 /** How many overlays are on screen right now. */
 function openOverlayCount() {
   let open = 0;
@@ -3383,6 +3389,7 @@ function handleOverlayBack() {
 window.addEventListener("popstate", handleOverlayBack);
 
 const overlayObserver = new MutationObserver(syncOverlayHistory);
+// Only overlays present at load are observed: one created later must be observed when it is created.
 for (const node of document.querySelectorAll(OVERLAY_SELECTOR)) {
   overlayObserver.observe(node, { attributes: true, attributeFilter: ["hidden"] });
 }
@@ -3930,6 +3937,8 @@ for (const btn of document.querySelectorAll("#tabs button")) {
 }
 
 function switchTab(tab) {
+  // Before the early return, so re-tapping the open tab also shuts the menu.
+  closeTabsMenu();
   if (tab === tabState.current) return;
   // #preset-preview sits inside the Tables panel rather than as a top-level
   // overlay, so hiding that panel alone would leave a pending preview
@@ -3949,7 +3958,6 @@ function switchTab(tab) {
   }
   const active = document.querySelector(`#tabs button[data-tab="${tab}"]`);
   if (active) elNav.currentTab.textContent = active.textContent.trim();
-  closeTabsMenu();
   for (const panel of document.querySelectorAll(".tab-panel")) {
     panel.hidden = panel.id !== `tab-${tab}`;
   }
@@ -7667,6 +7675,9 @@ function beginTablesKindLoad(kind) {
 
 elTables.kindSelect.addEventListener("change", () => {
   if (!elTables.preview.hidden) cancelPresetPreview();
+  // The bullets screen would otherwise stay up over the old kind's emptied
+  // table. Here, not in beginTablesKindLoad: a test lifts that one bare.
+  showTableHeadings();
   beginTablesKindLoad(elTables.kindSelect.value);
   const kind = tablesState.kind;
   loadTables().catch((err) => {
@@ -8190,8 +8201,10 @@ function renderBulletFlags(table, bullet) {
   // set here, at creation, rather than left to syncMobileFilters - this row
   // is rebuilt on every render, and that helper only runs at load and when
   // the breakpoint is crossed.
+  // .flag-toggle only: a Role row's strip also carries the "works for
+  // nobody" gate box (renderRoleGateControls), which is not a flag.
   const countSet = () =>
-    strip.querySelectorAll('input[type="checkbox"]:checked').length;
+    strip.querySelectorAll(".flag-toggle input:checked").length;
   const details = document.createElement("details");
   details.className = "bullet-flags-details mobile-filters";
   details.open = !isPhone();

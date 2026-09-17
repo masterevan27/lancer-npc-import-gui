@@ -81,6 +81,41 @@ test('the top bar carries a menu toggle and the current tab name', async (t) => 
     assert.match(html, /id="settings-version"/, 'the Settings dialog shows the release version');
 });
 
+test('the top bar fits a 360px phone in Secret mode', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const html = await fetchText(server, '/');
+    // Final review, A4: the spec wants the gear alone on a phone, so the word
+    // is its own element and the button keeps an accessible name without it.
+    assert.match(html, /id="settings-open"[^>]*aria-label="Settings"/, 'the button is still named when its label is hidden');
+    assert.match(html, /<span class="settings-label">Settings<\/span>/, 'the word can be hidden on its own');
+    const css = await fetchText(server, '/style.css');
+    const block = phoneBlock(css);
+    assert.match(block, /\.settings-label \{ display: none/, 'only the gear shows on a phone');
+    assert.match(block, /#leave-secret \{[^}]*font-size: var\(--fs-sm\)/, 'Leave Secret keeps its label but gets compact');
+    assert.match(block, /\.topbar-actions \{[^}]*flex-shrink: 1/, 'the actions may shrink rather than push the page sideways');
+    assert.doesNotMatch(block, /\.topbar-actions \{[^}]*min-width: 0/, 'below min-content the actions would spill past the edge rather than wrap');
+    // Final review, B2: the version line is phone-only - desktop keeps it in the top bar alone.
+    assert.match(css.slice(0, css.indexOf('/* === Phone layer (<=700px) === */')), /\.settings-version \{[^}]*display: none/, 'desktop does not show the version twice');
+    assert.match(block, /\.settings-version \{ display: block/, 'a phone shows it in Settings instead');
+    // Final review, B3: the sticky Save row matches the phone sheet's padding, not the desktop 24px.
+    assert.match(block, /\.settings-dialog \.confirm-actions \{[^}]*bottom: -0\.9rem/);
+    assert.match(block, /\.settings-dialog \.confirm-actions \{[^}]*margin-bottom: -0\.9rem/);
+});
+
+test('the app places scroll itself, so closing an overlay cannot move the page', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    // Final review, A1: every close runs history.go(), and with "auto" the
+    // browser would restore the offset that entry was pushed at over ours.
+    assert.match(js, /history\.scrollRestoration = "manual"/);
+    assert.ok(js.indexOf('history.scrollRestoration = "manual"') < js.indexOf('history.pushState'),
+        'set before anything can push an entry');
+    const block = phoneBlock(await fetchText(server, '/style.css'));
+    assert.match(block, /\.detail \{[^}]*overscroll-behavior: contain/, 'scrolling a sheet does not carry on into the page behind it');
+});
+
 test('the menu opens, closes on a tab choice, and never adds a second version placeholder', async (t) => {
     const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
     t.after(() => server.stop());
@@ -90,6 +125,11 @@ test('the menu opens, closes on a tab choice, and never adds a second version pl
     assert.equal(html.split('__APP_VERSION__').length - 1, 0, 'the served page has no unreplaced placeholder');
     assert.match(js, /classList\.toggle\("is-open"/, 'the toggle flips #tabs.is-open');
     assert.match(extractSource(js, 'switchTab'), /closeTabsMenu\(\)/, 'choosing a tab closes the menu');
+    // Final review, B1: re-tapping the tab already open closes the menu too.
+    const switching = extractSource(js, 'switchTab');
+    const close = switching.indexOf('closeTabsMenu()');
+    const same = switching.indexOf('if (tab === tabState.current) return;');
+    assert.ok(close !== -1 && same !== -1 && close < same, 'the menu closes before the same-tab early return');
     assert.match(extractSource(js, 'switchTab'), /elNav\.currentTab\.textContent/, 'choosing a tab updates the label');
     assert.match(extractSource(js, 'openSettings'), /elSettings\.version\.textContent/, 'Settings shows the version text');
 });
@@ -115,6 +155,8 @@ test('the phone layer makes every sheet full-screen', async (t) => {
     assert.match(block, /\.detail-images img \{[^}]*max-width: 100%/, 'no 32vw cap on a phone');
     assert.match(block, /\.detail--background \.detail-images img \{[^}]*max-width: 100%/, 'nor the 44vw one');
     assert.match(block, /\.trait-image-sheet \{[^}]*width: 100%/);
+    // Final review, A3: the base rule's id specificity beats a bare .detail.
+    assert.match(block, /#trait-detail-overlay \.detail \{[^}]*width: 100vw/, 'the Trait Imports sheet is full-screen too');
 });
 
 test('opening an overlay adds a history entry and back closes the top one', async (t) => {
@@ -146,6 +188,23 @@ test('secret mode registers its overlays with the shared closer list', async (t)
     assert.match(js, /window\.__overlayClosers/, 'it pushes onto the shared list');
     assert.match(js, /secret-detail-overlay/);
     assert.match(js, /secret-login-overlay/);
+    // Final review, A6: sliced from the push, because the keydown handler
+    // above it names both ids too.
+    const push = js.slice(js.indexOf('__overlayClosers ||= ['));
+    const trait = push.indexOf("'set-trait-overlay'");
+    const detail = push.indexOf("'secret-detail-overlay'");
+    assert.ok(trait !== -1 && detail !== -1 && trait < detail,
+        'the set-trait picker sits on top of the secret sheet, so back closes it first');
+});
+
+test('the Secret tables start collapsed on a phone', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/secret-mode.js');
+    // Final review, B10: through the existing collapse function, only on a
+    // phone. isPhone() is app.js's; the disable-tables list sits inside the
+    // same #secret-tables-content, so this collapses both.
+    assert.match(js, /if \(typeof root\.isPhone === 'function' && root\.isPhone\(\)\) setSecretTablesCollapsed\(true\);/);
 });
 
 test('the NPC sheet can be navigated and zoomed without a keyboard', async (t) => {
@@ -272,9 +331,27 @@ test('each tab comes back at its own scroll position', async (t) => {
     const reapply = extractSource(js, 'reapplyTabScroll');
     assert.match(reapply, /tabState\.current !== pending\.tab/, 'only while still on that tab');
     assert.match(reapply, /window\.scrollY !== pending\.landed/, 'and only if the user has not scrolled since');
-    assert.match(source, /refreshTraitCandidates\(\)[\s\S]*?\.finally\(\(\) => reapplyTabScroll\(pendingScroll\)\)/, 'Trait Imports rebuilds on every visit, so it re-applies');
-    assert.match(source, /loadBackgrounds\(\)[\s\S]*?\.finally\(\(\) => reapplyTabScroll\(pendingScroll\)\)/, 'as does Create Background');
-    assert.match(source, /ensureShipCreateForm\(\)[\s\S]*?\.finally\(\(\) => reapplyTabScroll\(pendingScroll\)\)/, 'Create Spaceship re-renders its rows on every visit, so it re-applies too');
+    // Final review, A5: each loader's chain is cut at its own statement end
+    // (the first `;` outside any bracket), so a lazy match cannot run on into
+    // the next loader's .finally.
+    const chain = (name) => {
+        // The call itself, chained - not a comment that mentions it.
+        const start = source.search(new RegExp(`${name}\\(\\)\\s*\\.`));
+        assert.notEqual(start, -1, `switchTab no longer calls ${name}()`);
+        let depth = 0;
+        for (let i = start; i < source.length; i += 1) {
+            if ('({['.includes(source[i])) depth += 1;
+            if (')}]'.includes(source[i])) depth -= 1;
+            if (source[i] === ';' && depth === 0) return source.slice(start, i + 1);
+        }
+        return source.slice(start);
+    };
+    const reapplies = /\.finally\(\(\) => reapplyTabScroll\(pendingScroll\)\);$/;
+    assert.match(chain('refreshTraitCandidates'), reapplies, 'Trait Imports rebuilds on every visit, so it re-applies');
+    assert.match(chain('loadBackgrounds'), reapplies, 'as does Create Background');
+    assert.match(chain('ensureShipCreateForm'), reapplies, 'Create Spaceship re-renders its rows on every visit, so it re-applies too');
+    assert.equal((source.match(/\.finally\(\(\) => reapplyTabScroll\(pendingScroll\)\)/g) || []).length, 5,
+        'ship form, traits, backgrounds, tables and presets each re-apply the offset');
 });
 
 test('Create NPC sticks its generate buttons to the bottom on a phone', async (t) => {
@@ -410,7 +487,9 @@ test('bullet flags collapse behind a summary that counts them', async (t) => {
     // Corrected from the brief: the bullet's text span is .table-bullet-text
     // (app.js's renderTableBullets), not .bullet-text.
     assert.match(block, /\.table-bullet-row \.table-bullet-text \{[^}]*flex-basis: 100%/, 'the enable checkbox and weight input share the first line; the text wraps below');
-    assert.match(block, /\.weight-input \{[^}]*max-width: 5rem/);
+    // Final review, B4: these two rules changed nothing, so they are gone.
+    assert.doesNotMatch(block, /\.weight-input \{/);
+    assert.doesNotMatch(block, /\.bg-traits \{/);
     // #gate-list carries the class "gate-list" too (index.html), so this
     // selector does reach every checkbox label in the gate panel.
     assert.match(block, /\.gate-list label \{[^}]*min-height: 44px/);
@@ -425,6 +504,15 @@ test('bullet flags collapse behind a summary that counts them', async (t) => {
     assert.match(block, /\.table-add-form[^{]*\{[^}]*flex-direction: column/);
     assert.match(block, /\.gate-add-form[^{]*\{[^}]*flex-direction: column/);
     assert.match(block, /\.presets-panel[^{]*\{[^}]*flex-direction: column/);
+    // Final review, B5: one full-width column, as the spec says.
+    assert.match(block, /\.presets-panel \{[^}]*align-items: stretch/);
+    assert.match(block, /\.gate-add-form input \{ max-width: none/);
+
+    // Final review, B11: a kind change drops back to the headings screen.
+    const kindStart = js.indexOf('elTables.kindSelect.addEventListener("change"');
+    assert.notEqual(kindStart, -1, 'the Tables kind-change handler moved');
+    const kindHandler = js.slice(kindStart, js.indexOf('\n});', kindStart));
+    assert.match(kindHandler, /showTableHeadings\(\)/, 'a new kind never leaves the bullets screen showing another kind\'s table');
 });
 
 test('a stale flag summary is kept current after a toggle, since setBulletFlag does not re-render the row', async (t) => {
@@ -438,6 +526,10 @@ test('a stale flag summary is kept current after a toggle, since setBulletFlag d
     const flags = extractSource(js, 'renderBulletFlags');
     assert.match(flags, /strip\.addEventListener\("change"/, 'the strip recounts its own checked boxes instead');
     assert.match(flags, /summary\.textContent = describeFlags\(countSet\(\)\)/);
+    // Final review, A2: a Role row's strip also holds the "works for nobody"
+    // gate box, which is not a flag.
+    assert.match(flags, /\.flag-toggle input:checked/, 'only the flag boxes are counted');
+    assert.doesNotMatch(flags, /input\[type="checkbox"\]:checked/);
 });
 
 test('the secret sheet keeps its navigation in reach', async (t) => {
