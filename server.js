@@ -2684,6 +2684,7 @@ const CREATE_LOG_LIMIT = 20000;
 
 const overrideTables = require('./lib/overrideTables');
 const secretTables = require('./lib/secretTables');
+const secretPrompts = require('./lib/secretPrompts');
 const gatesLib = require('./lib/gates');
 
 // Derived from generate-npc.py's REQUIRED_TABLES rather than restated, because
@@ -3036,7 +3037,7 @@ function startCreateJob(kindEntry, opts) {
  *
  * Returns `{ status, body }`, ready to hand straight to sendJson().
  */
-function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
+function handleCreateRequest(kindEntry, body, runner = startCreateJob, extras = {}) {
     let colorGuidanceId;
     try {
         artStyles.select(ART_STYLES_PATH, body.artStyle || 'default', runner !== startCreateJob);
@@ -3085,6 +3086,18 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
         }
         try { promptLayout = promptComposer.normaliseLayout(body.promptLayout); }
         catch (err) { return { status: 400, body: { error: err.message } }; }
+    }
+    // A secret prompt template is Secret-mode, NPC-only. Refused rather
+    // than dropped on the public path, for the reason the secret tables
+    // are: a request that named one and got a house-prompt NPC back would
+    // look like it worked.
+    if (body.secretPrompt !== null && body.secretPrompt !== undefined) {
+        if (runner === startCreateJob) {
+            return { status: 400, body: { error: 'secret prompts are available in Secret mode only' } };
+        }
+        if (kindEntry.id !== DEFAULT_KIND) {
+            return { status: 400, body: { error: `secret prompts are not a ${kindEntry.subject} field` } };
+        }
     }
     let extraTables = [], extraTableNames = [], extraValues = [], extraTargets = [], disabledTables = [];
     if (extraPicks.length || disablePicks.length) {
@@ -3175,6 +3188,7 @@ function handleCreateRequest(kindEntry, body, runner = startCreateJob) {
         // uses them, for --manifest and --out-root.
         manifestPath: config.npcManifestPath,
         outputRoot: config.spaceshipOutputRoot || null,
+        ...extras,
     });
     return { status: result.ok ? 202 : 409, body: result };
 }
@@ -3940,6 +3954,21 @@ function settingsResponse(req, fileConfig) {
     };
 }
 
+function listSecretPromptsNow() {
+    return secretPrompts.listSecretPrompts({
+        dir: DERIVED_PATHS.secretPromptsDir, script: KINDS.npc.script, tablesPath: KINDS.npc.tables,
+        tablesDir: DERIVED_PATHS.secretTablesDir, configFile: CONFIG_FILE, artStylesPath: ART_STYLES_PATH,
+        executable: config.pythonExecutable,
+    });
+}
+
+/** body.secretPrompt validated against a fresh listing, or null; throws with a 400-worthy message. */
+async function resolveSecretPrompt(body) {
+    if (body.secretPrompt === null || body.secretPrompt === undefined) return null;
+    if (!secretGallery.root) throw new Error('Set secretImagesDir before using secret prompts');
+    return secretPrompts.validateSelection(body.secretPrompt, await listSecretPromptsNow());
+}
+
 async function handleSecretApi(req, res, url, authenticated) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -4038,6 +4067,13 @@ async function handleSecretApi(req, res, url, authenticated) {
                 disableable: OVERRIDE_DATA_BY_KIND[DEFAULT_KIND].disableable,
             });
         }
+        if (route === '/prompts' && req.method === 'GET') {
+            if (!secretGallery.root) {
+                return sendJson(res, 200, { dir: DERIVED_PATHS.secretPromptsDir, exists: false, files: [],
+                    error: 'Set secretImagesDir before using secret prompts' });
+            }
+            return sendJson(res, 200, await listSecretPromptsNow());
+        }
         if (['/regenerate', '/reroll-trait'].includes(route) && req.method === 'POST') {
             const body = JSON.parse(await readBody(req, 8192));
             const item = secretGallery.find(body.id);
@@ -4045,7 +4081,8 @@ async function handleSecretApi(req, res, url, authenticated) {
             const kind = kindFor(KINDS, item.kind || 'npc');
             if (!kind?.supports.regen) return sendJson(res, 400, { error: 'Regeneration unavailable for this kind' });
             const trait = route === '/reroll-trait' ? body.trait : null;
-            if (route === '/reroll-trait' && !rerollableFor({ ...item, kind: kind.id }).includes(trait)) return sendJson(res, 400, { error: 'Unknown or unavailable trait' });
+            const allowed = [...rerollableFor({ ...item, kind: kind.id }), ...secretPrompts.secretSlots(item.secretPrompt)];
+            if (route === '/reroll-trait' && !allowed.includes(trait)) return sendJson(res, 400, { error: 'Unknown or unavailable trait' });
             return sendJson(res, 202, secretGallery.startRegen(kind, item, body, trait));
         }
         if ((route === '/image' || route === '/backgrounds/image') && req.method === 'GET') {
@@ -4062,11 +4099,14 @@ async function handleSecretApi(req, res, url, authenticated) {
         if (route === '/prompt-preview' && req.method === 'POST') {
             const body = JSON.parse(await readBody(req, 256 * 1024));
             if (body.kind && body.kind !== 'npc') return sendJson(res, 400, { error: 'Prompt composer is available for Secret NPCs only' });
+            let secretPrompt;
+            try { secretPrompt = await resolveSecretPrompt(body); }
+            catch (err) { return sendJson(res, 400, { error: err.message }); }
             let options;
             const result = handleCreateRequest(KINDS.npc, { ...body, count: 1, seed: body.seed ?? 0, dryRun: true }, (_kind, opts) => {
                 options = opts;
                 return { ok: true };
-            });
+            }, { secretPrompt });
             if (!options) return sendJson(res, result.status, result.body);
             return sendJson(res, 200, await secretGallery.previewPrompts(KINDS.npc, options));
         }
@@ -4074,7 +4114,12 @@ async function handleSecretApi(req, res, url, authenticated) {
             const body = JSON.parse(await readBody(req, 256 * 1024));
             const kind = resolveKind(url, body);
             if (!kind) return sendJson(res, 400, { error: 'Unknown kind' });
-            const result = handleCreateRequest(kind, body, secretGallery.startCreate);
+            let secretPrompt = null;
+            if (kind.id === DEFAULT_KIND) {
+                try { secretPrompt = await resolveSecretPrompt(body); }
+                catch (err) { return sendJson(res, 400, { error: err.message }); }
+            }
+            const result = handleCreateRequest(kind, body, secretGallery.startCreate, { secretPrompt });
             return sendJson(res, result.status, result.body);
         }
         if (route === '/backgrounds' && req.method === 'GET') {

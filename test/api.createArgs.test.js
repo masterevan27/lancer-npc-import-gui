@@ -77,3 +77,12 @@ test('the browser can select None and creation forwards it to the generator', as
     const defaultLog = await runCreate(server, { count: 1, dryRun: true, artStyle: 'default' });
     assert.match(defaultLog, /--art-style default(?:\s|$)/);
 });
+
+test('a public create refuses a secret prompt rather than dropping it', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: 5193, generatorSource: STUB });
+    t.after(() => server.stop());
+    const res = await fetch(`${server.baseUrl}/api/create-npc`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: 1, dryRun: true, secretPrompt: { file: 'a.md', name: 'random' } }) });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /Secret mode only/);
+});
