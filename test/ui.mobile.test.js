@@ -348,6 +348,9 @@ test('Create Background sticks its render buttons to the bottom', async (t) => {
     const dynamicJs = await fetchText(server, '/dynamic-backgrounds.js');
     assert.match(dynamicJs, /bg-dynamic-roll-bar/, 'the mirror is wired');
     assert.match(dynamicJs, /copyToClipboard\([^)]*textContent\)/, 'Copy reuses the existing helper');
+    // Fix round 2: the two option labels share a line in the phone bar, so
+    // their nowrap-by-default text needs to be able to wrap.
+    assert.match(block, /#bg-dynamic-actions > label \{[^}]*white-space: normal/, 'the two option labels share a line, so their text must wrap');
 });
 
 test('the Tables tab is two screens on a phone', async (t) => {

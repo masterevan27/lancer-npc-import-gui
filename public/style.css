@@ -2937,7 +2937,9 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   /* Id specificity beats .mobile-action-bar button's flex: 1 1 45%: three
      buttons share one row, the two checkbox labels share the next. */
   #bg-dynamic-actions > button { flex: 1 1 30%; }
-  #bg-dynamic-actions > label { flex: 1 1 45%; order: 1; }
+  /* .filter-row labels are nowrap for the desktop row. In the phone bar, two
+     of them share a line, so their text has to be able to wrap. */
+  #bg-dynamic-actions > label { flex: 1 1 45%; order: 1; white-space: normal; }
 
   /* --- Tables: two screens --- */
   .tables-layout { flex-direction: column; gap: 0.6rem; }
