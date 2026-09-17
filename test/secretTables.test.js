@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { listSecretTables, isSecretTablesFileName } = require('../lib/secretTables');
+const { listSecretTables, isSecretTablesFileName, validateSelection } = require('../lib/secretTables');
 const { disableableTablesFrom } = require('../lib/overrideTables');
 
 /*
@@ -109,4 +109,62 @@ test('disableableTablesFrom reads the generator tuple and degrades to nothing', 
     ].join('\n');
     assert.deepEqual(disableableTablesFrom(source), ['Height', 'Build', 'Stance']);
     assert.deepEqual(disableableTablesFrom('REQUIRED_TABLES = ["Stance"]'), []);
+});
+
+const GATED_MD = [
+    '## Styles', '- x2 Rugged dockworker #man', '- Sharp-suited broker #Man', '- x2 Elegant courtesan #woman #noble',
+    '', "## Men's Attributes (when: man)", '- heavy stubble #scarred', '- broad shoulders',
+    '', '## Jewellery (when: woman, noble)', '- a thin gold circlet',
+].join('\n');
+
+test('markdown tags and gates are parsed off values and headings', (t) => {
+    const dir = folder(t, { 'styles.md': GATED_MD });
+    assert.deepEqual(listSecretTables(dir).files[0].tables, [
+        { name: 'Styles', count: 3, values: ['Rugged dockworker', 'Sharp-suited broker', 'Elegant courtesan'],
+            tags: { 'Rugged dockworker': ['man'], 'Sharp-suited broker': ['man'], 'Elegant courtesan': ['woman', 'noble'] } },
+        { name: "Men's Attributes", count: 2, values: ['heavy stubble', 'broad shoulders'], when: ['man'],
+            tags: { 'heavy stubble': ['scarred'] } },
+        { name: 'Jewellery', count: 1, values: ['a thin gold circlet'], when: ['woman', 'noble'] },
+    ]);
+});
+
+test('json rows carry tags and object tables carry gates', (t) => {
+    const dir = folder(t, { 'set.json': JSON.stringify({
+        Styles: [{ value: 'Rugged dockworker', tags: ['Man'] }],
+        "Men's Attributes": { when: ['man'], rows: [{ value: 'heavy stubble' }] },
+    }) });
+    assert.deepEqual(listSecretTables(dir).files[0].tables, [
+        { name: 'Styles', count: 1, values: ['Rugged dockworker'], tags: { 'Rugged dockworker': ['man'] } },
+        { name: "Men's Attributes", count: 1, values: ['heavy stubble'], when: ['man'] },
+    ]);
+});
+
+test('gate errors are reported against the file that holds the gate', (t) => {
+    const dir = folder(t, {
+        'a.md': '## G (when: m)\n- b\n',
+        'b.md': '## S\n- a #m\n',
+        'c.md': '## T (when:)\n- a\n',
+        'd.md': '## U\n- a #x\n\n## H (when: x)\n- b\n\n## H\n- c\n',
+        'e.json': JSON.stringify({ T: [{ value: 'a', tags: ['no spaces'] }] }),
+        'f.md': '## Lonely (when: nobody)\n- x\n',
+    });
+    const errors = Object.fromEntries(listSecretTables(dir).files.map(file => [file.file, file.error]));
+    assert.equal(errors['a.md'], "gated table 'G' comes before 'S', the table that opens it (when: m)");
+    assert.equal(errors['b.md'], undefined);
+    assert.equal(errors['c.md'], "table 'T' has an empty (when:)");
+    assert.equal(errors['d.md'], "table 'H' is repeated with a different (when:)");
+    assert.match(errors['e.json'], /tags that are not a list of letters, digits, - and _/);
+    assert.equal(errors['f.md'], "gated table 'Lonely' has no table in the folder carrying its tags (when: nobody)");
+});
+
+test('validateSelection refuses impossible gate selections with the generator texts', (t) => {
+    const dir = folder(t, { 'styles.md': GATED_MD });
+    const listing = listSecretTables(dir);
+    const pick = (values, tables) => ({ extraTables: [{ file: 'styles.md', ...(tables ? { tables } : {}), values }] });
+    assert.throws(() => validateSelection(pick({ Styles: 'Elegant courtesan', "Men's Attributes": 'broad shoulders' }), listing, []),
+        { message: "extra table 'Men's Attributes' has a fixed value but 'Styles' is fixed to 'Elegant courtesan', which is not #man" });
+    assert.throws(() => validateSelection(pick({ "Men's Attributes": 'broad shoulders' }, ["Men's Attributes"]), listing, []),
+        { message: "extra table 'Men's Attributes' has a fixed value but nothing selected can open it (when: man)" });
+    const ok = validateSelection(pick({ "Men's Attributes": 'broad shoulders' }), listing, []);
+    assert.deepEqual(ok.extraValues, [{ table: "Men's Attributes", value: 'broad shoulders' }]);
 });

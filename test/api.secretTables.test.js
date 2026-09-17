@@ -38,6 +38,7 @@ async function setup(t) {
         one: [{ value: 'first', weight: 1 }], two: [{ value: 'second' }],
     }));
     fs.writeFileSync(path.join(tablesDir, 'b.md'), '## mood\n\n- x2 harsh light\n- soft light\n');
+    fs.writeFileSync(path.join(tablesDir, 'c.md'), '## style\n\n- rugged #man\n- elegant #woman\n\n## beard (when: man)\n\n- stubble\n');
     fs.writeFileSync(path.join(tablesDir, 'bad.json'), '{');
     const salt = '0123456789abcdef0123456789abcdef';
     const passwordHash = `scrypt$${salt}$${crypto.scryptSync('test-password', salt, 64).toString('hex')}`;
@@ -162,7 +163,7 @@ test('the listing needs a session and reports files, tables, counts, errors and 
     assert.equal(data.dir, tablesDir);
     assert.equal(data.exists, true);
     assert.deepEqual(data.disableable, ['Stance', 'Weapon', 'Backdrop', 'Callsigns', 'Role', 'Hair colour']);
-    assert.deepEqual(data.files.map((f) => f.file), ['a.json', 'b.md', 'bad.json']);
+    assert.deepEqual(data.files.map((f) => f.file), ['a.json', 'b.md', 'bad.json', 'c.md']);
     assert.deepEqual(data.files[0].tables, [{ name: 'one', count: 1, values: ['first'] }, { name: 'two', count: 1, values: ['second'] }]);
     assert.deepEqual(data.files[1].tables, [{ name: 'mood', count: 2, values: ['harsh light', 'soft light'] }]);
     assert.match(data.files[2].error, /not valid JSON/);
@@ -211,4 +212,16 @@ test('the public path, an unknown file, a bad file and unknown tables are refuse
         assert.equal(res.status, 400, JSON.stringify(body));
         assert.match((await res.json()).error, pattern, JSON.stringify(body));
     }
+});
+
+test('the listing carries gates and tags, and an impossible gate selection is refused', async (t) => {
+    const { call } = await setup(t);
+    const listing = await (await call('/api/secret/tables', undefined, true)).json();
+    const gated = listing.files.find(file => file.file === 'c.md');
+    assert.deepEqual(gated.tables[1], { name: 'beard', count: 1, values: ['stubble'], when: ['man'] });
+    assert.deepEqual(gated.tables[0].tags, { rugged: ['man'], elegant: ['woman'] });
+    const refused = await call('/api/secret/create', { kind: 'npc', count: 1,
+        extraTables: [{ file: 'c.md', values: { style: 'elegant', beard: 'stubble' } }] }, true);
+    assert.equal(refused.status, 400);
+    assert.match((await refused.json()).error, /'style' is fixed to 'elegant', which is not #man/);
 });
