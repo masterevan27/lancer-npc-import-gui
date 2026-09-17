@@ -2616,6 +2616,9 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
    above) is declared after .filter-row, so its gap: 0.5rem would otherwise
    beat .filter-row's gap: var(--sp-1) here. Keep the tighter desktop gap. */
 .bg-render .filter-row.mobile-action-bar { gap: var(--sp-1); }
+/* Phone-only controls in the Create Background form; see the phone layer. */
+#bg-dynamic-roll-bar,
+#bg-dynamic-copy { display: none; }
 #tab-backgrounds button {
   background: var(--surface-2);
   border: 1px solid var(--line-strong);
@@ -2923,9 +2926,18 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 
   /* --- Create Background --- */
   .bg-render .filter-row { display: flex; flex-direction: column; align-items: stretch; gap: 0.4rem; }
-  .bg-render .mobile-action-bar { flex-direction: row; }
+  /* Same selector (and specificity) as the base gap-restore rule above, so
+     this later declaration wins the tie on a phone: the shared 0.5rem gap,
+     not the desktop 4px. */
+  .bg-render .filter-row.mobile-action-bar { flex-direction: row; gap: 0.5rem; }
   .bg-prompt { white-space: pre-wrap; max-height: 40vh; overflow-y: auto; }
   .bg-traits { grid-template-columns: 1fr; }
+  #bg-dynamic-roll-bar,
+  #bg-dynamic-copy { display: inline-flex; align-items: center; justify-content: center; }
+  /* Id specificity beats .mobile-action-bar button's flex: 1 1 45%: three
+     buttons share one row, the two checkbox labels share the next. */
+  #bg-dynamic-actions > button { flex: 1 1 30%; }
+  #bg-dynamic-actions > label { flex: 1 1 45%; order: 1; }
 
   /* --- Tables: two screens --- */
   .tables-layout { flex-direction: column; gap: 0.6rem; }

@@ -329,9 +329,25 @@ test('Create Background sticks its render buttons to the bottom', async (t) => {
     const bg = html.slice(html.indexOf('id="tab-backgrounds"'), html.indexOf('id="tab-traits"'));
     assert.match(bg, /<div class="filter-row mobile-action-bar" id="bg-dynamic-actions"/);
     assert.match(bg.slice(bg.indexOf('id="bg-dynamic-actions"')), /id="bg-dynamic-render"/);
-    const block = phoneBlock(await fetchText(server, '/style.css'));
+    const css = await fetchText(server, '/style.css');
+    const block = phoneBlock(css);
     assert.match(block, /\.bg-render \.filter-row \{[^}]*flex-direction: column/);
     assert.match(block, /\.bg-prompt \{[^}]*white-space: pre-wrap/);
+    // Fix round 1, finding 2: the spec puts Roll in the action bar too.
+    assert.match(bg.slice(bg.indexOf('id="bg-dynamic-actions"')), /id="bg-dynamic-roll-bar"/, 'Roll is in the bar on a phone, as the spec asks');
+    // Fix round 1, finding 4: the prompt preview gets a Copy button.
+    assert.match(bg, /id="bg-dynamic-copy"/, 'the prompt preview has a Copy button');
+    // Fix round 1, finding 1: the phone gap is the shared 0.5rem, not the
+    // desktop-restoring base rule's 4px.
+    assert.match(block, /\.bg-render \.filter-row\.mobile-action-bar \{[^}]*gap: 0\.5rem/, 'the phone gap is the shared 0.5rem, not the desktop 4px');
+    // Fix round 1, finding 2: both phone-only controls are hidden on desktop.
+    assert.match(css, /#bg-dynamic-roll-bar,\s*#bg-dynamic-copy \{ display: none; \}/, 'both are phone-only');
+    // The real wiring lives in dynamic-backgrounds.js, a separate script tag
+    // from app.js (index.html loads both) - that is where these ids and the
+    // copy call actually appear.
+    const dynamicJs = await fetchText(server, '/dynamic-backgrounds.js');
+    assert.match(dynamicJs, /bg-dynamic-roll-bar/, 'the mirror is wired');
+    assert.match(dynamicJs, /copyToClipboard\([^)]*textContent\)/, 'Copy reuses the existing helper');
 });
 
 test('the Tables tab is two screens on a phone', async (t) => {

@@ -401,8 +401,16 @@
     </div>
     <p>Locks keep traits across rolls and additional scenes in a batch. The first scene uses the preview; later scenes reroll unlocked traits.</p>
     <div id="bg-dynamic-traits" class="bg-traits"></div>
-    <details open><summary>Prompt preview</summary><pre id="bg-dynamic-preview" class="bg-prompt">Choose Randomize unlocked to preview a scene.</pre></details>
+    <details open>
+      <summary>Prompt preview</summary>
+      <pre id="bg-dynamic-preview" class="bg-prompt">Choose Randomize unlocked to preview a scene.</pre>
+      <button type="button" id="bg-dynamic-copy">Copy</button>
+    </details>
     <div class="filter-row mobile-action-bar" id="bg-dynamic-actions">
+      <!-- Phone-only: the spec puts Roll in the action bar, next to the
+           preview it updates. The real Randomize button stays where desktop
+           has it; this one forwards to it. -->
+      <button type="button" id="bg-dynamic-roll-bar">Roll</button>
       <button type="button" id="bg-dynamic-preview-btn">Update preview</button>
       <label><input type="checkbox" id="bg-dynamic-animate" /> Animate generated scenes</label>
       <label><input type="checkbox" id="bg-dynamic-pingpong" /> Ping-pong loops</label>

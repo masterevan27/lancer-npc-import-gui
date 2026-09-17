@@ -246,6 +246,25 @@
   };
   get('bg-mode').addEventListener('change', () => { state.modeChosen = true; mode(); });
   el.roll.addEventListener('click', () => preview({ reroll: true, newSeed: true }));
+  // Phone-only mirror: the spec puts Roll in the sticky action bar next to
+  // Preview and Render, but the real Randomize button stays where desktop
+  // has it (style.css). One handler forwards the click, and the mirror's
+  // disabled state tracks the real button's. The MutationObserver is
+  // guarded because ui.dynamicBackgrounds.test.js runs this whole file in a
+  // bare vm context with no browser globals - an unguarded `new
+  // MutationObserver` would throw there before any test runs.
+  const rollBar = get('bg-dynamic-roll-bar');
+  rollBar.addEventListener('click', () => el.roll.click());
+  if (typeof MutationObserver === 'function') {
+    new MutationObserver(() => { rollBar.disabled = el.roll.disabled; })
+      .observe(el.roll, { attributes: true, attributeFilter: ['disabled'] });
+  }
+  // Phone-only: the prompt preview's Copy button, reusing app.js's existing
+  // copy helpers (app.js:3174, app.js:3203), which app.js's own top-level
+  // script leaves on the shared global scope for this file to call.
+  get('bg-dynamic-copy').addEventListener('click', async (e) => {
+    flashCopyResult(e.currentTarget, await copyToClipboard(el.preview.textContent));
+  });
   el['preview-btn'].addEventListener('click', () => preview());
   el.refresh.addEventListener('click', refreshPools);
   el.render.addEventListener('click', render);
