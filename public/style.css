@@ -2903,6 +2903,10 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   /* --- Galleries --- */
   .mobile-filters { display: block; }
   .mobile-filters > summary { display: list-item; }
+  /* The base rule makes ::details-content display: contents, which leaves a
+     closed panel's content-visibility: hidden nothing to act on - a
+     collapsed panel would still show its contents. Restore the box here. */
+  .mobile-filters::details-content { display: block; }
   /* Inside a toolbar the bar's parent is one row tall, and a sticky element
      never leaves its parent - it would scroll away with the toolbar. Fixed
      does not depend on the parent. It disappears with its tab (a hidden
