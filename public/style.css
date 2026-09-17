@@ -2874,4 +2874,19 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
      real target rather than the browser's 13px box. `.check` is the class
      the card renderer gives it (app.js:1022); there is no wrapping label. */
   .card .check { width: 24px; height: 24px; }
+
+  /* --- Create forms --- */
+  #override-rows .filter-row,
+  #ship-override-rows .filter-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+  }
+  #override-rows .filter-row button,
+  #ship-override-rows .filter-row button { width: 100%; }
+  .create-presets-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
+  .create-presets-row select,
+  .create-presets-row .create-preset-status { grid-column: 1 / -1; }
+  #secret-tables-content { max-height: 60vh; overflow-y: auto; }
 }

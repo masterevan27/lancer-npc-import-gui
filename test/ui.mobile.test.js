@@ -268,3 +268,14 @@ test('each tab comes back at its own scroll position', async (t) => {
     assert.ok(save !== -1 && save < assign, 'save before tabState.current moves to the new tab');
     assert.ok(unhide !== -1 && restore > unhide, 'restore only after the new panel is showing, or there is nothing to scroll');
 });
+
+test('Create NPC sticks its generate buttons to the bottom on a phone', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const html = await fetchText(server, '/');
+    const create = html.slice(html.indexOf('id="tab-create"'), html.indexOf('id="tab-shipcreate"'));
+    assert.match(create, /class="form-row create-actions mobile-action-bar"/);
+    const block = phoneBlock(await fetchText(server, '/style.css'));
+    assert.match(block, /#override-rows .filter-row,[\s\S]{0,200}flex-direction: column/, 'override rows stack');
+    assert.match(block, /\.create-presets-row \{[^}]*grid-template-columns: repeat\(2, 1fr\)/);
+});
