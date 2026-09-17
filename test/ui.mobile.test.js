@@ -298,3 +298,26 @@ test('Create Spaceship gets the same phone treatment as Create NPC', async (t) =
     const ship = html.slice(html.indexOf('id="tab-shipcreate"'), html.indexOf('id="tab-backgrounds"'));
     assert.match(ship, /class="form-row create-actions mobile-action-bar"/);
 });
+
+test('Trait Imports defaults to tiles on a phone but remembers a choice', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const js = await fetchText(server, '/app.js');
+    const read = extractSource(js, 'readTraitView');
+    assert.match(read, /localStorage\.getItem\(TRAIT_VIEW_STORAGE_KEY\)/, 'a stored choice still wins');
+    assert.match(read, /isPhone\(\)/, 'with nothing stored, a phone starts on tiles');
+});
+
+test('Trait Imports puts its filters and actions where a thumb can reach', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const html = await fetchText(server, '/');
+    const traits = html.slice(html.indexOf('id="tab-traits"'), html.indexOf('id="tab-tables"'));
+    assert.match(traits, /<details class="mobile-filters" id="trait-filters-panel"/);
+    assert.match(traits, /<div class="mobile-action-bar" id="trait-actions"/);
+    const block = phoneBlock(await fetchText(server, '/style.css'));
+    // The shortcuts' pointer equivalents already exist: the row checkbox
+    // selects and the row itself opens the sheet. They just need to be big.
+    assert.match(block, /\.trait-row input\[type="checkbox"\] \{[^}]*width: 24px/);
+    assert.match(block, /\.trait-row \{[^}]*flex-wrap: wrap/);
+});

@@ -6205,12 +6205,14 @@ const TRAIT_VIEW_STORAGE_KEY = "traitImports.view";
 
 function readTraitView() {
   try {
-    return localStorage.getItem(TRAIT_VIEW_STORAGE_KEY) === "pictures"
-      ? "pictures"
-      : "list";
+    const stored = localStorage.getItem(TRAIT_VIEW_STORAGE_KEY);
+    if (stored === "pictures" || stored === "list") return stored;
   } catch {
-    return "list";
+    /* a locked-down browser falls through to the default */
   }
+  // Tiles first on a phone: the list view's columns are unreadable at 360px,
+  // and an explicit choice above still overrules this on the next visit.
+  return isPhone() ? "pictures" : "list";
 }
 
 const traitState = {

@@ -489,6 +489,11 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .mobile-filters { display: contents; }
 .mobile-filters > summary { display: none; }
 .toolbar > .mobile-action-bar { display: contents; }
+/* The Trait Imports bar wraps Clear and Import together, but on desktop
+   Clear has always sat before the status text and Import after it. The
+   wrapper is display: contents there, so order restores that layout. */
+#trait-status,
+#trait-import-btn { order: 1; }
 /* If a browser doesn't recognise the pseudo-element, it drops only this rule. */
 .mobile-filters::details-content { display: contents; }
 
@@ -2900,4 +2905,13 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .create-presets-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
   .create-presets-row select { grid-column: 1 / -1; }
   #secret-tables-content { max-height: 60vh; overflow-y: auto; }
+
+  /* --- Trait Imports ---
+     No new buttons: the row's checkbox is what the Space shortcut toggles
+     and the row itself is what Enter opens (app.js:6365). Both only need
+     to survive a thumb. */
+  .trait-row { flex-wrap: wrap; align-items: flex-start; row-gap: 0.3rem; padding: 0.6rem 0.5rem; }
+  .trait-row input[type="checkbox"] { width: 24px; height: 24px; }
+  .trait-row .trait-bullet { flex-basis: 100%; }
+  .trait-tiles { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 }

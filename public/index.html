@@ -493,39 +493,44 @@
       <input type="checkbox" id="trait-select-all" />
       Select all not-yet-imported
     </label>
-    <button type="button" class="trait-btn" id="trait-clear-btn" disabled>Clear selection</button>
     <span class="status" id="trait-status"></span>
-    <button id="trait-import-btn" disabled>Import Selected (0)</button>
+    <div class="mobile-action-bar" id="trait-actions">
+      <button type="button" class="trait-btn" id="trait-clear-btn" disabled>Clear selection</button>
+      <button id="trait-import-btn" disabled>Import Selected (0)</button>
+    </div>
   </div>
   <p class="trait-shortcuts" id="trait-shortcuts"></p>
 
   <div class="filters" id="trait-filters">
     <input type="text" id="trait-search" placeholder="Search bullet text, source image…" />
-    <select id="trait-table-filter">
-      <option value="">All tables</option>
-    </select>
-    <!-- The counts in these labels are written by renderTraitStatusFilter at
-         render time; what is here is only what a page whose candidates have
-         not loaded yet would show. -->
-    <label class="filter-by">
-      Filter by
-      <select id="trait-status-filter">
-        <option value="" selected>Any status</option>
-        <option value="pending">Not yet imported</option>
-        <option value="imported">Imported</option>
-        <option value="with-image">Has reference image</option>
-        <option value="without-image">No reference image</option>
-        <option value="selected">Selected</option>
+    <details class="mobile-filters" id="trait-filters-panel" open>
+      <summary>Filters</summary>
+      <select id="trait-table-filter">
+        <option value="">All tables</option>
       </select>
-    </label>
-    <label class="sort-by">
-      Sort by
-      <select id="trait-sort-select">
-        <option value="when-desc">Newest first</option>
-        <option value="when-asc">Oldest first</option>
-        <option value="table" selected>Table</option>
-      </select>
-    </label>
+      <!-- The counts in these labels are written by renderTraitStatusFilter at
+           render time; what is here is only what a page whose candidates have
+           not loaded yet would show. -->
+      <label class="filter-by">
+        Filter by
+        <select id="trait-status-filter">
+          <option value="" selected>Any status</option>
+          <option value="pending">Not yet imported</option>
+          <option value="imported">Imported</option>
+          <option value="with-image">Has reference image</option>
+          <option value="without-image">No reference image</option>
+          <option value="selected">Selected</option>
+        </select>
+      </label>
+      <label class="sort-by">
+        Sort by
+        <select id="trait-sort-select">
+          <option value="when-desc">Newest first</option>
+          <option value="when-asc">Oldest first</option>
+          <option value="table" selected>Table</option>
+        </select>
+      </label>
+    </details>
   </div>
 
   <div class="trait-list" id="trait-list"></div>
