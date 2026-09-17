@@ -20,6 +20,7 @@ const CONFIG = {
     foundrySpaceshipSubdir: 'LancerSpaceships',
     foundryNpcActorType: 'npc',
     foundrySpaceshipActorType: 'deployable',
+    secretTablesDir: 'D:/mine/tables',
 };
 const KINDS = kindsLib.buildKinds(derivePaths(CONFIG), CONFIG);
 
@@ -163,6 +164,8 @@ test('a secret prompt adds its two flags and silences the composition flags', ()
     const joined = templated.join(' ');
     assert.ok(templated.includes('--secret-prompts') && templated[templated.indexOf('--secret-prompts') + 1] === 'D:/p/explicit-v1.md');
     assert.ok(templated[templated.indexOf('--secret-prompt') + 1] === 'Solo kneeling');
+    assert.equal(templated[templated.indexOf('--secret-prompt') + 2], '--secret-tables-dir');
+    assert.equal(templated[templated.indexOf('--secret-tables-dir') + 1], 'D:/mine/tables');
     assert.match(joined, /--extra-value Poses=kneeling/);
     for (const flag of ['--extra-tables', '--extra-table ', '--extra-target', '--disable-table', '--prompt-layout']) {
         assert.ok(!joined.includes(flag), flag);

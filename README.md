@@ -117,6 +117,9 @@ Everything else in `config.example.json` is optional and derived by default:
   **Create NPC** in Secret mode. Defaults to `secret-tables/` beside
   `npcTablesPath`, which the generator repo gitignores. See
   [Secret tables](docs/secret-mode.md#secret-tables-and-disabled-default-tables).
+- `secretPromptsDir` — your own `.md` secret prompt templates, offered on
+  **Create NPC** in Secret mode. Defaults to a `secret-prompts/` sibling of
+  `secretTablesDir`.
 - `traitOddsSamples` — rolls behind each sampled NPC/spaceship percentage on
   the **Tables** tab. Expression percentages are exact and do not use it.
   Default 20000, about six seconds; fewer settles sooner and wobbles more.

@@ -139,18 +139,115 @@ test('app.js renders locked override rows and keeps them out of requests and pre
     assert.match(settings, /!o\.locked/);
 });
 
-test('the composer preview request carries the secret prompt pick', () => {
+test('the composer preview request carries the secret prompt pick and drops the tables picks while one is live', () => {
     const js = read('secret-mode.js');
     const call = js.slice(js.indexOf('PromptComposer.create('), js.indexOf('request: body => post('));
-    assert.match(call, /secretPrompt: secretPromptPick\(\)/);
+    assert.match(call, /const pick = secretPromptPick\(\);/);
+    assert.match(call, /\.\.\.\(pick \? \{\} : secretTablePicks\(\)\)/);
+    assert.match(call, /secretPrompt: pick/);
 });
 
-test('applySecretSettings releases the pin lock before applying a preset', () => {
+// A minimal vm harness for applySecretPrompt/lockPins alone: just the two
+// function declarations, sliced out of secret-mode.js the way composerPage()
+// slices prompt-composer.js, with fake globals for what they touch.
+function promptPage() {
+    class Element {
+        constructor() { this.hidden = false; this.disabled = false; this.textContent = ''; this.value = ''; this._attrs = {}; }
+        getAttribute(name) { return this._attrs[name]; }
+        setAttribute(name, value) { this._attrs[name] = value; }
+    }
+    const elements = {
+        'secret-prompt-select': new Element(),
+        'secret-prompt-status': new Element(),
+        'secret-prompt-summary': new Element(),
+        'secret-tables-content': new Element(),
+        'secret-tables-toggle': new Element(),
+    };
+    const context = vm.createContext({
+        document: { getElementById: id => elements[id] || null },
+        get: id => elements[id] || null,
+        createState: { overrides: [] },
+        elCreate: { pronouns: { value: 'they', disabled: false } },
+        renderOverrideRows() {},
+        promptListing: null, promptPick: null, savedPronouns: null, composer: null,
+    });
+    const js = read('secret-mode.js');
+    const slice = js.slice(js.indexOf('function applySecretPrompt'), js.indexOf('async function loadSecretPresets'));
+    vm.runInContext(slice, context);
+    return { context, elements };
+}
+
+test('applySecretPrompt locks Pronouns and adds a locked row for an unpinned table, then None restores everything', () => {
+    const { context, elements } = promptPage();
+    context.promptListing = { files: [{ file: 'a.md', templates: [
+        { name: 'Solo', pins: { Pronouns: 'she/her', Build: 'x' }, secretSlots: [] },
+        { name: 'Duo', pins: { Pronouns: 'she/her', Build: 'y' }, secretSlots: [] },
+    ] }] };
+    elements['secret-prompt-select'].value = 'Solo\na.md';
+    context.applySecretPrompt();
+    assert.equal(context.elCreate.pronouns.value, 'she');
+    assert.equal(context.elCreate.pronouns.disabled, true);
+    assert.equal(context.createState.overrides.length, 1);
+    const build = context.createState.overrides[0];
+    assert.equal(build.table, 'Build');
+    assert.equal(build.value, 'x');
+    assert.equal(build.locked, true);
+    assert.equal(build.added, true);
+    assert.equal(elements['secret-tables-content'].hidden, true);
+
+    elements['secret-prompt-select'].value = '';
+    context.applySecretPrompt();
+    assert.equal(context.elCreate.pronouns.disabled, false);
+    assert.equal(context.elCreate.pronouns.value, 'they');
+    assert.equal(context.createState.overrides.length, 0);
+    assert.equal(elements['secret-tables-content'].hidden, false);
+});
+
+test('applySecretPrompt locks a pre-existing row while remembering its value, and None restores it', () => {
+    const { context, elements } = promptPage();
+    context.createState.overrides.push({ table: 'Build', value: 'user-build', custom: true, search: '' });
+    context.promptListing = { files: [{ file: 'a.md', templates: [
+        { name: 'Solo', pins: { Pronouns: 'she/her', Build: 'x' }, secretSlots: [] },
+    ] }] };
+    elements['secret-prompt-select'].value = 'Solo\na.md';
+    context.applySecretPrompt();
+    assert.equal(context.createState.overrides.length, 1);
+    const build = context.createState.overrides[0];
+    assert.equal(build.value, 'x');
+    assert.equal(build.locked, true);
+    assert.equal(build.pinned.value, 'user-build');
+
+    elements['secret-prompt-select'].value = '';
+    context.applySecretPrompt();
+    assert.equal(context.createState.overrides.length, 1);
+    assert.equal(context.createState.overrides[0].value, 'user-build');
+    assert.equal(context.createState.overrides[0].locked, undefined);
+    assert.equal(context.createState.overrides[0].pinned, undefined);
+});
+
+test('random locks only a table every template of the file agrees on', () => {
+    const { context, elements } = promptPage();
+    context.promptListing = { files: [{ file: 'a.md', templates: [
+        { name: 'Solo', pins: { Pronouns: 'she/her', Build: 'x' }, secretSlots: [] },
+        { name: 'Duo', pins: { Pronouns: 'she/her', Build: 'y' }, secretSlots: [] },
+    ] }] };
+    elements['secret-prompt-select'].value = 'random\na.md';
+    context.applySecretPrompt();
+    assert.equal(context.elCreate.pronouns.value, 'she');
+    assert.equal(context.elCreate.pronouns.disabled, true);
+    assert.equal(context.createState.overrides.length, 0);
+    assert.equal(elements['secret-tables-content'].hidden, true);
+});
+
+test('applySecretSettings releases the pin lock only after every pre-check, before applying a preset', () => {
     const js = read('secret-mode.js');
     const settings = js.slice(js.indexOf('function applySecretSettings'), js.indexOf('function setSecretTablesCollapsed'));
+    const reloadIndex = settings.indexOf('Reload Secret mode: secret prompt');
     const lockIndex = settings.indexOf('lockPins({})');
     const applyIndex = settings.indexOf('applyCreateSettings(');
+    assert.notEqual(reloadIndex, -1);
     assert.notEqual(lockIndex, -1);
     assert.notEqual(applyIndex, -1);
+    assert.ok(reloadIndex < lockIndex);
     assert.ok(lockIndex < applyIndex);
 });

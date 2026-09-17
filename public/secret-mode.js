@@ -375,7 +375,6 @@
     }
     refreshGates();
     section.hidden = false;
-    await loadSecretPrompts();
     await loadSecretPresets();
   }
 
@@ -466,10 +465,6 @@
   }
 
   function applySecretSettings(settings, presetName = '') {
-    // Release any current pin lock first, so a preset without a Pronouns pin
-    // does not inherit a stale savedPronouns and applyCreateSettings below
-    // sets Pronouns on a field that is not still disabled from the old pick.
-    lockPins({});
     // Check every saved choice before changing any form fields.
     const inputs = [...document.querySelectorAll('[data-secret-table]')];
     const restored = new Map();
@@ -494,6 +489,10 @@
     if (wanted && ![...select.options].some(option => option.value === wanted)) {
       throw new Error(`Reload Secret mode: secret prompt ${settings.secretPrompt.name} in ${settings.secretPrompt.file} has changed.`);
     }
+    // Release any current pin lock only after every pre-check has passed, so a
+    // preset that fails a check leaves the old pick's rows locked and its
+    // select value in place rather than half-released.
+    lockPins({});
     applyCreateSettings(settings, presetName);
     get('secret-npc-width').value = settings.width ?? '';
     get('secret-npc-height').value = settings.height ?? '';
@@ -875,8 +874,11 @@
       catch (err) {
         if (get('secret-tables-status')) get('secret-tables-status').textContent = `Could not load secret tables: ${err.message}`;
         if (get('secret-tables-section')) get('secret-tables-section').hidden = false;
-        if (get('secret-prompt-status')) get('secret-prompt-status').textContent = `Could not load secret prompts: ${err.message}`;
-        if (get('secret-prompt-section')) get('secret-prompt-section').hidden = false;
+      }
+      try { await loadSecretPrompts(); }
+      catch (err) {
+        get('secret-prompt-status').textContent = `Could not load secret prompts: ${err.message}`;
+        get('secret-prompt-section').hidden = false;
       }
     }
     try { await loadColorGuidance(); }
@@ -885,9 +887,10 @@
       composer = root.PromptComposer.create({ element: get('secret-prompt-composer'), active: () => transport.authenticated,
         getRequest: () => {
           const selected = selections();
-          return { ...createRequestBody(true), ...secretTablePicks(), artStyle: selected.npc,
+          const pick = secretPromptPick();
+          return { ...createRequestBody(true), ...(pick ? {} : secretTablePicks()), artStyle: selected.npc,
             workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc,
-            secretPrompt: secretPromptPick() };
+            secretPrompt: pick };
         },
         request: body => post('/api/secret/prompt-preview', body).then(preview =>
           root.SecretGates.markGatedSources(preview, gateOrder.filter(entry => entry.when).map(entry => entry.name))),

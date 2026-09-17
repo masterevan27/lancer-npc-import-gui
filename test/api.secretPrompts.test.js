@@ -53,7 +53,7 @@ async function setup(t) {
         throw new Error('job never finished');
     }
     const createLog = body => jobLog('/api/secret/create', { dryRun: true, count: 1, ...body });
-    return { call, createLog, jobLog, promptsDir, privateDir, server };
+    return { call, createLog, jobLog, promptsDir, privateDir, tablesDir, server };
 }
 
 test('the listing needs a session and reports templates and broken files', async (t) => {
@@ -72,11 +72,12 @@ test('the listing needs a session and reports templates and broken files', async
 });
 
 test('a selection becomes --secret-prompts and --secret-prompt, and the composition flags are dropped', async (t) => {
-    const { createLog, promptsDir } = await setup(t);
+    const { createLog, promptsDir, tablesDir } = await setup(t);
     const log = await createLog({ secretPrompt: { file: 'explicit-v1.md', name: 'Solo kneeling' },
         extraTables: [{ file: 'b.md', tables: ['mood'], values: { mood: 'soft light' }, targets: { mood: 'token' } }],
         disabledTables: ['Stance'], promptLayout: { portrait: ['shot'] } });
     assert.ok(log.includes(`--secret-prompts ${path.join(promptsDir, 'explicit-v1.md')} --secret-prompt Solo kneeling`), log);
+    assert.ok(log.includes(`--secret-tables-dir ${tablesDir}`), log);
     assert.match(log, /--extra-value mood=soft light/);
     for (const flag of ['--extra-tables', '--extra-table ', '--extra-target', '--disable-table', '--prompt-layout']) assert.ok(!log.includes(flag), flag);
     assert.match(log, /--secret --secret-config/);

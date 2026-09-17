@@ -98,6 +98,8 @@ See [validation results and remaining verification limits](secret-mode-validatio
 
 `secretTablesDir` (default `secret-tables/` beside `npcTablesPath`, gitignored by the generator repo) holds roll tables of your own. Each file is either the generator's markdown shape or its JSON twin, told apart by extension:
 
+`secretPromptsDir` (default a `secret-prompts/` sibling of `secretTablesDir`) holds your own `.md` secret prompt templates, offered as the **Secret prompt** select on **Create NPC** in Secret mode.
+
 ```markdown
 ## camera_framing
 
