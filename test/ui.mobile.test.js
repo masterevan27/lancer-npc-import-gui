@@ -333,3 +333,29 @@ test('Create Background sticks its render buttons to the bottom', async (t) => {
     assert.match(block, /\.bg-render \.filter-row \{[^}]*flex-direction: column/);
     assert.match(block, /\.bg-prompt \{[^}]*white-space: pre-wrap/);
 });
+
+test('the Tables tab is two screens on a phone', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const html = await fetchText(server, '/');
+    assert.match(html, /id="tables-back"/, 'the bullets screen can go back');
+    const js = await fetchText(server, '/app.js');
+    const show = extractSource(js, 'showTableBullets');
+    assert.match(show, /classList\.add\("is-bullets"\)/);
+    assert.match(show, /isPhone\(\)/, 'desktop keeps both panels side by side');
+    assert.match(extractSource(js, 'showTableHeadings'), /classList\.remove\("is-bullets"\)/);
+    const block = phoneBlock(await fetchText(server, '/style.css'));
+    assert.match(block, /\.tables-layout \{[^}]*flex-direction: column/);
+    assert.match(block, /\.tables-layout\.is-bullets \.table-heading-list \{[^}]*display: none/);
+    assert.match(block, /\.table-heading-list \{[^}]*flex: 1 1 auto/, 'the 260px basis goes');
+    assert.match(block, /\.table-heading-row \{[^}]*min-height: 44px/);
+
+    // Controller ruling: the bullets screen is wired into Task 4's overlay
+    // history, rather than a second back-handling mechanism.
+    assert.match(extractSource(js, 'openOverlayCount'), /is-bullets/, 'the bullets screen holds a history entry');
+    assert.match(extractSource(js, 'closeOverlayForBack'), /showTableHeadings\(\)/, 'back returns to the headings screen');
+    assert.match(js, /attributeFilter: \["class"\]/, 'the observer sees the screen change');
+    const leave = extractSource(js, 'switchTab');
+    assert.ok(leave.indexOf('showTableHeadings()') < leave.indexOf('tabState.scroll[tabState.current] = window.scrollY'),
+        'leaving Tables resets its screen before its scroll offset is saved');
+});

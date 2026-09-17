@@ -2053,6 +2053,7 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .table-heading-row.group { margin-left: 0.9rem; }
 .table-heading-row.group.variant { margin-left: 1.8rem; }
 .table-bullet-panel { flex: 1; min-width: 0; }
+.tables-back { display: none; }
 /* The two section titles on this tab were the browser's default h2 (24px
    with 20px margins). One size below the sheet title, no top margin, so the
    table's name lines up with the first group header beside it. */
@@ -2925,4 +2926,12 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .bg-render .mobile-action-bar { flex-direction: row; }
   .bg-prompt { white-space: pre-wrap; max-height: 40vh; overflow-y: auto; }
   .bg-traits { grid-template-columns: 1fr; }
+
+  /* --- Tables: two screens --- */
+  .tables-layout { flex-direction: column; gap: 0.6rem; }
+  .table-heading-list { flex: 1 1 auto; position: static; max-height: none; }
+  .table-heading-row { min-height: 44px; display: flex; align-items: center; }
+  .tables-back { display: inline-flex; align-items: center; min-height: 44px; margin-bottom: var(--sp-2); }
+  .tables-layout.is-bullets .table-heading-list { display: none; }
+  .tables-layout:not(.is-bullets) .table-bullet-panel { display: none; }
 }

@@ -3309,6 +3309,9 @@ function openOverlayCount() {
   for (const node of document.querySelectorAll(OVERLAY_SELECTOR)) {
     if (!node.hidden) open += 1;
   }
+  // The Tables tab's bullets screen is a phone "sheet" too: back returns to
+  // the headings screen, the same way it closes a sheet.
+  if (document.querySelector(".tables-layout").classList.contains("is-bullets")) open += 1;
   return open;
 }
 
@@ -3344,6 +3347,10 @@ function closeOverlayForBack() {
   if (!el.overlay.hidden) {
     el.overlay.hidden = true;
     el.imageZoom.hidden = true;
+    return;
+  }
+  if (document.querySelector(".tables-layout").classList.contains("is-bullets")) {
+    showTableHeadings();
   }
 }
 
@@ -3379,6 +3386,10 @@ const overlayObserver = new MutationObserver(syncOverlayHistory);
 for (const node of document.querySelectorAll(OVERLAY_SELECTOR)) {
   overlayObserver.observe(node, { attributes: true, attributeFilter: ["hidden"] });
 }
+overlayObserver.observe(document.querySelector(".tables-layout"), {
+  attributes: true,
+  attributeFilter: ["class"],
+});
 
 /**
  * The overlays stacked above the NPC detail sheet, innermost first.
@@ -3927,6 +3938,7 @@ function switchTab(tab) {
   // Dismiss it explicitly on the way out.
   if (tabState.current === "tables" && !elTables.preview.hidden)
     cancelPresetPreview();
+  if (tabState.current === "tables") showTableHeadings();
   // The page scrolls at the document, so every tab shares one offset. Keep
   // one per tab instead: coming back to a tab should find it where it was
   // left, not wherever the last tab happened to be scrolled.
@@ -7745,6 +7757,31 @@ function tableMatchesSearch(table, query = tableSearchQuery()) {
   );
 }
 
+/*
+ * Below the breakpoint the heading list and the bullet panel are two
+ * screens rather than two columns - 260px of headings beside a bullet list
+ * leaves neither usable at 360px. Above it, both classes are inert and the
+ * layout is the flex row it has always been.
+ */
+function showTableBullets() {
+  if (!isPhone()) return;
+  document.querySelector(".tables-layout").classList.add("is-bullets");
+  window.scrollTo(0, 0);
+}
+
+function showTableHeadings() {
+  document.querySelector(".tables-layout").classList.remove("is-bullets");
+}
+
+// Crossing to desktop while the bullets screen is showing: both panels are
+// visible side by side there, so drop the phone-only state (and the history
+// entry it owns).
+onPhoneChange((phone) => {
+  if (!phone) showTableHeadings();
+});
+
+document.getElementById("tables-back").addEventListener("click", showTableHeadings);
+
 function renderTableHeadingList() {
   elTables.headingList.innerHTML = "";
   const query = tableSearchQuery();
@@ -7784,6 +7821,7 @@ function renderTableHeadingList() {
         tablesState.selectedTable = table.name;
         renderTableHeadingList();
         renderTableBullets();
+        showTableBullets();
       });
       elTables.headingList.appendChild(row);
     }
@@ -7930,6 +7968,7 @@ function renderTableBullets() {
         tablesState.selectedTable = target;
         renderTableHeadingList();
         renderTableBullets();
+        showTableBullets();
       });
       row.appendChild(jump);
     }
