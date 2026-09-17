@@ -2942,7 +2942,7 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   #bg-dynamic-actions > label { flex: 1 1 45%; order: 1; white-space: normal; }
 
   /* --- Tables: two screens --- */
-  .tables-layout { flex-direction: column; gap: 0.6rem; }
+  .tables-layout { flex-direction: column; gap: 0.6rem; align-items: stretch; }
   .table-heading-list { flex: 1 1 auto; position: static; max-height: none; }
   .table-heading-row { min-height: 44px; display: flex; align-items: center; }
   .tables-back { display: inline-flex; align-items: center; min-height: 44px; margin-bottom: var(--sp-2); }

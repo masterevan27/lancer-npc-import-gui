@@ -7590,6 +7590,7 @@ const tablesState = {
   presetRequest: 0,
   oddsRequest: 0,
   oddsTimer: null,
+  headingsScroll: null, // phone only: where the heading list was scrolled to before showTableBullets() left it
 };
 
 const elTables = {
@@ -7765,12 +7766,19 @@ function tableMatchesSearch(table, query = tableSearchQuery()) {
  */
 function showTableBullets() {
   if (!isPhone()) return;
-  document.querySelector(".tables-layout").classList.add("is-bullets");
+  const layout = document.querySelector(".tables-layout");
+  // Remember where the heading list was, so back returns to that heading
+  // rather than wherever the bullet list had been scrolled to.
+  if (!layout.classList.contains("is-bullets")) tablesState.headingsScroll = window.scrollY;
+  layout.classList.add("is-bullets");
   window.scrollTo(0, 0);
 }
 
 function showTableHeadings() {
-  document.querySelector(".tables-layout").classList.remove("is-bullets");
+  const layout = document.querySelector(".tables-layout");
+  if (!layout.classList.contains("is-bullets")) return;
+  layout.classList.remove("is-bullets");
+  window.scrollTo(0, tablesState.headingsScroll ?? 0);
 }
 
 // Crossing to desktop while the bullets screen is showing: both panels are

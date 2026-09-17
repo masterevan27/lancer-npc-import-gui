@@ -368,6 +368,9 @@ test('the Tables tab is two screens on a phone', async (t) => {
     assert.match(block, /\.tables-layout\.is-bullets \.table-heading-list \{[^}]*display: none/);
     assert.match(block, /\.table-heading-list \{[^}]*flex: 1 1 auto/, 'the 260px basis goes');
     assert.match(block, /\.table-heading-row \{[^}]*min-height: 44px/);
+    // Fix round 1, finding 1: flex-start (the base rule) would shrink each
+    // screen to its content's width once the phone rule makes this a column.
+    assert.match(block, /\.tables-layout \{[^}]*align-items: stretch/, 'both screens are full width');
 
     // Controller ruling: the bullets screen is wired into Task 4's overlay
     // history, rather than a second back-handling mechanism.
@@ -375,6 +378,15 @@ test('the Tables tab is two screens on a phone', async (t) => {
     assert.match(extractSource(js, 'closeOverlayForBack'), /showTableHeadings\(\)/, 'back returns to the headings screen');
     assert.match(js, /attributeFilter: \["class"\]/, 'the observer sees the screen change');
     const leave = extractSource(js, 'switchTab');
-    assert.ok(leave.indexOf('showTableHeadings()') < leave.indexOf('tabState.scroll[tabState.current] = window.scrollY'),
+    const leaveIndex = leave.indexOf('showTableHeadings()');
+    const scrollSaveIndex = leave.indexOf('tabState.scroll[tabState.current] = window.scrollY');
+    assert.notEqual(leaveIndex, -1, 'switchTab must call showTableHeadings() when leaving Tables');
+    assert.notEqual(scrollSaveIndex, -1, 'switchTab must still save the outgoing tab\'s scroll offset');
+    assert.ok(leaveIndex < scrollSaveIndex,
         'leaving Tables resets its screen before its scroll offset is saved');
+
+    // Fix round 1, finding 3: the headings screen remembers its own scroll
+    // position, the same way each tab remembers its own (Task 15).
+    assert.match(extractSource(js, 'showTableBullets'), /headingsScroll = window\.scrollY/, 'the heading list remembers its place');
+    assert.match(extractSource(js, 'showTableHeadings'), /window\.scrollTo\(0, tablesState\.headingsScroll/, 'and back returns to it');
 });
