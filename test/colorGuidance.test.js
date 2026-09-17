@@ -9,7 +9,7 @@ test('catalog fallback, hidden entries and invalid entries are enforced', t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guidance-test-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const file = path.join(dir, 'guidance.json');
-    const builtins = [{ id: 'default', name: 'Default' }, { id: 'none', name: 'None (no colour guidance)' }];
+    const builtins = [{ id: 'default', name: 'Default', description: 'house palette: greys, olive drab and rust' }, { id: 'none', name: 'None (no colour guidance)' }];
     assert.deepEqual(guidance.list(file), builtins);
     fs.writeFileSync(file, '   '); assert.equal(guidance.load(file).length, 2);
     fs.writeFileSync(file, JSON.stringify({ guidance: [
@@ -29,6 +29,24 @@ test('catalog fallback, hidden entries and invalid entries are enforced', t => {
         fs.writeFileSync(file, JSON.stringify({ guidance: [entry] })); assert.throws(() => guidance.load(file));
     }
     fs.writeFileSync(file, JSON.stringify({ styles: [] })); assert.throws(() => guidance.load(file), /guidance array/);
+});
+
+test('descriptions are optional strings that reach the public list without the prompt', t => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guidance-desc-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const file = path.join(dir, 'guidance.json');
+    fs.writeFileSync(file, JSON.stringify({ guidance: [
+        { id: 'ochre', name: 'Ochre', prompt: 'Keep the palette to ochre and bone white.', description: ' ochre, bone white ' },
+        { id: 'plain', name: 'Plain', prompt: 'Keep the palette plain.' },
+        { id: 'blank', name: 'Blank', prompt: 'Keep the palette blank.', description: '' },
+    ] }));
+    assert.deepEqual(guidance.list(file).slice(2), [{ id: 'ochre', name: 'Ochre', description: 'ochre, bone white' }, { id: 'plain', name: 'Plain' }, { id: 'blank', name: 'Blank' }]);
+    assert.equal(guidance.select(file, 'ochre').description, 'ochre, bone white');
+    assert.equal(JSON.stringify(guidance.list(file)).includes('Keep the palette'), false);
+    for (const description of [5, null, ['x'], { text: 'x' }]) {
+        fs.writeFileSync(file, JSON.stringify({ guidance: [{ id: 'x', name: 'X', prompt: 'x', description }] }));
+        assert.throws(() => guidance.load(file), /description/);
+    }
 });
 
 test('saved metadata reads the manifest key and falls back to Default', () => {

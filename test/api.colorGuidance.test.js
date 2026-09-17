@@ -72,7 +72,7 @@ async function lastArgv(s) {
 test('the catalog route lists public guidance only', async (t) => {
     const { s } = await startServer(t);
     const { guidance } = await (await fetch(`${s.baseUrl}/api/color-guidance`)).json();
-    assert.deepEqual(guidance, [{ id: 'default', name: 'Default' }, { id: 'none', name: 'None (no colour guidance)' }, { id: 'ochre', name: 'Ochre' }]);
+    assert.deepEqual(guidance, [{ id: 'default', name: 'Default', description: 'house palette: greys, olive drab and rust' }, { id: 'none', name: 'None (no colour guidance)' }, { id: 'ochre', name: 'Ochre' }]);
 });
 
 test('create passes the built-in none guidance through to the generator', async (t) => {

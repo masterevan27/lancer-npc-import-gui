@@ -27,6 +27,9 @@ test('public selectors discard hidden and secret records and retain Default', ()
     assert.deepEqual(ui().visibleStyles(styles, false).map(s => s.id), ['default', 'ink']);
     assert.deepEqual(ui().visibleStyles(styles, true).map(s => s.id), ['default', 'ink', 'hidden', 'alias']);
     assert.deepEqual(ui().visibleStyles([], false).map(s => s.id), ['default']);
+    const described = { id: 'default', name: 'Default', description: 'house painterly illustration' };
+    assert.deepEqual(ui().visibleStyles([described, { id: 'ink', name: 'Ink' }], false), [described, { id: 'ink', name: 'Ink' }]);
+    assert.deepEqual(ui().visibleStyles([{ id: 'ink', name: 'Ink' }], false)[0], { id: 'default', name: 'Default' });
 });
 
 test('Secret creation and background requests route privately with selected styles', () => {
@@ -213,6 +216,28 @@ test('markdown categories label dropdown groups while exact choices keep their o
     await window.SecretMode.fetch('/api/create-npc', { method: 'POST', body: '{}' });
     assert.deepEqual(JSON.parse(requests.at(-1).options.body).extraTables,
         [{ file: 'poses.md', tables: ['Poses'], values: { Poses: 'kneeling upright' } }]);
+});
+
+test('catalog descriptions label the options in parentheses and as tooltips', async () => {
+    const { nodes } = await page(false, [], path => {
+        if (path === '/api/art-styles') return { styles: [
+            { id: 'default', name: 'Default', description: 'house painterly illustration' }, { id: 'ink', name: 'Ink', description: 'monochrome ink wash' }, { id: 'plain', name: 'Plain' },
+        ] };
+        if (path === '/api/color-guidance') return { guidance: [
+            { id: 'default', name: 'Default', description: 'house palette: greys, olive drab and rust' }, { id: 'ochre', name: 'Ochre', description: 'ochre, bone white' },
+        ] };
+    });
+    for (const id of ['create-art-style', 'create-ship-art-style', 'bg-art-style', 'regen-art-style']) {
+        const labels = nodes[id].children.map(option => [option.value, option.textContent, option.title]);
+        assert.deepEqual(labels, [['default', 'Default (house painterly illustration)', 'house painterly illustration'],
+            ['ink', 'Ink (monochrome ink wash)', 'monochrome ink wash'], ['plain', 'Plain', undefined]], id);
+        assert.equal(nodes[id].value, 'default');
+    }
+    for (const id of ['create-color-guidance', 'regen-color-guidance']) {
+        assert.deepEqual(nodes[id].children.map(option => option.textContent),
+            ['Default (house palette: greys, olive drab and rust)', 'Ochre (ochre, bone white)', 'Random (a random catalog palette)'], id);
+        assert.equal(nodes[id].children.at(-1).title, 'a random catalog palette');
+    }
 });
 
 test('colour guidance selectors expose Random', async () => {

@@ -8,7 +8,7 @@ test('catalog fallback, privacy aliases and invalid entries are enforced', t => 
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'styles-test-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const file = path.join(dir, 'styles.json');
-    assert.deepEqual(styles.list(file), [{ id: 'default', name: 'Default' }, { id: 'none', name: 'None (no art style)' }]);
+    assert.deepEqual(styles.list(file), [{ id: 'default', name: 'Default', description: 'house painterly illustration' }, { id: 'none', name: 'None (no art style)' }]);
     fs.writeFileSync(file, '   '); assert.equal(styles.load(file).length, 2);
     fs.writeFileSync(file, JSON.stringify({ styles: [{ id: 'hidden', name: 'Hidden', prompt: 'secret prompt', secret: true }] }));
     assert.equal(styles.list(file).length, 2);
@@ -17,6 +17,24 @@ test('catalog fallback, privacy aliases and invalid entries are enforced', t => 
     assert.throws(() => styles.select(file, 'unknown', true), /unavailable/);
     for (const entry of [ { id: 'default', name: 'Override', prompt: 'override' }, { id: 'none', name: 'Override', prompt: 'override' }, { id: 'x', name: 'X', prompt: null }, { id: 'x', name: 'X', prompt: 'x', hidden: 'false' } ]) {
         fs.writeFileSync(file, JSON.stringify({ styles: [entry] })); assert.throws(() => styles.load(file));
+    }
+});
+
+test('descriptions are optional strings that reach the public list without the prompt', t => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'styles-desc-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const file = path.join(dir, 'styles.json');
+    fs.writeFileSync(file, JSON.stringify({ styles: [
+        { id: 'ink', name: 'Ink', prompt: 'INK_PROMPT_SENTINEL', description: '  monochrome ink wash  ' },
+        { id: 'plain', name: 'Plain', prompt: 'plain' },
+        { id: 'blank', name: 'Blank', prompt: 'blank', description: '   ' },
+    ] }));
+    assert.deepEqual(styles.list(file).slice(2), [{ id: 'ink', name: 'Ink', description: 'monochrome ink wash' }, { id: 'plain', name: 'Plain' }, { id: 'blank', name: 'Blank' }]);
+    assert.equal(styles.select(file, 'ink').description, 'monochrome ink wash');
+    assert.equal(JSON.stringify(styles.list(file)).includes('INK_PROMPT_SENTINEL'), false);
+    for (const description of [5, null, ['x'], { text: 'x' }]) {
+        fs.writeFileSync(file, JSON.stringify({ styles: [{ id: 'x', name: 'X', prompt: 'x', description }] }));
+        assert.throws(() => styles.load(file), /description/);
     }
 });
 

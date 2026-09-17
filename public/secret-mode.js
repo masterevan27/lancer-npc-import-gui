@@ -4,9 +4,20 @@
   'use strict';
   const DEFAULT = { id: 'default', name: 'Default' };
 
+  // The catalog's own Default entry carries its description, so it leads the
+  // list when the server sent one; the bare fallback only covers its absence.
   function visibleStyles(styles, authenticated) {
-    return [DEFAULT, ...(Array.isArray(styles) ? styles : []).filter(style =>
-      style && style.id !== 'default' && (authenticated || (!style.hidden && !style.secret)))];
+    const entries = (Array.isArray(styles) ? styles : []).filter(Boolean);
+    return [entries.find(style => style.id === 'default') || DEFAULT, ...entries.filter(style =>
+      style.id !== 'default' && (authenticated || (!style.hidden && !style.secret)))];
+  }
+
+  // A catalog entry's option reads "Name (description)", the description
+  // doubling as the tooltip, so "Default" says what it actually does.
+  function catalogOption(entry) {
+    const option = new Option(entry.description ? `${entry.name} (${entry.description})` : entry.name, entry.id);
+    if (entry.description) option.title = entry.description;
+    return option;
   }
 
   function routeRequest(path, options = {}, authenticated = false, selections = {}) {
@@ -204,7 +215,7 @@
     const styles = visibleStyles(data.styles, transport.authenticated);
     for (const select of document.querySelectorAll('[data-art-style]')) {
       const selected = select.dataset.styleId || select.value;
-      select.replaceChildren(...styles.map(style => new Option(style.name, style.id)));
+      select.replaceChildren(...styles.map(catalogOption));
       select.value = styles.some(style => style.id === selected) ? selected : 'default';
       select.disabled = false;
     }
@@ -542,10 +553,10 @@
   // saved selection restored where the catalog still offers it.
   async function loadColorGuidance() {
     const data = await json('/api/color-guidance');
-    const entries = [...visibleStyles(data.guidance, transport.authenticated), { id: 'random', name: 'Random' }];
+    const entries = [...visibleStyles(data.guidance, transport.authenticated), { id: 'random', name: 'Random', description: 'a random catalog palette' }];
     for (const select of document.querySelectorAll('[data-color-guidance]')) {
       const selected = select.dataset.guidanceId || select.value;
-      select.replaceChildren(...entries.map(entry => new Option(entry.name, entry.id)));
+      select.replaceChildren(...entries.map(catalogOption));
       select.value = entries.some(entry => entry.id === selected) ? selected : 'default';
       select.disabled = false;
     }

@@ -751,13 +751,17 @@ rendering style and the `Art style:` suffix; custom styles with blank or
 whitespace-only prompts behave the same way. Both built-in choices remain
 available when the file is missing or empty, including in regeneration selectors.
 Selected styles appear on image cards and details. Update the generator together
-with the GUI to use `none`.
+with the GUI to use `none`. A catalog entry may carry a short `description`; the
+selectors show it in parentheses after the name and as the option's tooltip, and
+the built-in choice reads **Default (house painterly illustration)**.
 
 NPC creation and the Regenerate panel also include a **Color guidance** selector,
 fed by the generator's `color-guidance.json` (override with `colorGuidancePath`).
 Each entry replaces the house "Keep the palette restrained - greys, olive drab and
-rust" sentence in the NPC prompts; **Default** keeps it. Choose **None (no colour
-guidance)** to leave the palette sentence out of the prompt entirely; a rolled glow
+rust" sentence in the NPC prompts; **Default** keeps it and is listed as **Default
+(house palette: greys, olive drab and rust)**. Entries with a `description` show it
+the same way, and **Random (a random catalog palette)** picks one of them. Choose
+**None (no colour guidance)** to leave the palette sentence out of the prompt entirely; a rolled glow
 keeps its own line. Both built-in choices remain available when the file is missing
 or empty. The detail sheet shows the guidance an NPC was rendered with, and
 Regenerate preselects it. Update the generator together with the GUI to use `none`.
