@@ -36,7 +36,7 @@
         full.splice(destination < 0 ? full.length : destination, 0, item);
         return full;
     }
-    function create({ element, getRequest, request, active }) {
+    function create({ element, getRequest, request, active, locked = () => false }) {
         let layout = {}, data = { portrait: [], token: [] }, target = 'portrait';
         let timer, revision = 0, signature = '', dragging = null, ready = false;
         const query = selector => element.querySelector(selector);
@@ -47,7 +47,7 @@
         function visible() { return ordered(data[target], layout[target]); }
         function updateProse() {
             const parts = visible();
-            prose.textContent = join(parts, !!layout[target]?.length);
+            prose.textContent = join(parts, !!layout[target]?.length && !locked());
         }
         function changed() { updateProse(); }
         function movePart(id, before) {
@@ -64,6 +64,7 @@
             return node;
         }
         function render() {
+            const fixed = locked();
             list.replaceChildren();
             const parts = visible();
             for (const [index, part] of parts.entries()) {
@@ -76,22 +77,27 @@
                 for (const letter of source) hue = (hue * 31 + letter.charCodeAt(0)) % 360;
                 card.style.setProperty('--pill-hue', hue);
                 const header = document.createElement('div'); header.className = 'prompt-pill-header';
-                const handle = button('⠿', `Move ${source}; use left and right arrow keys`, () => {});
-                handle.dataset.handle = part.id; handle.draggable = true;
-                handle.addEventListener('dragstart', event => {
-                    dragging = part.id; event.dataTransfer.effectAllowed = 'move';
-                    event.dataTransfer.setData('text/plain', part.id); card.classList.add('dragging');
-                });
-                handle.addEventListener('dragend', () => { dragging = null; card.classList.remove('dragging'); });
-                handle.addEventListener('keydown', event => {
-                    if (event.key === 'ArrowLeft' && index > 0) { event.preventDefault(); movePart(part.id, parts[index - 1].id); }
-                    if (event.key === 'ArrowRight' && index < parts.length - 1) { event.preventDefault(); movePart(part.id, parts[index + 2]?.id); }
-                });
                 const caption = document.createElement('span'); caption.textContent = source;
-                const previous = button('←', `Move ${source} earlier`, () => movePart(part.id, parts[index - 1]?.id));
-                const next = button('→', `Move ${source} later`, () => movePart(part.id, parts[index + 2]?.id));
-                previous.disabled = index === 0; next.disabled = index === parts.length - 1;
-                header.append(handle, caption, previous, next); card.append(header);
+                if (fixed) {
+                    header.append(caption);
+                } else {
+                    const handle = button('⠿', `Move ${source}; use left and right arrow keys`, () => {});
+                    handle.dataset.handle = part.id; handle.draggable = true;
+                    handle.addEventListener('dragstart', event => {
+                        dragging = part.id; event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', part.id); card.classList.add('dragging');
+                    });
+                    handle.addEventListener('dragend', () => { dragging = null; card.classList.remove('dragging'); });
+                    handle.addEventListener('keydown', event => {
+                        if (event.key === 'ArrowLeft' && index > 0) { event.preventDefault(); movePart(part.id, parts[index - 1].id); }
+                        if (event.key === 'ArrowRight' && index < parts.length - 1) { event.preventDefault(); movePart(part.id, parts[index + 2]?.id); }
+                    });
+                    const previous = button('←', `Move ${source} earlier`, () => movePart(part.id, parts[index - 1]?.id));
+                    const next = button('→', `Move ${source} later`, () => movePart(part.id, parts[index + 2]?.id));
+                    previous.disabled = index === 0; next.disabled = index === parts.length - 1;
+                    header.append(handle, caption, previous, next);
+                }
+                card.append(header);
                 if (part.custom) {
                     const input = document.createElement('textarea'); input.value = part.text;
                     input.maxLength = 4000; input.rows = 2; input.placeholder = 'Write your prompt text…';
@@ -106,16 +112,18 @@
                     const text = document.createElement('span'); text.className = 'prompt-pill-value';
                     text.textContent = display(part); card.append(text);
                 }
-                card.addEventListener('dragover', event => { if (dragging) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; } });
-                card.addEventListener('drop', event => {
-                    if (!dragging) return;
-                    event.preventDefault(); event.stopPropagation(); movePart(dragging, part.id); dragging = null;
-                });
+                if (!fixed) {
+                    card.addEventListener('dragover', event => { if (dragging) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; } });
+                    card.addEventListener('drop', event => {
+                        if (!dragging) return;
+                        event.preventDefault(); event.stopPropagation(); movePart(dragging, part.id); dragging = null;
+                    });
+                }
                 list.append(card);
             }
             query('[data-composer-reset]').textContent = `Reset ${label().toLowerCase()}`;
-            query('[data-composer-add]').disabled = !ready;
-            query('[data-composer-reset]').disabled = !ready;
+            query('[data-composer-add]').disabled = !ready || fixed;
+            query('[data-composer-reset]').disabled = !ready || fixed;
             updateProse();
         }
         async function refresh(epoch) {
@@ -129,7 +137,9 @@
                 const result = await request(body);
                 if (epoch !== revision || !active()) return;
                 data = result; signature = nextSignature; ready = true; render();
-                status.textContent = 'Preview updated. Random values resolve when you generate; conditional snippets may change with the roll.';
+                status.textContent = locked()
+                    ? 'Secret prompt selected: the template fixes the order. Random values resolve when you generate.'
+                    : 'Preview updated. Random values resolve when you generate; conditional snippets may change with the roll.';
             } catch (error) {
                 if (epoch !== revision || !active()) return;
                 ready = false; list.replaceChildren(); prose.textContent = '';
@@ -164,7 +174,7 @@
         if (overrides) new MutationObserver(schedule).observe(overrides, { childList: true, subtree: true });
         schedule();
         return {
-            getLayout: () => JSON.parse(JSON.stringify(layout)),
+            getLayout: () => locked() ? {} : JSON.parse(JSON.stringify(layout)),
             setLayout(value) { layout = JSON.parse(JSON.stringify(value || {})); render(); signature = ''; schedule(); },
             refresh: schedule,
             clear() {
