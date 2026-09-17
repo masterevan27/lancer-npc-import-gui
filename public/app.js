@@ -3945,6 +3945,7 @@ function switchTab(tab) {
   // with the panel already showing; a tab whose content is still loading may
   // be shorter than it was, and the browser then stops at its bottom.
   window.scrollTo(0, tabState.scroll[tab] ?? 0);
+  const pendingScroll = { tab, target: tabState.scroll[tab] ?? 0, landed: window.scrollY };
   if (tab === "create" && !createState.tablesLoaded) loadOverrideTables();
   // ensureShipCreateForm() calls ensureVocab('spaceship') itself first - the
   // one part of this the detail sheet also needs - before loading the form's
@@ -3965,23 +3966,44 @@ function switchTab(tab) {
       /* the list stays empty */
     });
   if (tab === "traits")
-    refreshTraitCandidates().catch((err) => {
-      elTraits.status.textContent = `Failed to load: ${err.message}`;
-    });
+    refreshTraitCandidates()
+      .catch((err) => {
+        elTraits.status.textContent = `Failed to load: ${err.message}`;
+      })
+      .finally(() => reapplyTabScroll(pendingScroll));
   if (tab === "backgrounds") {
-    loadBackgrounds().catch((err) => {
-      elBackgrounds.renderStatus.textContent = `Failed to load: ${err.message}`;
-    });
+    loadBackgrounds()
+      .catch((err) => {
+        elBackgrounds.renderStatus.textContent = `Failed to load: ${err.message}`;
+      })
+      .finally(() => reapplyTabScroll(pendingScroll));
   }
   if (tab === "tables") {
-    loadTables().catch((err) => {
-      elTables.empty.hidden = false;
-      elTables.empty.textContent = `Failed to load: ${err.message}`;
-    });
-    loadPresets().catch(() => {
-      /* the preset list just stays empty on failure */
-    });
+    loadTables()
+      .catch((err) => {
+        elTables.empty.hidden = false;
+        elTables.empty.textContent = `Failed to load: ${err.message}`;
+      })
+      .finally(() => reapplyTabScroll(pendingScroll));
+    loadPresets()
+      .catch(() => {
+        /* the preset list just stays empty on failure */
+      })
+      .finally(() => reapplyTabScroll(pendingScroll));
   }
+}
+
+/*
+ * Some tabs rebuild their content on every visit, after switchTab has
+ * already restored the scroll offset - the page was still short then, so the
+ * browser stopped early. Once the rebuild settles, finish the job, but only
+ * if the user is still on that tab and has not scrolled since.
+ */
+function reapplyTabScroll(pending) {
+  if (tabState.current !== pending.tab) return;
+  if (window.scrollY !== pending.landed) return;
+  if (pending.landed === pending.target) return;
+  window.scrollTo(0, pending.target);
 }
 
 /* ==================================================================== */

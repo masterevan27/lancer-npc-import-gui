@@ -267,6 +267,11 @@ test('each tab comes back at its own scroll position', async (t) => {
     const unhide = source.indexOf('panel.hidden = panel.id !== `tab-${tab}`');
     assert.ok(save !== -1 && save < assign, 'save before tabState.current moves to the new tab');
     assert.ok(unhide !== -1 && restore > unhide, 'restore only after the new panel is showing, or there is nothing to scroll');
+    const reapply = extractSource(js, 'reapplyTabScroll');
+    assert.match(reapply, /tabState\.current !== pending\.tab/, 'only while still on that tab');
+    assert.match(reapply, /window\.scrollY !== pending\.landed/, 'and only if the user has not scrolled since');
+    assert.match(source, /refreshTraitCandidates\(\)[\s\S]*?\.finally\(\(\) => reapplyTabScroll\(pendingScroll\)\)/, 'Trait Imports rebuilds on every visit, so it re-applies');
+    assert.match(source, /loadBackgrounds\(\)[\s\S]*?\.finally\(\(\) => reapplyTabScroll\(pendingScroll\)\)/, 'as does Create Background');
 });
 
 test('Create NPC sticks its generate buttons to the bottom on a phone', async (t) => {
