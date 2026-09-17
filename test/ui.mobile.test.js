@@ -439,3 +439,14 @@ test('a stale flag summary is kept current after a toggle, since setBulletFlag d
     assert.match(flags, /strip\.addEventListener\("change"/, 'the strip recounts its own checked boxes instead');
     assert.match(flags, /summary\.textContent = describeFlags\(countSet\(\)\)/);
 });
+
+test('the secret sheet keeps its navigation in reach', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const block = phoneBlock(await fetchText(server, '/style.css'));
+    assert.match(block, /#secret-detail-overlay \.detail > nav\.regen-row \{[^}]*position: fixed/, 'the nav stays at the bottom of a full-screen sheet');
+    assert.match(block, /#secret-detail-overlay \.detail > nav\.regen-row \{[^}]*bottom: 0/);
+    assert.doesNotMatch(block, /\.regen-row:first-of-type/, ':first-of-type would also catch the regenerate panel\'s first row');
+    assert.match(block, /#secret-detail-overlay \.detail \{[^}]*padding-bottom/, 'the sheet leaves room for the nav');
+    assert.match(block, /\.secret-trait-table td \{[^}]*word-break/);
+});

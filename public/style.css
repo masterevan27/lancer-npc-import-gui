@@ -2979,4 +2979,28 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .presets-panel { display: flex; flex-direction: column; gap: 0.5rem; }
   .table-add-form input,
   .gate-add-form input { width: 100%; }
+
+  /* --- Secret mode sheet ---
+     The spec keeps the Prev/Next nav "at the bottom of the sheet". It sits
+     near the top of a sheet that is several screens tall, and a sticky
+     bottom:0 cannot pull an element down from above - it would scroll away.
+     The sheet is full-screen on a phone, so fixed-to-the-viewport is the
+     bottom of the sheet; the sheet pays for it in padding. Targeted as the
+     nav, not :first-of-type, which would also catch the regenerate panel's
+     first div.regen-row. */
+  #secret-detail-overlay .detail > nav.regen-row {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+  }
+  #secret-detail-overlay .detail { padding-bottom: 4.5rem; }
+  #secret-detail-overlay .detail > nav.regen-row button { flex: 1; min-height: 44px; }
+  .secret-trait-table td { word-break: break-word; }
+  #secret-regen-panel .regen-row { flex-direction: column; align-items: stretch; }
 }
