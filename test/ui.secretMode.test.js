@@ -89,7 +89,7 @@ async function page(authenticated, privateItems, respond = () => undefined) {
     const fs = require('node:fs'), vm = require('node:vm');
     const html = fs.readFileSync(require.resolve('../public/index.html'), 'utf8');
     class Element {
-        constructor() { this.children = []; this.value = ''; this.hidden = false; this.disabled = false; this.textContent = ''; this.listeners = {}; this.dataset = {}; this.classList = { add() {}, remove() {}, toggle() {} }; }
+        constructor() { this.children = []; this.value = ''; this.hidden = false; this.disabled = false; this.textContent = ''; this.listeners = {}; this.dataset = {}; this.classList = { add() {}, remove() {}, toggle() {} }; this.style = { setProperty() {} }; }
         addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
         removeEventListener(name, callback) { this.listeners[name] = (this.listeners[name] || []).filter(fn => fn !== callback); }
         click() { return this.dispatch('click'); }
@@ -162,6 +162,7 @@ async function page(authenticated, privateItems, respond = () => undefined) {
     vm.runInContext(app.slice(app.indexOf('function createFormSettings('), app.indexOf('function setPresetStatus(')), context);
     vm.runInContext(app.slice(app.indexOf('function groupChoices('), app.indexOf('function traitControlCells('))
         + app.slice(app.indexOf('function openSetTrait('), app.indexOf('function markSeen(')), context);
+    vm.runInContext(fs.readFileSync(require.resolve('../public/secret-gates'), 'utf8'), context);
     vm.runInContext(fs.readFileSync(require.resolve('../public/secret-mode'), 'utf8'), context);
     await document.dispatch('DOMContentLoaded');
     await new Promise(resolve => setImmediate(resolve));

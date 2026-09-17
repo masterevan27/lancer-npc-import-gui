@@ -57,3 +57,33 @@ test('secret-mode.js fills the section from the private listing and empties it o
     assert.match(js, /item\.extraTraits/);
     assert.match(js, /item\.disabledTables/);
 });
+
+test('the page loads the gate rules before secret-mode.js and has a gate error line', () => {
+    const html = read('index.html');
+    const gatesScript = html.indexOf('<script src="/secret-gates.js"></script>');
+    assert.notEqual(gatesScript, -1);
+    assert.ok(gatesScript < html.indexOf('<script src="/secret-mode.js"></script>'));
+    const content = html.slice(html.indexOf('id="secret-tables-content"'), html.indexOf('id="secret-disable-tables"'));
+    assert.match(content, /id="secret-tables-gate-error"[^>]*hidden/);
+});
+
+test('secret-mode.js greys closed gated tables and leaves them out of the request', () => {
+    const js = read('secret-mode.js');
+    const picks = js.slice(js.indexOf('function secretTablePicks'), js.indexOf('const transport'));
+    assert.match(picks, /box\.gateClosed/);
+    const refresh = js.slice(js.indexOf('function refreshGates'), js.indexOf('function renderRollOrder'));
+    assert.match(refresh, /SecretGates\.resolveGates\(gateOrder, picks, \{ dropClosed: true \}\)/);
+    assert.match(refresh, /secret-table-closed/);
+    assert.match(refresh, /secret-tables-gate-error/);
+    const load = js.slice(js.indexOf('async function loadSecretTables'), js.indexOf('async function loadSecretPresets'));
+    assert.match(load, /SecretGates\.rollOrder\(/);
+    assert.match(load, /secret-table-gated/);
+    assert.match(load, /refreshGates\(\)/);
+    assert.match(js, /SecretGates\.markGatedSources\(/);
+});
+
+test('style.css indents gated rows and dims closed ones', () => {
+    const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.css'), 'utf8');
+    assert.match(css, /\.secret-table-gated\s*\{[^}]*--gate-depth/);
+    assert.match(css, /\.secret-table-closed\s*\{[^}]*opacity/);
+});

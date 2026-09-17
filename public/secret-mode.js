@@ -91,7 +91,7 @@
     if (!section || section.hidden) return null;
     const files = new Map();
     for (const box of document.querySelectorAll('[data-secret-table]')) {
-      if (!box.checked) continue;
+      if (!box.checked || box.gateClosed) continue;
       if (!files.has(box.dataset.secretFile)) files.set(box.dataset.secretFile, { tables: [], values: {} });
       const pick = files.get(box.dataset.secretFile);
       pick.tables.push(box.dataset.secretTable);
@@ -162,6 +162,7 @@
     }
     for (const node of document.querySelectorAll('[data-workflow]')) node.replaceChildren(new Option(DEFAULT.name, DEFAULT.id));
     for (const id of ['secret-tables-files', 'secret-disable-tables']) get(id)?.replaceChildren();
+    gateOrder = []; gateFileErrors = [];
     if (get('secret-tables-section')) get('secret-tables-section').hidden = true;
     get('secret-preset-select')?.replaceChildren();
     if (get('secret-presets-section')) get('secret-presets-section').hidden = true;
@@ -193,6 +194,33 @@
     get('art-style-error').hidden = true;
   }
 
+  // Gate state for the Secret tables section (public/secret-gates.js):
+  // the roll order of every listed table, recomputed into greyed rows,
+  // notes and the roll order panel whenever a box or dropdown changes.
+  let gateOrder = [];
+  let gateFileErrors = [];
+  function refreshGates() {
+    const inputs = [...document.querySelectorAll('[data-secret-table]')];
+    const picks = new Map(inputs.filter(box => box.checked).map(box => [box.dataset.gateKey, box.valueSelect.value]));
+    const result = root.SecretGates.resolveGates(gateOrder, picks, { dropClosed: true });
+    for (const box of inputs) {
+      const entry = gateOrder.find(item => item.key === box.dataset.gateKey);
+      const status = result.status.get(box.dataset.gateKey);
+      box.gateClosed = status?.state === 'closed';
+      box.gateRow.classList.toggle('secret-table-closed', box.gateClosed);
+      box.gateRow.style.setProperty('--gate-depth', String(entry?.depth || 0));
+      const text = box.checked && status && (entry?.when || status.limited) ? status.text : '';
+      box.gateNote.textContent = text;
+      box.gateNote.hidden = !text;
+      box.syncControls();
+    }
+    const error = get('secret-tables-gate-error');
+    if (error) { error.textContent = result.error || ''; error.hidden = !result.error; }
+    renderRollOrder(result);
+  }
+
+  function renderRollOrder() { /* Task 7 */ }
+
   // The Secret tables section of Create NPC: one fieldset per file in the
   // secret-tables folder with a checkbox per table (the legend's box ticks
   // the whole file), and one row of checkboxes for the default tables the
@@ -202,6 +230,8 @@
     if (!section) return;
     if (!transport.authenticated) { section.hidden = true; return; }
     const data = await json('/api/secret/tables');
+    gateOrder = root.SecretGates.rollOrder(data.files || []);
+    gateFileErrors = (data.files || []).filter(file => file.error).map(({ file, error }) => ({ file, error }));
     const filesNode = get('secret-tables-files'); filesNode.replaceChildren();
     for (const file of data.files || []) {
       const box = document.createElement('fieldset'); box.className = 'secret-tables-file';
@@ -217,6 +247,7 @@
       for (const table of file.tables || []) {
         const input = document.createElement('input'); input.type = 'checkbox';
         input.dataset.secretTable = table.name; input.dataset.secretFile = file.file;
+        input.dataset.gateKey = root.SecretGates.entryKey(file.file, table.name);
         const count = document.createElement('span'); count.className = 'hint'; count.textContent = `(${table.count})`;
         const row = document.createElement('div'); row.className = 'secret-tables-table';
         const header = document.createElement('div'); header.className = 'secret-table-header';
@@ -234,8 +265,17 @@
         const valueField = document.createElement('div'); valueField.className = 'secret-table-value';
         const preview = document.createElement('p'); preview.className = 'secret-table-value-preview';
         valueField.append(select, preview);
-        label.append(input, ` ${table.name} `, count); header.append(label);
-        row.append(header, valueField); box.append(row); inputs.push(input);
+        label.append(input, ` ${table.name} `, count);
+        if (table.when) {
+          row.classList.add('secret-table-gated');
+          const when = document.createElement('span'); when.className = 'hint secret-table-when';
+          when.textContent = ` when: ${table.when.map(tag => `#${tag}`).join(', ')}`;
+          label.append(when);
+        }
+        header.append(label);
+        const gateNote = document.createElement('p'); gateNote.className = 'hint secret-table-gate-note'; gateNote.hidden = true;
+        input.gateNote = gateNote; input.gateRow = row;
+        row.append(header, valueField, gateNote); box.append(row); inputs.push(input);
         const targets = document.createElement('span'); targets.className = 'secret-table-targets';
         targets.setAttribute('role', 'group');
         targets.setAttribute('aria-label', `${table.name} image targets (${file.file})`);
@@ -253,25 +293,27 @@
         }
         header.append(targets);
         input.syncControls = () => {
-          select.disabled = !input.checked;
+          select.disabled = !input.checked || Boolean(input.gateClosed);
           preview.textContent = select.value;
           preview.hidden = !input.checked || !select.value;
           select.title = select.value || 'Random (weighted)';
           const { portrait, token } = input.targetInputs;
-          portrait.disabled = !input.checked || !token.checked;
-          token.disabled = !input.checked || !portrait.checked;
+          portrait.disabled = !input.checked || !token.checked || Boolean(input.gateClosed);
+          token.disabled = !input.checked || !portrait.checked || Boolean(input.gateClosed);
         };
         input.syncControls();
-        select.addEventListener('change', () => input.syncControls());
+        select.addEventListener('change', () => { input.syncControls(); refreshGates(); });
         input.addEventListener('change', () => {
           input.syncControls();
           all.checked = inputs.every(other => other.checked);
           all.indeterminate = !all.checked && inputs.some(other => other.checked);
+          refreshGates();
         });
       }
       all.addEventListener('change', () => {
         for (const input of inputs) { input.checked = all.checked; input.syncControls(); }
         all.indeterminate = false;
+        refreshGates();
       });
       all.secretInputs = inputs;
       filesNode.append(box);
@@ -283,6 +325,7 @@
       const input = document.createElement('input'); input.type = 'checkbox'; input.dataset.disableTable = name;
       const label = document.createElement('label'); label.append(input, ` ${name}`); disable.append(label);
     }
+    refreshGates();
     section.hidden = false;
     await loadSecretPresets();
   }
@@ -332,6 +375,7 @@
       input.targetInputs.token.checked = target !== 'portrait';
       input.syncControls();
     }
+    refreshGates();
     for (const all of document.querySelectorAll('[data-secret-file]')) {
       if (!all.secretInputs) continue;
       all.checked = all.secretInputs.every(input => input.checked);
@@ -676,7 +720,8 @@
           return { ...createRequestBody(true), ...secretTablePicks(), artStyle: selected.npc,
             workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc };
         },
-        request: body => post('/api/secret/prompt-preview', body) });
+        request: body => post('/api/secret/prompt-preview', body).then(preview =>
+          root.SecretGates.markGatedSources(preview, gateOrder.filter(entry => entry.when).map(entry => entry.name))) });
       openGallery();
     }
     const verifySession = async () => {

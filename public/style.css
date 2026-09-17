@@ -448,6 +448,10 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .secret-table-value { min-width: 0; width: 100%; max-width: 100%; }
 .secret-table-value select { width: 100%; min-width: 0; max-width: 100%; background: var(--surface); border: 1px solid var(--line-strong); color: var(--text); border-radius: var(--r-md); padding: 0.35rem 0.5rem; font: inherit; }
 .secret-table-value select:disabled { opacity: 0.5; }
+.secret-tables-file .secret-tables-table.secret-table-gated { --gate-indent: calc(var(--gate-depth, 1) * 1.25rem); margin-left: var(--gate-indent); width: calc(100% - var(--gate-indent)); }
+.secret-table-closed { opacity: 0.55; }
+.secret-table-when { margin-left: 0.25rem; }
+.secret-table-gate-note { margin: 0; }
 .secret-table-value-preview { margin: 0.35rem 0 0; color: var(--text-4); font-size: var(--fs-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .secret-table-targets { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
 .secret-table-targets label { flex: none; white-space: nowrap; }

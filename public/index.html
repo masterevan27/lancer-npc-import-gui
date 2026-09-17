@@ -197,6 +197,7 @@
         <p class="hint">Enable your own tables and choose a fixed value or Random for a weighted roll. Tick Portrait, Token, or both to choose which image prompts use each table.</p>
         <div id="secret-tables-files"></div>
         <p class="hint" id="secret-tables-status"></p>
+        <p class="settings-error" id="secret-tables-gate-error" role="alert" hidden></p>
         <h3>Disable default tables <span class="hint">(tick any table to omit its contribution to the image prompt; traits are still rolled)</span></h3>
         <p class="hint">Names, callsigns and Theme already add no direct prompt text. Their values remain in the NPC's metadata. Backdrop uses neutral portrait framing when disabled.</p>
         <div class="secret-disable-tables" id="secret-disable-tables"></div>
@@ -1074,6 +1075,7 @@
 </div>
 
 <script src="/prompt-composer.js"></script>
+<script src="/secret-gates.js"></script>
 <script src="/secret-mode.js"></script>
 <script src="/app.js"></script>
 <script src="/dynamic-backgrounds.js"></script>
