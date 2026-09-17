@@ -91,8 +91,11 @@
   <div id="secret-gallery" hidden>
     <div class="toolbar">
       <input id="secret-search" type="search" placeholder="Search secret images…" aria-label="Search secret images" />
-      <label>Type <select id="secret-kind"><option value="">All images</option><option value="npc">NPCs</option><option value="spaceship">Spaceships</option><option value="background">Backgrounds</option></select></label>
-      <label>Sort <select id="secret-sort"><option value="newest">Newest first</option><option value="name">Name (A–Z)</option></select></label>
+      <details class="mobile-filters" id="secret-filters" open>
+        <summary>Filters</summary>
+        <label>Type <select id="secret-kind"><option value="">All images</option><option value="npc">NPCs</option><option value="spaceship">Spaceships</option><option value="background">Backgrounds</option></select></label>
+        <label>Sort <select id="secret-sort"><option value="newest">Newest first</option><option value="name">Name (A–Z)</option></select></label>
+      </details>
       <button type="button" id="secret-refresh">Refresh</button>
       <span id="secret-gallery-status" role="status"></span>
     </div>
@@ -118,14 +121,21 @@
         <option value="role-category">Role category</option>
       </select>
     </label>
-    <button id="import-btn" disabled>Import Selected (0)</button>
-    <button id="delete-btn" class="danger" disabled>Delete Selected (0)</button>
+    <div class="mobile-action-bar" id="import-actions">
+      <button id="import-btn" disabled>Import Selected (0)</button>
+      <button id="delete-btn" class="danger" disabled>Delete Selected (0)</button>
+    </div>
   </div>
 
   <div class="filters" id="filters">
     <input type="text" id="filter-search" placeholder="Search name, callsign, traits…" />
-    <div class="filter-rows" id="filter-rows"></div>
-    <button id="add-filter" type="button">+ Add filter</button>
+    <!-- Collapsed on a phone by syncMobileFilters; always open above 700px,
+         where this reads exactly as the flat row it replaced. -->
+    <details class="mobile-filters" id="import-filters" open>
+      <summary>Filters</summary>
+      <div class="filter-rows" id="filter-rows"></div>
+      <button id="add-filter" type="button">+ Add filter</button>
+    </details>
   </div>
 
   <div class="grid" id="grid"></div>

@@ -483,6 +483,14 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 .mobile-filters > summary { cursor: pointer; padding: 0.35rem 0; color: var(--text-3); font-size: var(--fs-sm); }
 .mobile-filters[open] > summary { margin-bottom: var(--sp-2); }
 .mobile-action-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+/* Above the breakpoint the phone wrappers are invisible to layout: their
+   children stay separate flex items in .filters and .toolbar, exactly as
+   before the wrappers existed. The phone layer switches them back on. */
+.mobile-filters { display: contents; }
+.mobile-filters > summary { display: none; }
+.toolbar > .mobile-action-bar { display: contents; }
+/* If a browser doesn't recognise the pseudo-element, it drops only this rule. */
+.mobile-filters::details-content { display: contents; }
 
 /* The three "add a row" buttons share one rule: the two override-row ones on
    the Create tabs shipped with no rule at all and painted as the browser's
@@ -2846,4 +2854,24 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   }
   .mobile-action-bar button { flex: 1 1 45%; }
   .tab-panel { padding-bottom: 4.5rem; }
+
+  /* --- Galleries --- */
+  .mobile-filters { display: block; }
+  .mobile-filters > summary { display: list-item; }
+  .toolbar > .mobile-action-bar { display: flex; }
+  /* Secret mode hides #import-btn and #delete-btn (style.css:139-140) but
+     leaves their wrapper in the DOM. Without this, an empty #import-actions
+     would still be a sticky, bordered strip: the CSS above makes it visible
+     to layout again, and .secret-mode alone does not hide the public
+     gallery - only opening the secret gallery does (secret-mode.js). */
+  .secret-mode #import-actions { display: none; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.6rem; }
+  .categories { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.3rem; }
+  .categories button { flex: 0 0 auto; }
+  .toolbar { flex-wrap: wrap; gap: 0.5rem; }
+  .toolbar .status { flex-basis: 100%; }
+  /* The card's checkbox is the one control on a 150px tile, so it gets a
+     real target rather than the browser's 13px box. `.check` is the class
+     the card renderer gives it (app.js:1022); there is no wrapping label. */
+  .card .check { width: 24px; height: 24px; }
 }

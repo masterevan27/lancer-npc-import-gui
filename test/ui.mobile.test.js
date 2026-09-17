@@ -228,3 +228,25 @@ test('the shared filter panel and action bar exist', async (t) => {
     assert.match(sync, /\.open = /);
     assert.match(js, /onPhoneChange\(syncMobileFilters\)/, 'and it follows the breakpoint');
 });
+
+test('the import toolbar splits into a filter panel and an action bar', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const html = await fetchText(server, '/');
+    const gallery = html.slice(html.indexOf('id="public-gallery"'), html.indexOf('id="tab-create"'));
+    assert.match(gallery, /<details class="mobile-filters" id="import-filters"/, 'the filter rows collapse');
+    // Search stays outside the panel: it is the one filter worth a permanent slot.
+    const panel = gallery.slice(gallery.indexOf('id="import-filters"'));
+    assert.doesNotMatch(panel.slice(0, panel.indexOf('</details>')), /id="filter-search"/);
+    assert.match(gallery, /<div class="mobile-action-bar" id="import-actions"/);
+    assert.match(gallery.slice(gallery.indexOf('id="import-actions"')), /id="import-btn"/);
+});
+
+test('the phone layer reflows the galleries', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const block = phoneBlock(await fetchText(server, '/style.css'));
+    assert.match(block, /\.grid \{[^}]*minmax\(150px, 1fr\)/, 'two columns at 360px');
+    assert.match(block, /\.categories \{[^}]*flex-wrap: nowrap/, 'category pills scroll sideways');
+    assert.match(block, /\.card \.check \{[^}]*width: 24px/, 'the card checkbox gets a real tap target');
+});
