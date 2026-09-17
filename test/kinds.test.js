@@ -151,3 +151,20 @@ test('the ship regen argv is the NPC one with the script swapped', () => {
     assert.ok(KINDS.spaceship.regenArgs({ ...opts, which: 'token' })
         .includes('--no-portrait'));
 });
+
+test('a secret prompt adds its two flags and silences the composition flags', () => {
+    const base = { count: 1, seed: null, overrides: [], extraTables: ['D:/t/a.md'], extraTableNames: ['one'],
+        extraValues: [{ table: 'Poses', value: 'kneeling' }], extraTargets: [{ table: 'one', target: 'token' }],
+        disabledTables: ['Stance'], promptLayout: { portrait: ['shot'] } };
+    const plain = KINDS.npc.createArgs(base).join(' ');
+    assert.match(plain, /--extra-tables D:\/t\/a\.md --extra-table one --extra-value Poses=kneeling --extra-target one=token --disable-table Stance --prompt-layout/);
+    assert.doesNotMatch(plain, /--secret-prompt/);
+    const templated = KINDS.npc.createArgs({ ...base, secretPrompt: { file: 'D:/p/explicit-v1.md', name: 'Solo kneeling' } });
+    const joined = templated.join(' ');
+    assert.ok(templated.includes('--secret-prompts') && templated[templated.indexOf('--secret-prompts') + 1] === 'D:/p/explicit-v1.md');
+    assert.ok(templated[templated.indexOf('--secret-prompt') + 1] === 'Solo kneeling');
+    assert.match(joined, /--extra-value Poses=kneeling/);
+    for (const flag of ['--extra-tables', '--extra-table ', '--extra-target', '--disable-table', '--prompt-layout']) {
+        assert.ok(!joined.includes(flag), flag);
+    }
+});
