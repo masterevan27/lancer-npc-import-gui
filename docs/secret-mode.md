@@ -109,6 +109,57 @@ See [validation results and remaining verification limits](secret-mode-validatio
 { "camera_framing": [ { "value": "low angle looking up", "weight": 3 }, { "value": "eye level medium shot" } ] }
 ```
 
+### Tags and gates
+
+A private table can be *gated*: it rolls only when a value rolled (or fixed)
+earlier carries one of its tags.
+
+```markdown
+## Styles
+- x2 Rugged dockworker #man
+- x2 Elegant courtesan #woman #noble
+
+## Men's Attributes (when: man)
+- heavy stubble #scarred
+- broad shoulders
+
+## Scars (when: scarred)
+- a burn scar across one cheek
+
+## Jewellery (when: woman, noble)
+- a thin gold circlet
+```
+
+- `#tag`s at the very end of a bullet are removed from the value and name the
+  gates it opens (letters, digits, `-`, `_`; case-insensitive).
+- `(when: a, b)` at the end of a heading gates the table; it opens on *any*
+  listed tag. The table's name is the heading without the suffix, so
+  `--extra-value "Men's Attributes=broad shoulders"`.
+- Tables roll in order: files in `--extra-tables` order, then tables in file
+  order. A gated table above every table that could open it is refused; a tag
+  no loaded file carries simply keeps the gate shut.
+- Fixing a value in a gated table narrows its single Random opener to the
+  values that open it; if no table, or more than one, could open it the run
+  stops with a message saying which.
+- JSON: `{"value": "...", "tags": ["man"]}` on a row, and
+  `"Men's Attributes": {"when": ["man"], "rows": [...]}` for a gated table.
+
+In Create NPC:
+
+- Gated tables are indented under the file's tables and labelled `when: #man`.
+- A gated table nothing selected can open (its opener is unticked, or fixed to
+  a value without its tags) is greyed out and left out of the run.
+- With its opener on Random, a gated table notes `rolls only if Styles rolls #man`.
+  Fixing a value in it limits that opener to matching values.
+- Selections that cannot happen, such as two fixed gated tables that need
+  different values of the same opener, are refused with the generator's own
+  message.
+- **Roll order and gates**, a closed panel at the top of the section, lists
+  every table in roll order with its gate, what its tags open, and its live
+  status.
+- The folder is checked as a whole: a gated table above its opener, or a tag
+  that no table in the folder carries, marks that file with the error.
+
 After Secret login, **Create NPC** lists every file with a checkbox per table (the file's own box ticks them all) and shows the row count beside each. A ticked table rolls one value per NPC by weight; the values are appended to both prompts as one sentence after the line naming what the NPC carries, recorded on the private manifest entry as `extraTraits`, shown on the detail sheet, and reproduced by Regenerate. Nothing ticked is an ordinary private roll. A file the generator would refuse - not valid JSON, a table with no rows, a weight that is not a positive number, a table named like a default one - is listed with its reason and cannot be selected. Markdown bullets are taken whole: `|| flag` and `=> Name` mean nothing to a private table.
 
 **Disable default tables** offers an independent checkbox for every default NPC table, including Backdrop, Callsigns, Role, Age, Pronouns, Hair colour and Glow placement. Disabling is prompt-only: the trait is still rolled, so the filters that read it and the seed behave exactly as before, and the detail sheet marks it "left out of the prompt". Tick Stance when one of your tables describes the pose. Backdrop removes the rolled framing and scene, using neutral portrait framing; Hair colour removes its base and colour tail while keeping the hairstyle; Glow placement leaves the colour available with a generic glow description. Age removes maturity and face-age wording, and Pronouns uses neutral narration without the gender description. Names, callsigns and Theme already add no direct prompt text, so those switches preserve their metadata and roll dependencies. The choices come from the configured generator; update it alongside the GUI and restart the GUI server to see the expanded list.

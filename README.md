@@ -774,7 +774,8 @@ rolled but its clause leaves the prompt, which is how a table of your own takes
 Stance's place without fighting it. Names, callsigns and Theme already add no
 direct prompt text and remain in metadata. Update the generator alongside the
 GUI and restart the GUI server to load its expanded checkbox list. Both are Secret-mode only and the public
-form never sends them.
+form never sends them. Private tables can be gated with `#tag`s on bullets and
+`(when: tag)` on headings; see docs/secret-mode.md.
 
 ## Development
 
