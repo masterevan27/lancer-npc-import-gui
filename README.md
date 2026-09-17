@@ -774,9 +774,17 @@ rolled but its clause leaves the prompt, which is how a table of your own takes
 Stance's place without fighting it. Names, callsigns and Theme already add no
 direct prompt text and remain in metadata. Update the generator alongside the
 GUI and restart the GUI server to load its expanded checkbox list. Both are Secret-mode only and the public
-form never sends them.
+form never sends them. Private tables can be gated with `#tag`s on bullets and
+`(when: tag)` on headings; see docs/secret-mode.md.
 
 ## Development
+
+Images generated after loading, importing, or saving a Create preset show
+**Preset: name** on their cards, including Secret images and spaceships. The
+name records the starting preset even if you adjust the form afterward, and
+survives preset deletion and image regeneration. Older images without recorded
+preset metadata stay unlabeled. Update the generator alongside the GUI for the
+new `--preset-name` option.
 
 ### Release versioning
 

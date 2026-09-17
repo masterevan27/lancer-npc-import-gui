@@ -1158,6 +1158,12 @@ function render() {
     artStyleLine.className = "sub";
     artStyleLine.textContent = `Art style: ${item.artStyle?.name || "Default"}`;
     body.appendChild(artStyleLine);
+    if (item.presetName) {
+      const presetLine = document.createElement("div");
+      presetLine.className = "sub preset-label";
+      presetLine.textContent = `Preset: ${item.presetName}`;
+      body.appendChild(presetLine);
+    }
     // Only NPCs carry colour guidance, and only a non-default one is worth
     // a line on the card - the house palette is the unstated norm.
     if (item.colorGuidance && item.colorGuidance.id !== "default") {
@@ -1686,6 +1692,10 @@ function openBackgroundDetail(item) {
 }
 
 function openDetail(item) {
+  const keepImageZoom = !el.imageZoom.hidden;
+  const imageZoomKind = el.imageZoomSource === el.detailToken ? "token" : "portrait";
+  el.detailPortrait.classList.remove("image-expanded");
+  el.detailToken.classList.remove("image-expanded");
   const isBackground = item.kind === BACKGROUND_KIND;
   el.detailSheet.classList.toggle("detail--background", isBackground);
   el.detailOpenBackground.hidden = !isBackground;
@@ -1698,6 +1708,7 @@ function openDetail(item) {
   setDetailPresetStatus("");
   if (isBackground) {
     openBackgroundDetail(item);
+    updateImageZoomForDetail(item, keepImageZoom, imageZoomKind);
     return;
   }
   // portraitUrl/tokenUrl carry the source file's mtime as a version query
@@ -1706,6 +1717,7 @@ function openDetail(item) {
   // cache-busting needed.
   el.detailPortrait.src = item.portraitUrl || "";
   el.detailToken.src = item.tokenUrl || "";
+  updateImageZoomForDetail(item, keepImageZoom, imageZoomKind);
   renderDetailHeader(item);
   renderDetailTraits(item);
   renderDetailPrompts(item);
@@ -3413,9 +3425,9 @@ overlayObserver.observe(document.querySelector(".tables-layout"), {
  * translation of "not hidden" to "open" rather than relying solely on that
  * invariant holding elsewhere.
  */
-function topmostOverlay() {
+function topmostOverlay(includeImageZoom = true) {
   if (!elSettings.overlay.hidden) return { close: () => closeSettings() };
-  if (!el.imageZoom.hidden)
+  if (includeImageZoom && !el.imageZoom.hidden)
     return {
       close: () => {
         el.imageZoom.hidden = true;
@@ -3471,10 +3483,9 @@ document.addEventListener("keydown", (e) => {
     return;
   }
 
-  // Arrow navigation belongs to the NPC sheet alone, and only when nothing
-  // is stacked on top of it - arrowing the list out from under an open
-  // delete confirmation would be actively dangerous.
-  if (el.overlay.hidden || topmostOverlay()) return;
+  // Hover preview does not take focus. Keep navigation available through it,
+  // while dialogs such as delete confirmation still block changing items.
+  if (el.overlay.hidden || topmostOverlay(false)) return;
   if (e.key === "ArrowLeft") {
     stepDetail(-1);
     e.preventDefault();
@@ -3489,12 +3500,18 @@ document.addEventListener("keydown", (e) => {
  * takes a tap instead - and a second tap anywhere on the zoom closes it.
  * Gated on the media query rather than on isPhone(), because what matters
  * is whether the device can hover at all, not how wide it is.
+ *
+ * clickToExpand is the mouse's click: the zoom already follows the pointer,
+ * so a click enlarges the image in place. On a device that cannot hover the
+ * click is the zoom itself, and an in-place enlargement would be redundant
+ * on a sheet that already sizes its images to the screen.
  */
 const CAN_HOVER = window.matchMedia("(hover: hover)");
 
-function attachImageZoom(imgEl) {
+function attachImageZoom(imgEl, clickToExpand = false) {
   const show = () => {
     if (!imgEl.src) return;
+    el.imageZoomSource = imgEl;
     el.imageZoomImg.src = imgEl.src;
     el.imageZoomImg.alt = imgEl.alt;
     el.imageZoom.hidden = false;
@@ -3511,19 +3528,36 @@ function attachImageZoom(imgEl) {
     hide();
   });
   imgEl.addEventListener("click", () => {
-    if (CAN_HOVER.matches) return;
+    if (CAN_HOVER.matches) {
+      if (clickToExpand) imgEl.classList.toggle("image-expanded");
+      return;
+    }
     if (el.imageZoom.hidden) show();
     else hide();
   });
 }
 
-attachImageZoom(el.detailPortrait);
-attachImageZoom(el.detailToken);
+function updateImageZoomForDetail(item, keepVisible, kind) {
+  if (!keepVisible) {
+    el.imageZoom.hidden = true;
+    return;
+  }
+  const url = kind === "token" ? item.tokenUrl : item.portraitUrl;
+  if (!url) {
+    el.imageZoom.hidden = true;
+    return;
+  }
+  el.imageZoomImg.src = url;
+  el.imageZoomImg.alt = `${item.name || ""} — ${kind}`;
+  el.imageZoom.hidden = false;
+}
+attachImageZoom(el.detailPortrait, true);
+attachImageZoom(el.detailToken, true);
 
 /*
  * Deliberately below the attachImageZoom() call sites, not above them:
- * test/ui.secretMode.test.js slices app.js between `function
- * attachImageZoom(` and `attachImageZoom(el.detailPortrait)` and evaluates
+ * test/ui.secretMode.test.js slices app.js between `const CAN_HOVER` and
+ * `attachImageZoom(el.detailPortrait` and evaluates
  * that span in a bare `new Function('el', ...)`, where `document` and
  * `window` do not exist. Anything DOM-touching placed in that span breaks
  * nine tests in that file.
@@ -4342,6 +4376,7 @@ const createState = {
   // the Load, Download and Delete buttons can resolve the chosen slug back to
   // a name for their own messages without a second round trip.
   presets: [],
+  presetName: "", // The applied recipe, independent of the preset picker.
   pollTimer: null,
 };
 
@@ -4383,6 +4418,7 @@ const shipCreateState = {
   pinned: { "Ship type": "", Size: "", Theme: "" },
   overrides: [], // further overrides, same shape as createState.overrides
   presets: [],
+  presetName: "",
   pollTimer: null,
 };
 
@@ -5050,6 +5086,7 @@ function createRequestBody(dryRun) {
   const seed =
     elCreate.seed.value.trim() === "" ? null : Number(elCreate.seed.value);
   return {
+    ...(createState.presetName ? { presetName: createState.presetName } : {}),
     count,
     seed,
     name: elCreate.name.value.trim(),
@@ -5246,7 +5283,8 @@ function createFormSettings() {
  * after loading, so such a value arrives visibly greyed out with its reason on
  * hover, which is a better answer than silently dropping it on load.
  */
-function applyCreateSettings(settings) {
+function applyCreateSettings(settings, presetName = "") {
+  createState.presetName = presetName;
   const s = settings || {};
   elCreate.count.value = String(s.count || 1);
   elCreate.seed.value =
@@ -5339,7 +5377,7 @@ elCreate.presetLoad.addEventListener("click", () => {
   // one shape to keep true rather than two.
   api(`/api/create-presets/export?slug=${encodeURIComponent(preset.slug)}`)
     .then((full) => {
-      applyCreateSettings(full.settings);
+      applyCreateSettings(full.settings, full.name || preset.name);
       setPresetStatus(`Loaded “${full.name || preset.name}”.`);
     })
     .catch((err) =>
@@ -5356,6 +5394,7 @@ elCreate.presetSave.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, settings: createFormSettings() }),
     });
+    createState.presetName = name.trim();
     await refreshCreatePresets(slug);
     setPresetStatus(`Saved “${name.trim()}”.`);
   } catch (err) {
@@ -5427,7 +5466,7 @@ elCreate.presetImport.addEventListener("change", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(parsed),
     });
-    applyCreateSettings(settings);
+    applyCreateSettings(settings, name);
     setPresetStatus(
       `Loaded “${name}” from file. Save it if you want to keep it.`,
     );
@@ -5918,6 +5957,7 @@ function shipCreateRequestBody(dryRun) {
     (o) => o.table && o.value.trim(),
   );
   return {
+    ...(shipCreateState.presetName ? { presetName: shipCreateState.presetName } : {}),
     kind: "spaceship",
     count,
     seed,
@@ -6018,7 +6058,8 @@ function shipFormSettings() {
  * back into the three pinned selects and the free-form rows, since the
  * preset file (lib/createPresets.js) stores them as one flat array. The
  * first pinned-table entry wins if a hand-edited file somehow carries two. */
-function applyShipSettings(settings) {
+function applyShipSettings(settings, presetName = "") {
+  shipCreateState.presetName = presetName;
   const s = settings || {};
   elShipCreate.count.value = String(s.count || 1);
   elShipCreate.seed.value =
@@ -6108,7 +6149,7 @@ elShipCreate.presetLoad.addEventListener("click", () => {
     `/api/create-presets/export?kind=spaceship&slug=${encodeURIComponent(preset.slug)}`,
   )
     .then((full) => {
-      applyShipSettings(full.settings);
+      applyShipSettings(full.settings, full.name || preset.name);
       setPresetStatus(
         `Loaded “${full.name || preset.name}”.`,
         false,
@@ -6133,6 +6174,7 @@ elShipCreate.presetSave.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, settings: shipFormSettings() }),
     });
+    shipCreateState.presetName = name.trim();
     await refreshShipCreatePresets(slug);
     setPresetStatus(`Saved “${name.trim()}”.`, false, elShipCreate);
   } catch (err) {
@@ -6200,7 +6242,7 @@ elShipCreate.presetImport.addEventListener("change", async () => {
         body: JSON.stringify(parsed),
       },
     );
-    applyShipSettings(settings);
+    applyShipSettings(settings, name);
     setPresetStatus(
       `Loaded “${name}” from file. Save it if you want to keep it.`,
       false,

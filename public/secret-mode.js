@@ -28,6 +28,7 @@
         body.extraTables = selections.secretTables.extraTables;
         body.disabledTables = selections.secretTables.disabledTables;
       }
+      if (create && authenticated && kind === 'npc' && selections.promptLayout) body.promptLayout = selections.promptLayout;
       next.body = JSON.stringify(body);
     }
     if (authenticated) {
@@ -66,18 +67,22 @@
     return;
   }
   const get = id => document.getElementById(id);
+  let composer = null;
   const selections = () => ({ ...Object.fromEntries(['npc', 'spaceship', 'background'].map(kind =>
     [kind, document.querySelector(`[data-art-style="${kind}"]`)?.value || 'default'])),
     workflows: Object.fromEntries(['npc', 'spaceship', 'background'].map(kind =>
       [kind, document.querySelector(`[data-workflow="${kind}"]`)?.value || 'default'])),
     colorGuidance: { npc: document.querySelector('[data-color-guidance="npc"]')?.value || 'default' },
     dimensions: Object.fromEntries(['npc', 'spaceship'].map(kind => [kind, dimensionPicks(kind)])),
-    secretTables: secretTablePicks() });
+    secretTables: secretTablePicks(), promptLayout: composer?.getLayout() });
 
   function dimensionPicks(kind) {
     const width = get(`secret-${kind}-width`)?.value || '';
     const height = get(`secret-${kind}-height`)?.value || '';
-    return width || height ? { width, height } : {};
+    const tokenWidth = get(`secret-${kind}-token-width`)?.value || '';
+    const tokenHeight = get(`secret-${kind}-token-height`)?.value || '';
+    return { ...(width || height ? { width, height } : {}),
+      ...(tokenWidth || tokenHeight ? { tokenWidth, tokenHeight } : {}) };
   }
 
   // What the Secret tables section has ticked, or null while it is hidden.
@@ -86,7 +91,7 @@
     if (!section || section.hidden) return null;
     const files = new Map();
     for (const box of document.querySelectorAll('[data-secret-table]')) {
-      if (!box.checked) continue;
+      if (!box.checked || box.gateClosed) continue;
       if (!files.has(box.dataset.secretFile)) files.set(box.dataset.secretFile, { tables: [], values: {} });
       const pick = files.get(box.dataset.secretFile);
       pick.tables.push(box.dataset.secretTable);
@@ -133,6 +138,9 @@
   const post = (path, body) => json(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
   function clearPrivateView() {
+    createState.presetName = '';
+    shipCreateState.presetName = '';
+    composer?.clear();
     if (!get('set-trait-overlay').hidden) get('set-trait-cancel').click();
     for (const id of ['set-trait-title', 'set-trait-list', 'set-trait-release-label']) get(id).textContent = '';
     get('set-trait-filter').value = '';
@@ -141,6 +149,8 @@
       get(`secret-${kind}-dimensions`).hidden = true;
       get(`secret-${kind}-width`).value = '';
       get(`secret-${kind}-height`).value = '';
+      get(`secret-${kind}-token-width`).value = '';
+      get(`secret-${kind}-token-height`).value = '';
     }
     for (const id of ['secret-grid', 'secret-detail-images', 'secret-detail-prompts', 'secret-detail-traits']) get(id)?.replaceChildren();
     for (const id of ['secret-detail-name', 'secret-detail-style', 'secret-storage-path']) {
@@ -154,6 +164,10 @@
     }
     for (const node of document.querySelectorAll('[data-workflow]')) node.replaceChildren(new Option(DEFAULT.name, DEFAULT.id));
     for (const id of ['secret-tables-files', 'secret-disable-tables']) get(id)?.replaceChildren();
+    gateOrder = []; gateFileErrors = [];
+    if (get('secret-tables-gate-error')) { get('secret-tables-gate-error').textContent = ''; get('secret-tables-gate-error').hidden = true; }
+    get('secret-roll-order-list')?.replaceChildren();
+    if (get('secret-roll-order-summary')) get('secret-roll-order-summary').textContent = 'Roll order and gates';
     if (get('secret-tables-section')) get('secret-tables-section').hidden = true;
     get('secret-preset-select')?.replaceChildren();
     if (get('secret-presets-section')) get('secret-presets-section').hidden = true;
@@ -185,6 +199,63 @@
     get('art-style-error').hidden = true;
   }
 
+  // Gate state for the Secret tables section (public/secret-gates.js):
+  // the roll order of every listed table, recomputed into greyed rows,
+  // notes and the roll order panel whenever a box or dropdown changes.
+  let gateOrder = [];
+  let gateFileErrors = [];
+  function refreshGates() {
+    const inputs = [...document.querySelectorAll('[data-secret-table]')];
+    const picks = new Map(inputs.filter(box => box.checked).map(box => [box.dataset.gateKey, box.valueSelect.value]));
+    const result = root.SecretGates.resolveGates(gateOrder, picks, { dropClosed: true });
+    for (const box of inputs) {
+      const entry = gateOrder.find(item => item.key === box.dataset.gateKey);
+      const status = result.status.get(box.dataset.gateKey);
+      box.gateClosed = status?.state === 'closed';
+      box.gateRow.classList.toggle('secret-table-closed', box.gateClosed);
+      box.gateRow.style.setProperty('--gate-depth', String(entry?.depth || 0));
+      const text = box.checked && status && (entry?.when || status.limited) ? status.text : '';
+      box.gateNote.textContent = text;
+      box.gateNote.hidden = !text;
+      box.syncControls();
+    }
+    const error = get('secret-tables-gate-error');
+    if (error) { error.textContent = result.error || ''; error.hidden = !result.error; }
+    renderRollOrder(result);
+  }
+
+  function renderRollOrder(result) {
+    const list = get('secret-roll-order-list');
+    if (!list) return;
+    const view = root.SecretGates.rollOrderView(gateOrder, result, gateFileErrors);
+    get('secret-roll-order-summary').textContent = view.summary;
+    list.replaceChildren(...view.items.map(item => {
+      const li = document.createElement('li'); li.className = 'secret-roll-order-item';
+      li.style.setProperty('--gate-depth', String(item.depth));
+      const title = document.createElement('strong'); title.textContent = item.title;
+      const file = document.createElement('span'); file.className = 'hint'; file.textContent = ` ${item.file}`;
+      li.append(title, file);
+      for (const [className, text] of [['secret-roll-order-gate', item.gate], ['secret-roll-order-opens', item.opens], ['secret-roll-order-status', item.status]]) {
+        if (!text) continue;
+        const line = document.createElement('div'); line.className = className; line.textContent = text;
+        li.append(line);
+      }
+      return li;
+    }));
+  }
+
+  // Whether the panel is open is a per-viewer convenience only.
+  const ROLL_ORDER_OPEN_KEY = 'secretRollOrderOpen';
+  function initRollOrderPanel() {
+    const panel = get('secret-roll-order');
+    if (!panel || panel.dataset.ready) return;
+    panel.dataset.ready = '1';
+    try { panel.open = root.localStorage.getItem(ROLL_ORDER_OPEN_KEY) === '1'; } catch { panel.open = false; }
+    panel.addEventListener('toggle', () => {
+      try { root.localStorage.setItem(ROLL_ORDER_OPEN_KEY, panel.open ? '1' : '0'); } catch { /* storage unavailable */ }
+    });
+  }
+
   // The Secret tables section of Create NPC: one fieldset per file in the
   // secret-tables folder with a checkbox per table (the legend's box ticks
   // the whole file), and one row of checkboxes for the default tables the
@@ -194,6 +265,9 @@
     if (!section) return;
     if (!transport.authenticated) { section.hidden = true; return; }
     const data = await json('/api/secret/tables');
+    gateOrder = root.SecretGates.rollOrder(data.files || []);
+    gateFileErrors = (data.files || []).filter(file => file.error).map(({ file, error }) => ({ file, error }));
+    initRollOrderPanel();
     const filesNode = get('secret-tables-files'); filesNode.replaceChildren();
     for (const file of data.files || []) {
       const box = document.createElement('fieldset'); box.className = 'secret-tables-file';
@@ -209,18 +283,40 @@
       for (const table of file.tables || []) {
         const input = document.createElement('input'); input.type = 'checkbox';
         input.dataset.secretTable = table.name; input.dataset.secretFile = file.file;
+        input.dataset.gateKey = root.SecretGates.entryKey(file.file, table.name);
         const count = document.createElement('span'); count.className = 'hint'; count.textContent = `(${table.count})`;
         const row = document.createElement('div'); row.className = 'secret-tables-table';
+        const header = document.createElement('div'); header.className = 'secret-table-header';
         const label = document.createElement('label');
+        label.className = 'secret-table-enable';
         const select = document.createElement('select');
         select.setAttribute('aria-label', `${table.name} value (${file.file})`);
-        select.replaceChildren(new Option('Random (weighted)', ''), ...(table.values || []).map(value => new Option(value, value)));
+        select.replaceChildren(new Option('Random (weighted)', ''));
+        for (const group of table.groups || [{ name: '', values: table.values || [] }]) {
+          const parent = group.name ? document.createElement('optgroup') : select;
+          if (group.name) { parent.label = group.name; select.append(parent); }
+          parent.append(...group.values.map(value => new Option(value, value)));
+        }
         select.disabled = true; input.valueSelect = select;
         const valueField = document.createElement('div'); valueField.className = 'secret-table-value';
         const preview = document.createElement('p'); preview.className = 'secret-table-value-preview';
         valueField.append(select, preview);
-        label.append(input, ` ${table.name} `, count); row.append(label, valueField); box.append(row); inputs.push(input);
+        label.append(input, ` ${table.name} `, count);
+        if (table.when) {
+          row.classList.add('secret-table-gated');
+          const when = document.createElement('span'); when.className = 'hint secret-table-when';
+          when.textContent = ` when: ${table.when.map(tag => `#${tag}`).join(', ')}`;
+          label.append(when);
+        }
+        header.append(label);
+        const gateNote = document.createElement('p'); gateNote.className = 'hint secret-table-gate-note'; gateNote.hidden = true;
+        input.gateNote = gateNote; input.gateRow = row;
+        row.append(header, valueField, gateNote); box.append(row); inputs.push(input);
         const targets = document.createElement('span'); targets.className = 'secret-table-targets';
+        targets.setAttribute('role', 'group');
+        targets.setAttribute('aria-label', `${table.name} image targets (${file.file})`);
+        const targetHint = document.createElement('span'); targetHint.className = 'hint'; targetHint.textContent = 'Apply to:';
+        targets.append(targetHint);
         input.targetInputs = {};
         for (const target of ['portrait', 'token']) {
           const targetInput = document.createElement('input'); targetInput.type = 'checkbox';
@@ -231,27 +327,29 @@
           targets.append(targetLabel); input.targetInputs[target] = targetInput;
           targetInput.addEventListener('change', () => input.syncControls());
         }
-        row.append(targets);
+        header.append(targets);
         input.syncControls = () => {
-          select.disabled = !input.checked;
+          select.disabled = !input.checked || Boolean(input.gateClosed);
           preview.textContent = select.value;
           preview.hidden = !input.checked || !select.value;
           select.title = select.value || 'Random (weighted)';
           const { portrait, token } = input.targetInputs;
-          portrait.disabled = !input.checked || !token.checked;
-          token.disabled = !input.checked || !portrait.checked;
+          portrait.disabled = !input.checked || !token.checked || Boolean(input.gateClosed);
+          token.disabled = !input.checked || !portrait.checked || Boolean(input.gateClosed);
         };
         input.syncControls();
-        select.addEventListener('change', () => input.syncControls());
+        select.addEventListener('change', () => { input.syncControls(); refreshGates(); });
         input.addEventListener('change', () => {
           input.syncControls();
           all.checked = inputs.every(other => other.checked);
           all.indeterminate = !all.checked && inputs.some(other => other.checked);
+          refreshGates();
         });
       }
       all.addEventListener('change', () => {
         for (const input of inputs) { input.checked = all.checked; input.syncControls(); }
         all.indeterminate = false;
+        refreshGates();
       });
       all.secretInputs = inputs;
       filesNode.append(box);
@@ -263,6 +361,7 @@
       const input = document.createElement('input'); input.type = 'checkbox'; input.dataset.disableTable = name;
       const label = document.createElement('label'); label.append(input, ` ${name}`); disable.append(label);
     }
+    refreshGates();
     section.hidden = false;
     await loadSecretPresets();
   }
@@ -278,7 +377,7 @@
     get('secret-presets-section').hidden = false;
   }
 
-  function applySecretSettings(settings) {
+  function applySecretSettings(settings, presetName = '') {
     // Check every saved choice before changing any form fields.
     const inputs = [...document.querySelectorAll('[data-secret-table]')];
     const restored = new Map();
@@ -298,9 +397,11 @@
     for (const [id, key] of selectors) {
       if (![...get(id).options].some(option => option.value === settings[key])) throw new Error(`${key} is no longer available.`);
     }
-    applyCreateSettings(settings);
+    applyCreateSettings(settings, presetName);
     get('secret-npc-width').value = settings.width ?? '';
     get('secret-npc-height').value = settings.height ?? '';
+    get('secret-npc-token-width').value = settings.tokenWidth ?? '';
+    get('secret-npc-token-height').value = settings.tokenHeight ?? '';
     for (const [id, key] of selectors) get(id).value = settings[key];
     for (const input of inputs) {
       input.checked = restored.has(input);
@@ -310,12 +411,14 @@
       input.targetInputs.token.checked = target !== 'portrait';
       input.syncControls();
     }
+    refreshGates();
     for (const all of document.querySelectorAll('[data-secret-file]')) {
       if (!all.secretInputs) continue;
       all.checked = all.secretInputs.every(input => input.checked);
       all.indeterminate = !all.checked && all.secretInputs.some(input => input.checked);
     }
     for (const input of document.querySelectorAll('[data-disable-table]')) input.checked = (settings.disabledTables || []).includes(input.dataset.disableTable);
+    composer?.setLayout(settings.promptLayout);
   }
 
   function setSecretTablesCollapsed(collapsed, fromBottom = false) {
@@ -342,7 +445,7 @@
   // saved selection restored where the catalog still offers it.
   async function loadColorGuidance() {
     const data = await json('/api/color-guidance');
-    const entries = visibleStyles(data.guidance, transport.authenticated);
+    const entries = [...visibleStyles(data.guidance, transport.authenticated), { id: 'random', name: 'Random' }];
     for (const select of document.querySelectorAll('[data-color-guidance]')) {
       const selected = select.dataset.guidanceId || select.value;
       select.replaceChildren(...entries.map(entry => new Option(entry.name, entry.id)));
@@ -389,7 +492,8 @@
       img.src = item.portraitUrl || item.tokenUrl || ''; img.alt = item.name; card.append(img);
       const body = document.createElement('div'); body.className = 'body';
       for (const [className, text] of [['name', item.name], ['sub', item.callsign], ['role', item.traits?.Role],
-        ['sub', `Art style: ${item.artStyle?.name || 'Default'}`]]) {
+        ['sub', `Art style: ${item.artStyle?.name || 'Default'}`],
+        ['sub preset-label', item.presetName ? `Preset: ${item.presetName}` : '']]) {
         if (!text) continue;
         const line = document.createElement('div'); line.className = className; line.textContent = text; body.append(line);
       }
@@ -414,8 +518,7 @@
       if (!url) continue;
       const figure = document.createElement('figure'), img = document.createElement('img'), caption = document.createElement('figcaption');
       img.src = url; img.alt = `${item.name} — ${label}`; caption.textContent = label;
-      if (typeof attachImageZoom === 'function') attachImageZoom(img);
-      img.addEventListener('click', () => img.classList.toggle('secret-image-expanded'));
+      if (typeof attachImageZoom === 'function') attachImageZoom(img, true);
       figure.append(img, caption); images.append(figure);
     }
     const traits = item.background?.scene?.traits || item.traits || {};
@@ -532,8 +635,9 @@
       if (name === null) return;
       const selected = selections();
       const settings = { ...createFormSettings(), ...secretTablePicks(), ...selected.dimensions.npc, artStyle: selected.npc,
-        workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc };
+        workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc, promptLayout: composer?.getLayout() || {} };
       const { slug } = await post('/api/secret/presets', { name, settings });
+      createState.presetName = name.trim();
       await loadSecretPresets(slug);
       get('secret-preset-status').textContent = `Saved “${name.trim()}”.`;
     }));
@@ -541,7 +645,7 @@
       const slug = get('secret-preset-select').value;
       if (!transport.authenticated || !slug) return;
       const preset = await json('/api/secret/presets/export?slug=' + encodeURIComponent(slug));
-      applySecretSettings(preset.settings);
+      applySecretSettings(preset.settings, preset.name);
       get('secret-preset-status').textContent = `Loaded “${preset.name}”.`;
     }));
     get('secret-preset-delete').addEventListener('click', () => presetAction(async () => {
@@ -560,6 +664,13 @@
     get('secret-mode-notice').hidden = !session.authenticated;
     document.body.classList.toggle('secret-mode', !!session.authenticated);
     for (const kind of ['npc', 'spaceship']) get(`secret-${kind}-dimensions`).hidden = !session.authenticated;
+    if (session.authenticated) {
+      const defaults = { width: '1920', height: '1080', tokenWidth: '1024', tokenHeight: '1280' };
+      for (const [suffix, value] of Object.entries(defaults)) {
+        const input = get(`secret-npc-${suffix.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())}`);
+        if (input && !input.value) input.value = value;
+      }
+    }
     get('secret-open').addEventListener('click', () => {
       get('settings-overlay').hidden = true;
       get('secret-login-error').textContent = session.configured ? '' : 'Secret login is not configured. Add credentials to the server config first.';
@@ -593,6 +704,9 @@
     get('secret-refresh').addEventListener('click', () => loadGallery().catch(err => { get('secret-gallery-status').textContent = err.message; }));
     for (const id of ['secret-search', 'secret-kind', 'secret-sort']) get(id).addEventListener('input', renderGallery);
     get('secret-detail-close').addEventListener('click', closeDetail);
+    get('secret-detail-overlay').addEventListener('click', event => {
+      if (event.target === get('secret-detail-overlay')) closeDetail();
+    });
     get('secret-detail-prev').addEventListener('click', () => stepDetail(-1));
     get('secret-detail-next').addEventListener('click', () => stepDetail(1));
     get('secret-regen-seed-mode').addEventListener('change', () => { get('secret-regen-seed').disabled = get('secret-regen-seed-mode').value !== 'specific'; });
@@ -657,7 +771,17 @@
     }
     try { await loadColorGuidance(); }
     catch (err) { get('color-guidance-error').textContent = `Could not load color guidance: ${err.message}`; get('color-guidance-error').hidden = false; }
-    if (session.authenticated) openGallery();
+    if (session.authenticated) {
+      composer = root.PromptComposer.create({ element: get('secret-prompt-composer'), active: () => transport.authenticated,
+        getRequest: () => {
+          const selected = selections();
+          return { ...createRequestBody(true), ...secretTablePicks(), artStyle: selected.npc,
+            workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc };
+        },
+        request: body => post('/api/secret/prompt-preview', body).then(preview =>
+          root.SecretGates.markGatedSources(preview, gateOrder.filter(entry => entry.when).map(entry => entry.name))) });
+      openGallery();
+    }
     const verifySession = async () => {
       if (Date.now() - lastFocus < 1000) return; lastFocus = Date.now();
       try {

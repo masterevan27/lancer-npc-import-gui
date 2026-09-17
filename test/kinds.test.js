@@ -23,6 +23,14 @@ const CONFIG = {
 };
 const KINDS = kindsLib.buildKinds(derivePaths(CONFIG), CONFIG);
 
+test('NPC and ship creation pass preset names as a single argument', () => {
+    for (const id of ['npc', 'spaceship']) {
+        const args = KINDS[id].createArgs({ count: 1, seed: null, overrides: [], presetName: '-Dock crew & pilots' });
+        assert.ok(args.includes('--preset-name=-Dock crew & pilots'));
+        assert.ok(!KINDS[id].createArgs({ count: 1, seed: null, overrides: [] }).includes('--preset-name'));
+    }
+});
+
 const GENERATOR_REQUIRED_FIELDS = ['id', 'label', 'subject', 'script', 'tables',
     'presetsDir', 'createPresetsDir', 'createPresetDiscriminator',
     'stagedImportsDir', 'stagedRefsDir', 'foundrySubdir', 'supports',
