@@ -138,3 +138,19 @@ test('app.js renders locked override rows and keeps them out of requests and pre
     const settings = js.slice(js.indexOf('function createFormSettings'), js.indexOf('function applyCreateSettings'));
     assert.match(settings, /!o\.locked/);
 });
+
+test('the composer preview request carries the secret prompt pick', () => {
+    const js = read('secret-mode.js');
+    const call = js.slice(js.indexOf('PromptComposer.create('), js.indexOf('request: body => post('));
+    assert.match(call, /secretPrompt: secretPromptPick\(\)/);
+});
+
+test('applySecretSettings releases the pin lock before applying a preset', () => {
+    const js = read('secret-mode.js');
+    const settings = js.slice(js.indexOf('function applySecretSettings'), js.indexOf('function setSecretTablesCollapsed'));
+    const lockIndex = settings.indexOf('lockPins({})');
+    const applyIndex = settings.indexOf('applyCreateSettings(');
+    assert.notEqual(lockIndex, -1);
+    assert.notEqual(applyIndex, -1);
+    assert.ok(lockIndex < applyIndex);
+});

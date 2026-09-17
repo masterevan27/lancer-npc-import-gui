@@ -466,6 +466,10 @@
   }
 
   function applySecretSettings(settings, presetName = '') {
+    // Release any current pin lock first, so a preset without a Pronouns pin
+    // does not inherit a stale savedPronouns and applyCreateSettings below
+    // sets Pronouns on a field that is not still disabled from the old pick.
+    lockPins({});
     // Check every saved choice before changing any form fields.
     const inputs = [...document.querySelectorAll('[data-secret-table]')];
     const restored = new Map();
@@ -882,7 +886,8 @@
         getRequest: () => {
           const selected = selections();
           return { ...createRequestBody(true), ...secretTablePicks(), artStyle: selected.npc,
-            workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc };
+            workflow: selected.workflows.npc, colorGuidance: selected.colorGuidance.npc,
+            secretPrompt: secretPromptPick() };
         },
         request: body => post('/api/secret/prompt-preview', body).then(preview =>
           root.SecretGates.markGatedSources(preview, gateOrder.filter(entry => entry.when).map(entry => entry.name))),
