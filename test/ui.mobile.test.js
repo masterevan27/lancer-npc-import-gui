@@ -272,6 +272,7 @@ test('each tab comes back at its own scroll position', async (t) => {
     assert.match(reapply, /window\.scrollY !== pending\.landed/, 'and only if the user has not scrolled since');
     assert.match(source, /refreshTraitCandidates\(\)[\s\S]*?\.finally\(\(\) => reapplyTabScroll\(pendingScroll\)\)/, 'Trait Imports rebuilds on every visit, so it re-applies');
     assert.match(source, /loadBackgrounds\(\)[\s\S]*?\.finally\(\(\) => reapplyTabScroll\(pendingScroll\)\)/, 'as does Create Background');
+    assert.match(source, /ensureShipCreateForm\(\)[\s\S]*?\.finally\(\(\) => reapplyTabScroll\(pendingScroll\)\)/, 'Create Spaceship re-renders its rows on every visit, so it re-applies too');
 });
 
 test('Create NPC sticks its generate buttons to the bottom on a phone', async (t) => {

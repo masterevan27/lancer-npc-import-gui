@@ -3951,9 +3951,11 @@ function switchTab(tab) {
   // one part of this the detail sheet also needs - before loading the form's
   // own trait options and ship catalogue.
   if (tab === "shipcreate") {
-    ensureShipCreateForm().catch((err) => {
-      elShipCreate.status.textContent = `Failed to load: ${err.message}`;
-    });
+    ensureShipCreateForm()
+      .catch((err) => {
+        elShipCreate.status.textContent = `Failed to load: ${err.message}`;
+      })
+      .finally(() => reapplyTabScroll(pendingScroll));
     refreshShipCreatePresets().catch(() => {
       /* the list stays empty */
     });
