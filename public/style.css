@@ -2816,7 +2816,9 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
 
   /* --- Controls --- */
   input, select, textarea, button { font-size: 16px; }
-  input, select, textarea { min-height: 44px; }
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea { min-height: 44px; }
   button { min-height: 44px; }
   .form-grid { grid-template-columns: 1fr; }
   label { display: block; }
@@ -2827,7 +2829,9 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .detail-files pre,
   .bg-prompt { display: block; max-width: 100%; overflow-x: auto; }
   .job-log { max-height: 50vh; overflow: auto; white-space: pre-wrap; }
-  main { padding-left: 0.75rem; padding-right: 0.75rem; overflow-x: hidden; }
+  /* clip, not hidden: hidden makes main a scroll container, and a sticky
+     .mobile-action-bar inside it would then never stick to the screen. */
+  main { padding-left: 0.75rem; padding-right: 0.75rem; overflow-x: clip; }
 
   /* --- The sticky action bar ---
      Its panel pays for it in padding, or the bar sits on top of the last

@@ -208,6 +208,9 @@ test('controls are thumb-sized and never zoom the page on focus', async (t) => {
     assert.match(block, /\.form-grid \{[^}]*grid-template-columns: 1fr/);
     assert.match(block, /overflow-x: auto/, 'wide tables and prompts scroll inside themselves');
     assert.match(block, /\.job-log \{[^}]*white-space: pre-wrap/);
+    assert.match(block, /main \{[^}]*overflow-x: clip/, 'clip, not hidden: hidden would stop the sticky action bar from sticking');
+    assert.doesNotMatch(block, /overflow-x: hidden/, 'nothing in the phone layer may create a scroll container around the action bar');
+    assert.match(block, /input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\)/, 'checkboxes and radios keep their own size');
 });
 
 test('the shared filter panel and action bar exist', async (t) => {
