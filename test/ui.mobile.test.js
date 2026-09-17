@@ -284,4 +284,7 @@ test('Create NPC sticks its generate buttons to the bottom on a phone', async (t
     const block = phoneBlock(await fetchText(server, '/style.css'));
     assert.match(block, /#override-rows .filter-row,[\s\S]{0,200}flex-direction: column/, 'override rows stack');
     assert.match(block, /\.create-presets-row \{[^}]*grid-template-columns: repeat\(2, 1fr\)/);
+    assert.match(block, /#override-rows \.filter-row > button/, 'only the row\'s own buttons go full width');
+    assert.doesNotMatch(block, /#override-rows \.filter-row button/, 'a descendant selector would also stretch the nested Clear button');
+    assert.doesNotMatch(block, /\.create-presets-row \.create-preset-status/, 'the status line is a sibling of the row, so that selector matches nothing');
 });
