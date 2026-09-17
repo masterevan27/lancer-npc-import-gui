@@ -321,3 +321,15 @@ test('Trait Imports puts its filters and actions where a thumb can reach', async
     assert.match(block, /\.trait-row input\[type="checkbox"\] \{[^}]*width: 24px/);
     assert.match(block, /\.trait-row \{[^}]*flex-wrap: wrap/);
 });
+
+test('Create Background sticks its render buttons to the bottom', async (t) => {
+    const server = await startTestServer({ tablesText: TABLES_FIXTURE, port: PORT });
+    t.after(() => server.stop());
+    const html = await fetchText(server, '/');
+    const bg = html.slice(html.indexOf('id="tab-backgrounds"'), html.indexOf('id="tab-traits"'));
+    assert.match(bg, /<div class="filter-row mobile-action-bar" id="bg-dynamic-actions"/);
+    assert.match(bg.slice(bg.indexOf('id="bg-dynamic-actions"')), /id="bg-dynamic-render"/);
+    const block = phoneBlock(await fetchText(server, '/style.css'));
+    assert.match(block, /\.bg-render \.filter-row \{[^}]*flex-direction: column/);
+    assert.match(block, /\.bg-prompt \{[^}]*white-space: pre-wrap/);
+});

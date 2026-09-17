@@ -9,7 +9,7 @@ test('the shared page shell displays the current release version', async (t) => 
     const response = await fetch(`${server.baseUrl}/`);
     assert.equal(response.status, 200);
     const html = await response.text();
-    assert.match(html, /class="release-version"[^>]*>Version 1\.0\.8<\/span>/);
+    assert.match(html, /class="release-version"[^>]*>Version 1\.0\.9<\/span>/);
     assert.ok(html.indexOf('class="release-version"') < html.indexOf('id="settings-open"'),
         'the version label should be immediately before Settings in the shared top bar');
 });

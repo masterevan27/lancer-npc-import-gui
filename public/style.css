@@ -2610,6 +2610,11 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
    move as intact labelled controls when a panel gets narrower. */
 .bg-render .filter-row,
 .bg-animate .filter-row { flex-wrap: wrap; }
+/* #bg-dynamic-actions is both .filter-row and .mobile-action-bar. Those two
+   single-class rules tie on specificity, and .mobile-action-bar (style.css
+   above) is declared after .filter-row, so its gap: 0.5rem would otherwise
+   beat .filter-row's gap: var(--sp-1) here. Keep the tighter desktop gap. */
+.bg-render .filter-row.mobile-action-bar { gap: var(--sp-1); }
 #tab-backgrounds button {
   background: var(--surface-2);
   border: 1px solid var(--line-strong);
@@ -2914,4 +2919,10 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   .trait-row input[type="checkbox"] { width: 24px; height: 24px; }
   .trait-row .trait-bullet { flex-basis: 100%; }
   .trait-tiles { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+
+  /* --- Create Background --- */
+  .bg-render .filter-row { display: flex; flex-direction: column; align-items: stretch; gap: 0.4rem; }
+  .bg-render .mobile-action-bar { flex-direction: row; }
+  .bg-prompt { white-space: pre-wrap; max-height: 40vh; overflow-y: auto; }
+  .bg-traits { grid-template-columns: 1fr; }
 }
