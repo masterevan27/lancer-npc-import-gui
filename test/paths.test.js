@@ -210,3 +210,12 @@ test('an explicit backgroundsDir wins over the derived one', () => {
     });
     assert.strictEqual(p.backgroundsDir, path.join('E:', 'Backgrounds'));
 });
+
+test('secretPromptsDir is the secret-prompts sibling of the secret tables folder, unless configured', () => {
+    const derived = derivePaths({ npcManifestPath: 'G:/gen/.generated-npcs.json' });
+    assert.equal(derived.secretPromptsDir, path.join('G:/gen', 'prompts', 'secret-prompts'));
+    const moved = derivePaths({ npcManifestPath: 'G:/gen/.generated-npcs.json', secretTablesDir: 'D:/mine/tables' });
+    assert.equal(moved.secretPromptsDir, path.join('D:/mine', 'secret-prompts'));
+    const explicit = derivePaths({ npcManifestPath: 'G:/gen/.generated-npcs.json', secretPromptsDir: 'E:/prompts' });
+    assert.equal(explicit.secretPromptsDir, 'E:/prompts');
+});
