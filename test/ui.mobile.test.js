@@ -249,6 +249,8 @@ test('the phone layer reflows the galleries', async (t) => {
     assert.match(block, /\.grid \{[^}]*minmax\(150px, 1fr\)/, 'two columns at 360px');
     assert.match(block, /\.categories \{[^}]*flex-wrap: nowrap/, 'category pills scroll sideways');
     assert.match(block, /\.card \.check \{[^}]*width: 24px/, 'the card checkbox gets a real tap target');
+    assert.match(block, /\.toolbar > \.mobile-action-bar \{[^}]*position: fixed/, 'a bar inside a one-row toolbar is fixed, since a sticky one could not leave the toolbar');
+    assert.match(block, /\.toolbar > \.mobile-action-bar \{[^}]*bottom: 0/);
 });
 
 test('each tab comes back at its own scroll position', async (t) => {

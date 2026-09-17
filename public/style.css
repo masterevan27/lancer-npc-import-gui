@@ -2858,10 +2858,22 @@ button.danger:disabled { background: #2c2f38; border-color: var(--line-strong); 
   /* --- Galleries --- */
   .mobile-filters { display: block; }
   .mobile-filters > summary { display: list-item; }
-  .toolbar > .mobile-action-bar { display: flex; }
+  /* Inside a toolbar the bar's parent is one row tall, and a sticky element
+     never leaves its parent - it would scroll away with the toolbar. Fixed
+     does not depend on the parent. It disappears with its tab (a hidden
+     panel is display: none), sits under the overlays (z-index 4 vs 10+),
+     and .tab-panel's padding-bottom already keeps it off the last row. */
+  .toolbar > .mobile-action-bar {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0.5rem 0.75rem;
+  }
   /* Secret mode hides #import-btn and #delete-btn (style.css:139-140) but
      leaves their wrapper in the DOM. Without this, an empty #import-actions
-     would still be a sticky, bordered strip: the CSS above makes it visible
+     would still be a fixed, bordered strip: the CSS above makes it visible
      to layout again, and .secret-mode alone does not hide the public
      gallery - only opening the secret gallery does (secret-mode.js). */
   .secret-mode #import-actions { display: none; }
