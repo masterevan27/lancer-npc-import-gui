@@ -12,6 +12,12 @@ whose Foundry module contains the half that actually creates the Actors. It has
 no dependency on that project's SillyTavern narration relay and works whether or
 not you use SillyTavern at all.
 
+![The library grid, showing generated NPCs with their status badges and role categories](examples/01-import-grid.png)
+
+More screenshots — the detail sheet, the 3D and animated-portrait panels, the
+expression sprites, the roll-table editor and the phone layout — are in
+[`examples/`](examples/README.md).
+
 ## What you need
 
 - **Node 20 or newer.** No dependencies — this is Node stdlib only, and there is
@@ -183,7 +189,11 @@ and open <http://127.0.0.1:5089>.
 
 ## The six tabs
 
-- **Import Generated Art** — pick a category, click a card to preview its
+- **Import Generated Art**
+
+  ![An NPC's detail sheet: portrait, token and animated loop, with the prompts and traits below](examples/02-detail-sheet.png)
+
+  Pick a category, click a card to preview its
   portrait and token, check the ones you want, and **Import Selected**.
   Importing copies the files into `foundryDataRoot` for you if they aren't
   there already, so nothing needs pre-staging under your Foundry Data folder by
@@ -314,7 +324,11 @@ and open <http://127.0.0.1:5089>.
   Re-roll and Set… buttons take the pill's colour, so a change to one of
   them is visibly a change to one image. A legend above the table explains the
   three.
-- **Create NPC** — a form over `generate-npc.py`'s roll options (count, seed,
+- **Create NPC**
+
+  ![The Create NPC form with a trait override open, its search narrowed and the full bullet printed below](examples/07-create-npc.png)
+
+  A form over `generate-npc.py`'s roll options (count, seed,
   name, pronouns, per-table trait overrides, portrait/token toggles,
   dry-run-vs-generate) that rolls new NPCs into the same review flow as the CLI.
   An **Unarmed run** checkbox maps to the generator's `--unarmed`; it does not
@@ -481,7 +495,11 @@ and open <http://127.0.0.1:5089>.
   Leave it unticked and nothing but the trait you set changes. Set… appears
   wherever Re-roll is live and nowhere else — an NPC without raw bullets has
   nothing to pin the rest of itself to, and the greyed Re-roll already says so.
-- **Create Spaceship** — the same form over `generate-spaceship.py`, and the
+- **Create Spaceship**
+
+  ![The Create Spaceship form, with ship type, size and theme left to the roller](examples/08-create-spaceship.png)
+
+  The same form over `generate-spaceship.py`, and the
   tab only appears when that script is actually there, as does the
   **Spaceships** entry on the **Tables** tab's kind select. Count, seed, name, the
   portrait/token switches, dry-run and per-table overrides work exactly as they
@@ -504,7 +522,11 @@ and open <http://127.0.0.1:5089>.
   Importing a ship writes it under `foundrySpaceshipSubdir` and hands the
   module the token's size in **grid units** rather than pixels, so a
   five-by-three ship arrives five by three instead of the size of a continent.
-- **Create Background** — Renders scene art from the generator's background catalogues and animates any
+- **Create Background**
+
+  ![The Create Background tab's dynamic scene builder, with environment, view, scene life and layout notes](examples/09-create-background.png)
+
+  Renders scene art from the generator's background catalogues and animates any
   of it into a looping `.webp` for a SillyTavern chat background.
 
   The tab only appears when this install can actually do both halves of that:
@@ -575,7 +597,11 @@ and open <http://127.0.0.1:5089>.
   thumbnail off the file's new mtime. A card shows **In SillyTavern** when a
   copy of the still is in that folder — read off the folder, not recorded here,
   so one deleted from inside SillyTavern loses the pill on the next load.
-- **Trait Imports** — lists reference-image trait candidates staged by the
+- **Trait Imports**
+
+  ![Staged trait candidates in Pictures view, each tile the reference image a bullet was read from](examples/11-trait-imports.png)
+
+  Lists reference-image trait candidates staged by the
   `npc-trait-import` skill, sortable and dated, and appends the ones you approve
   as new bullets in `npc-generator-tables.md`. Search the bullets, narrow to one
   table, and use **Filter by** to cut the list down to the candidates you still
@@ -619,7 +645,11 @@ and open <http://127.0.0.1:5089>.
   Both sheets also have the same actions as buttons. **Filter by → Selected**
   lists exactly what **Import Selected** is about to append, and **Clear
   selection** starts over. Import itself stays a button.
-- **Tables** — shows every bullet in every roll table of
+- **Tables**
+
+  ![The Faction table, each bullet with its weight, sampled percentage and flag checkboxes](examples/12-tables.png)
+
+  Shows every bullet in every roll table of
   `npc-generator-tables.md`, with a selector at the top to switch the whole tab
   to `spaceship-generator-tables.md` or the expression tables instead. The
   **Expressions** choice is tables-and-presets only: it has no Create or
@@ -799,6 +829,33 @@ name records the starting preset even if you adjust the form afterward, and
 survives preset deletion and image regeneration. Older images without recorded
 preset metadata stay unlabeled. Update the generator alongside the GUI for the
 new `--preset-name` option.
+
+### Screenshots
+
+The images in [`examples/`](examples/README.md) are captured by
+`scripts/capture-screenshots.js`. Rerun it after a change that alters what any
+of them shows:
+
+```bash
+node scripts/capture-screenshots.js          # every shot, and the gallery index
+node scripts/capture-screenshots.js 07 12    # just these
+node scripts/capture-screenshots.js --list   # the shot list
+```
+
+It needs Chrome (set `CHROME` if it is somewhere unusual) and nothing else —
+Node's built-in WebSocket drives it over the DevTools Protocol, so there is
+still no `package.json` here. It starts its own server on port 5099 against a
+copy of your `config.json` with `secretMode` and the secret paths removed, so
+it neither touches nor depends on whatever you have running on 5089.
+
+Secret mode is kept out of the images in three independent ways: that stripped
+config gives the server no credentials to authenticate against, no shot goes
+near the Secret controls, and before each capture the script checks the region
+it is about to photograph for any Secret-mode element and **aborts the run**
+rather than writing a file if it finds one. That guard is why the Settings shot
+is cropped and the Create NPC shot starts at Count — the dialog's header
+carries the Secret button, and the workflow hint above Count mentions Secret
+mode.
 
 ### Release versioning
 
