@@ -1,5 +1,9 @@
 # Mobile Layout Implementation Plan
 
+> **Status, 2026-09-17: implemented and tested.** The phone layer, menu,
+> overlay history, responsive controls, and mobile UI tests are on `main`.
+> The unchecked tasks below are retained as historical implementation detail.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make every tab, dialog and editor of the Import GUI usable on a 360–430px Android Chrome phone, without changing the desktop layout.

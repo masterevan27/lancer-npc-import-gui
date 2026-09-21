@@ -26,6 +26,13 @@ not you use SillyTavern at all.
 
 ## Install
 
+This repository needs no Python `.venv` or `requirements.txt` of its own.
+The sibling art generator uses Python's standard library only. If you create
+an optional `.venv` there, set this GUI's `pythonExecutable` in `config.json`
+to `G:/GIT-REPOS/lancer-art-generator/.venv/Scripts/python.exe` (adjust for
+your checkout), then restart the server. See the generator's
+[Python setup](https://github.com/masterevan27/lancer-art-generator#python-setup).
+
 ```bash
 git clone https://github.com/masterevan27/lancer-npc-import-gui
 cd lancer-npc-import-gui
