@@ -4,7 +4,7 @@
 
 Dashboard project ID: lancer-npc-import-gui
 
-Use the scoped dashboard check-in endpoint GET http://127.0.0.1:5080/api/checkin?project=lancer-npc-import-gui for project context and POST http://127.0.0.1:5080/api/checkin/lancer-npc-import-gui/events for project-scoped updates.
+Use the shared `DASHBOARD_BASE_URL` for dashboard requests: GET `DASHBOARD_BASE_URL/api/checkin?project=lancer-npc-import-gui` for project context and POST `DASHBOARD_BASE_URL/api/checkin/lancer-npc-import-gui/events` for project-scoped updates.
 
 ## Before starting project work
 
@@ -13,9 +13,10 @@ Before starting work in this project, check the dashboard for project-scoped hum
 ## Dashboard updates
 
 When work in this repository is completed, blocked, planned, tested, or found
-to have stale documentation, update the local AI agent dashboard. Start
-`G:\GIT-REPOS\ai-agent-dashboard\server.js` if needed, then use its API or
-CLI, for example:
+to have stale documentation, update the AI agent dashboard through the shared
+`DASHBOARD_BASE_URL` configuration. Do not start a local server automatically;
+if the URL is unavailable, report the exact request and tell the user how to
+run the dashboard manually. Use its API or CLI, for example:
 
 ```powershell
 node G:\GIT-REPOS\ai-agent-dashboard\dashboard-cli.js add-note --project lancer-npc-import-gui --note "Describe the change and remaining work"
@@ -42,3 +43,8 @@ minor version increase for a large change and reset the subversion to zero. If
 the subversion is about to overflow past `99`, increase the major version and
 reset the minor version and subversion. Ask the project owner for permission
 before increasing the major version for any other reason.
+## Release versioning
+
+Read [`docs/VERSIONING.md`](docs/VERSIONING.md) before completing project work.
+It identifies the machine-readable version source and any project-specific
+release automation.
