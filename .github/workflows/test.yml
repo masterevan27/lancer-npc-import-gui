@@ -3,8 +3,7 @@
 #
 # The suite spawns real server.js child processes on FIXED ports (see
 # test/helpers/testServer.js, which throws unless given an explicit port).
-# Matrix jobs get separate runners, so they cannot collide with each other;
-# within a job, each test file was given a distinct port.
+# Each test file uses a distinct port within the Node 24 job.
 #
 # --test-concurrency is deliberately NOT pinned here. node --test defaults it
 # to the machine's CPU count, and a standard ubuntu-latest runner is 4 vCPU -
@@ -19,12 +18,11 @@
 # runner then waits forever instead of failing - a job that hangs until the
 # workflow timeout and says nothing about why. 120s is far above the slowest
 # real test here and far below anything a human would sit through, so a stuck
-# file becomes a named failure. Supported on the whole matrix (added in 20.11).
+# file becomes a named failure. Supported by Node 24 (added in 20.11).
 # timeout-minutes backstops it for a hang that happens outside a test.
 #
-# Node 20 is the floor: the tests use global fetch (18+) and node:test's
-# directory discovery (20+). Action versions are pinned deliberately -- bump
-# them on purpose, not by drift.
+# CI runs Node 24. Action versions are pinned deliberately -- bump them on
+# purpose, not by drift.
 name: Test
 
 on:
@@ -37,15 +35,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        node: ['20.x', '22.x', '24.x']
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24
 
       - run: node --test --test-timeout=120000
