@@ -1,3 +1,8 @@
+---
+type: "Design"
+title: "Trait editing: bug fixes and staged edits — implementation design"
+description: "Design decisions and requirements for Trait editing: bug fixes and staged edits."
+---
 # Trait editing: bug fixes and staged edits — implementation design
 
 **REPO A** = `G:/GIT-REPOS/lancer-npc-import-gui/.claude/worktrees/ultracode-features` (all `server.js`, `public/`, `lib/`, `test/` paths below).

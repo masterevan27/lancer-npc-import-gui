@@ -1,3 +1,8 @@
+---
+type: "Plan"
+title: "Dynamic backgrounds implementation plan"
+description: "Implementation steps and constraints for Dynamic backgrounds."
+---
 # Dynamic backgrounds implementation plan
 
 **Goal:** Add reproducible, editable scene generation and reference-based orthographic battlemaps to Create Background.

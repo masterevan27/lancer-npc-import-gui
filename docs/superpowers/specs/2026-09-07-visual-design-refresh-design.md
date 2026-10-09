@@ -1,3 +1,8 @@
+---
+type: "Design"
+title: "Visual design refresh — design spec"
+description: "Design decisions and requirements for Visual design refresh — design spec."
+---
 # Visual design refresh — design spec
 
 Date: 2026-09-07

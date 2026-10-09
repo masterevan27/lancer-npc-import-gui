@@ -1,3 +1,8 @@
+---
+type: "Plan"
+title: "Spaceships + trait-editing fixes — implementation plan and remaining work"
+description: "Implementation steps and constraints for Spaceships + trait-editing fixes — implementation plan and remaining work."
+---
 # Spaceships + trait-editing fixes — implementation plan and remaining work
 
 **Written** 2026-09-07, at the point work was paused for handoff.
@@ -12,7 +17,7 @@ Both branches exist as git worktrees under each repo's `.claude/worktrees/`. **A
 committed to the branches**, so it survives the worktrees being deleted. Nothing is on `main`;
 nothing has been pushed.
 
-The companion document [`REMAINING-WORK.md`](../../REMAINING-WORK.md) is the task list. This file is
+The companion document [`REMAINING-WORK.md`](../../../REMAINING-WORK.md) is the task list. This file is
 the plan and the reasoning behind it; read this first, then work the tasks.
 
 ---

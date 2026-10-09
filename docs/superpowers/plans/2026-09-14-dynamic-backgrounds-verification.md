@@ -1,3 +1,8 @@
+---
+type: "Plan"
+title: "Dynamic backgrounds verification"
+description: "Implementation steps and constraints for Dynamic backgrounds verification."
+---
 # Dynamic backgrounds verification
 
 > **Status, 2026-09-14: merged and pushed.** Both repos' `feature/dynamic-backgrounds`

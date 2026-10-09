@@ -1,3 +1,8 @@
+---
+type: "Plan"
+title: "Choosing a trait's value from the detail sheet — Implementation Plan"
+description: "Implementation steps and constraints for Choosing a trait's value from the detail sheet."
+---
 # Choosing a trait's value from the detail sheet — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

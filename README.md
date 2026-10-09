@@ -20,8 +20,9 @@ expression sprites, the roll-table editor and the phone layout — are in
 
 ## What you need
 
-- **Node 20 or newer.** No dependencies — this is Node stdlib only, and there is
-  no `package.json`.
+- **Node 20 or newer.** The application uses only Node's standard library.
+  The optional [documentation checker](docs/OKF.md) has separate locked
+  dependencies under `.okf/tools` and requires Node 20.19 or newer.
 - **Python and `generate-npc.py`**, from the
   [lancer-art-generator](https://github.com/masterevan27/lancer-art-generator)
   repo, cloned beside this one: `G:\GIT-REPOS\lancer-art-generator`.
@@ -1001,3 +1002,8 @@ GPL-3.0-or-later — see [LICENSE](LICENSE).
 
 LANCER is a trademark of Massif Press. This is an unofficial community tool with
 no affiliation to Massif Press, Foundry Gaming LLC, or the SillyTavern project.
+
+## Documentation bundle
+
+Start at [docs/index.md](docs/index.md). Follow the pinned metadata and validation
+workflow in [docs/OKF.md](docs/OKF.md) when maintaining project documentation.

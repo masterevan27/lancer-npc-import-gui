@@ -1,3 +1,8 @@
+---
+type: "Design"
+title: "Mobile Layout — Design"
+description: "Design decisions and requirements for Mobile Layout."
+---
 # Mobile Layout — Design
 
 **Status:** Approved design, not yet implemented

@@ -1,3 +1,8 @@
+---
+type: "Design"
+title: "Showing a bullet's real roll chance on the Tables page"
+description: "Design decisions and requirements for Showing a bullet's real roll chance on the Tables page."
+---
 # Showing a bullet's real roll chance on the Tables page
 
 > **Status:** design 2026-09-04. Companion spec:

@@ -1,3 +1,8 @@
+---
+type: "Reference"
+title: "Handoff — spaceship support across two repos (2026-09-07)"
+description: "Reference notes and context for Handoff — spaceship support across two repos (2026-09-07)."
+---
 # Handoff — spaceship support across two repos (2026-09-07)
 
 > **Superseded** by [`COMPLETION-2026-09-07-spaceships.md`](COMPLETION-2026-09-07-spaceships.md):

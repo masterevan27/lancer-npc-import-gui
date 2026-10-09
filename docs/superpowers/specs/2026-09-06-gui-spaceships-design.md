@@ -1,3 +1,8 @@
+---
+type: "Design"
+title: "Spaceship support in lancer-npc-import-gui — implementation design"
+description: "Design decisions and requirements for Spaceship support in lancer-npc-import-gui."
+---
 # Spaceship support in `lancer-npc-import-gui` — implementation design
 
 **Repo A** (this design's target) = `G:/GIT-REPOS/lancer-npc-import-gui/.claude/worktrees/ultracode-features`

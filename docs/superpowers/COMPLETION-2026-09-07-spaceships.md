@@ -1,3 +1,8 @@
+---
+type: "Reference"
+title: "Completion — spaceship support across two repos (2026-09-07)"
+description: "Reference notes and context for Completion — spaceship support across two repos (2026-09-07)."
+---
 # Completion — spaceship support across two repos (2026-09-07)
 
 Supersedes `HANDOFF-2026-09-07-spaceships.md`. Both implementation plans are **complete**: 12 of 12

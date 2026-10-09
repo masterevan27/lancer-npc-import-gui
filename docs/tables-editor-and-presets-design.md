@@ -1,3 +1,8 @@
+---
+type: "Design"
+title: "NPC Tables Editor & Trait Import Presets — Design"
+description: "Design decisions and requirements for NPC Tables Editor & Trait Import Presets."
+---
 # NPC Tables Editor & Trait Import Presets — Design
 
 **Status:** Shipped — but the preset format below is **superseded**. See the banner.

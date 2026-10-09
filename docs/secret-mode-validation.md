@@ -1,3 +1,8 @@
+---
+type: "Runbook"
+title: "Secret mode validation"
+description: "Recorded checks and remaining manual validation for Secret mode."
+---
 # Secret mode validation
 
 Validation performed September 14–15, 2026, using synthetic manifests, private

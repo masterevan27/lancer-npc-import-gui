@@ -1,3 +1,8 @@
+---
+type: "Plan"
+title: "Remaining work — spaceships"
+description: "Historical spaceship task list with its original completion and remaining-work notes."
+---
 # Remaining work — spaceships
 
 > **✅ Complete. Nothing below is remaining work; it is kept as the historical task list.**

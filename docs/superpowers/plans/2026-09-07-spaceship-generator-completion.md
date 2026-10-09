@@ -1,3 +1,8 @@
+---
+type: "Reference"
+title: "Spaceship generator completion — implementation plan (Repo ART)"
+description: "Reference notes and context for Spaceship generator completion — implementation plan (Repo ART)."
+---
 # Spaceship generator completion — implementation plan (Repo ART)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -8,7 +13,7 @@
 
 **Tech Stack:** Python 3.13, stdlib only. Tests are `unittest`, run by `python -m unittest discover`. **There is no pytest in this environment** — the design doc says pytest; it is wrong, follow the existing `test/test_*.py` files. ComfyUI over HTTP for renders.
 
-**Spec:** [`docs/superpowers/specs/2026-09-06-spaceship-generator-design.md`](../specs/2026-09-06-spaceship-generator-design.md) — §1 the borrowed surface, §4 token sizing and workflows, §6 the manifest entry, §7 the CLI, §8 the test plan.
+**Spec:** [`docs/superpowers/specs/2026-09-06-spaceship-generator-design.md`](https://github.com/masterevan27/lancer-art-generator/blob/3bd1c8f/docs/superpowers/specs/2026-09-06-spaceship-generator-design.md) — §1 the borrowed surface, §4 token sizing and workflows, §6 the manifest entry, §7 the CLI, §8 the test plan.
 Companion: [`docs/superpowers/plans/2026-09-07-spaceships-and-trait-fixes.md`](2026-09-07-spaceships-and-trait-fixes.md) (why), [`REMAINING-WORK.md`](../../../REMAINING-WORK.md) (the original task list).
 **Sibling plan:** `docs/superpowers/plans/2026-09-07-gui-spaceship-support.md` covers the GUI. Task 1 here unblocks all of it.
 

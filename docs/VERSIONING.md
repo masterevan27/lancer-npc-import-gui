@@ -1,3 +1,8 @@
+---
+type: "Reference"
+title: "Versioning"
+description: "Release version source, increment rules and automation for this repository."
+---
 # Versioning
 
 The GUI release version remains exported from `lib/version.js`.

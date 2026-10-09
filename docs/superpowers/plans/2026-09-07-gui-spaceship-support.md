@@ -1,3 +1,8 @@
+---
+type: "Plan"
+title: "Spaceship support in the import GUI — implementation plan (Repo GUI)"
+description: "Implementation steps and constraints for Spaceship support in the import GUI — implementation plan (Repo GUI)."
+---
 # Spaceship support in the import GUI — implementation plan (Repo GUI)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

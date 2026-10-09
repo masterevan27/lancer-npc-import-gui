@@ -1,3 +1,8 @@
+---
+type: "Reference"
+title: "The Foundry importer contract"
+description: "Request, asset and actor contracts shared by the GUI and Foundry importer."
+---
 # The Foundry importer contract
 
 This server's `/importer/*` routes are consumed by

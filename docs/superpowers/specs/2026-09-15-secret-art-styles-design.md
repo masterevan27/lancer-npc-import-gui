@@ -1,3 +1,8 @@
+---
+type: "Design"
+title: "Art styles and Secret mode"
+description: "Design decisions and requirements for Art styles and Secret mode."
+---
 # Art styles and Secret mode
 
 Approved in conversation on September 14, 2026, with an explicit addition that the GUI must offer art-style selectors and never display hidden styles outside Secret mode.

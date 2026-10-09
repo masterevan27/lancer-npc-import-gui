@@ -1,3 +1,8 @@
+---
+type: "Design"
+title: "Tables page, create form and keyboard navigation"
+description: "Design decisions and requirements for Tables page, create form and keyboard navigation."
+---
 # Tables page, create form and keyboard navigation
 
 Six changes to `public/` and `server.js`, plus one repair to a list that has

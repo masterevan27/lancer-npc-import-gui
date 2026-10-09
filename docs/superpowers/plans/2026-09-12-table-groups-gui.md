@@ -1,3 +1,8 @@
+---
+type: "Plan"
+title: "Table Groups (import GUI) Implementation Plan"
+description: "Implementation steps and constraints for Table Groups (import GUI)."
+---
 # Table Groups (import GUI) Implementation Plan
 
 **Status:** implemented — merged to `main` at `37d6be0`. The checkboxes below were not ticked.

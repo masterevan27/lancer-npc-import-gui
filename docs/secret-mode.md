@@ -1,3 +1,8 @@
+---
+type: "Runbook"
+title: "Art styles and Secret mode"
+description: "Configure authenticated private artwork browsing and generation."
+---
 # Art styles and Secret mode
 
 ## Prompt composer

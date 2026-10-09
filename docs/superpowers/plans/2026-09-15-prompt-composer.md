@@ -1,3 +1,8 @@
+---
+type: "Plan"
+title: "Secret NPC Prompt Composer"
+description: "Implementation steps and constraints for Secret NPC Prompt Composer."
+---
 # Secret NPC Prompt Composer
 
 Goal: Show live, source-labeled prompt fragments on Secret Create NPC; let users reorder them independently for portrait and token and preserve the order in presets and generated records.

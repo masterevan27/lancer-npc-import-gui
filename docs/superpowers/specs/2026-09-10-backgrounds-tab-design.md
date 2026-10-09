@@ -1,3 +1,8 @@
+---
+type: "Design"
+title: "Backgrounds tab in lancer-npc-import-gui — implementation design"
+description: "Design decisions and requirements for Backgrounds tab in lancer-npc-import-gui."
+---
 # Backgrounds tab in `lancer-npc-import-gui` — implementation design
 
 **Repo A** (this design's target) = the Import GUI, worktree `.claude/worktrees/backgrounds-tab`, branched from `11b077a`

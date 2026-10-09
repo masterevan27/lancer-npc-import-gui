@@ -1,3 +1,8 @@
+---
+type: "Plan"
+title: "Mobile Layout Implementation Plan"
+description: "Implementation steps and constraints for Mobile Layout."
+---
 # Mobile Layout Implementation Plan
 
 > **Status, 2026-09-17: implemented and tested.** The phone layer, menu,

@@ -1,3 +1,8 @@
+---
+type: "Plan"
+title: "Secret Art Styles Implementation Plan"
+description: "Implementation steps and constraints for Secret Art Styles."
+---
 # Secret Art Styles Implementation Plan
 
 > **For agentic workers:** Use superpowers:subagent-driven-development to implement independent tasks, then review the integrated change.

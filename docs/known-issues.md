@@ -1,3 +1,8 @@
+---
+type: "Reference"
+title: "Known Issues"
+description: "Recorded limitations and unresolved behavior in the Import GUI."
+---
 # Known Issues
 
 Parked technical debt in this tool, recorded because this repo has no ticket

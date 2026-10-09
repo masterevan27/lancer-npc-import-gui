@@ -1,3 +1,8 @@
+---
+type: "Design"
+title: "Choosing a trait's value from the detail sheet"
+description: "Design decisions and requirements for Choosing a trait's value from the detail sheet."
+---
 # Choosing a trait's value from the detail sheet
 
 Date: 2026-09-06
