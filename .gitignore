@@ -39,3 +39,6 @@ desktop.ini
 
 # Claude stuff:
 .claude/
+
+# Local Obsidian settings
+.obsidian/
