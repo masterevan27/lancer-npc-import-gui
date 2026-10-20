@@ -2,6 +2,12 @@
 type: "Plan"
 title: "Spaceship support in the import GUI — implementation plan (Repo GUI)"
 description: "Implementation steps and constraints for Spaceship support in the import GUI — implementation plan (Repo GUI)."
+status: stable
+tags:
+  - spaceships
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-07T14:19:35-04:00
 ---
 # Spaceship support in the import GUI — implementation plan (Repo GUI)
 

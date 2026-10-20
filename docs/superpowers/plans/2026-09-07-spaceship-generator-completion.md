@@ -2,6 +2,12 @@
 type: "Reference"
 title: "Spaceship generator completion — implementation plan (Repo ART)"
 description: "Reference notes and context for Spaceship generator completion — implementation plan (Repo ART)."
+status: stable
+tags:
+  - spaceships
+generated:
+  by: codex/unrecorded
+  at: 2026-10-09T15:58:22-04:00
 ---
 # Spaceship generator completion — implementation plan (Repo ART)
 

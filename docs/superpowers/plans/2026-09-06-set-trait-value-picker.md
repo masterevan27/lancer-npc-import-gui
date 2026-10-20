@@ -2,6 +2,13 @@
 type: "Plan"
 title: "Choosing a trait's value from the detail sheet — Implementation Plan"
 description: "Implementation steps and constraints for Choosing a trait's value from the detail sheet."
+status: stable
+tags:
+  - traits
+  - ui
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-06T03:05:40-04:00
 ---
 # Choosing a trait's value from the detail sheet — Implementation Plan
 

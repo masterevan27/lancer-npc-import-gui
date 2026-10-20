@@ -2,6 +2,12 @@
 type: "Design"
 title: "Trait editing: bug fixes and staged edits — implementation design"
 description: "Design decisions and requirements for Trait editing: bug fixes and staged edits."
+status: stable
+tags:
+  - traits
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-06T23:42:11-04:00
 ---
 # Trait editing: bug fixes and staged edits — implementation design
 

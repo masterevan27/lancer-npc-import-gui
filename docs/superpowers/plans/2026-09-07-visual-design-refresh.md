@@ -2,6 +2,12 @@
 type: "Plan"
 title: "Visual design refresh — Implementation Plan"
 description: "Implementation steps and constraints for Visual design refresh."
+status: stable
+tags:
+  - ui
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-07T20:50:49-04:00
 ---
 # Visual design refresh — Implementation Plan
 

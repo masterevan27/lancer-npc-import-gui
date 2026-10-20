@@ -2,6 +2,36 @@
 type: "Runbook"
 title: "Art styles and Secret mode"
 description: "Configure authenticated private artwork browsing and generation."
+status: stable
+tags:
+  - secret-mode
+  - art-styles
+sources:
+  - id: secret-mode-lib
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/36422799eb1378d46c4ea691dd1db319dbe543a0/lib/secretMode.js
+    title: Secret authentication and sessions
+  - id: art-styles-lib
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/36422799eb1378d46c4ea691dd1db319dbe543a0/lib/artStyles.js
+    title: Art style catalog
+  - id: color-guidance-lib
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/36422799eb1378d46c4ea691dd1db319dbe543a0/lib/colorGuidance.js
+    title: Colour guidance catalog
+  - id: secret-tables-lib
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/36422799eb1378d46c4ea691dd1db319dbe543a0/lib/secretTables.js
+    title: Secret tables folder
+  - id: workflows-lib
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/36422799eb1378d46c4ea691dd1db319dbe543a0/lib/workflows.js
+    title: Workflow selection
+  - id: hash-password-script
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/36422799eb1378d46c4ea691dd1db319dbe543a0/scripts/hash-secret-password.js
+    title: Secret password hashing script
+  - id: server
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/36422799eb1378d46c4ea691dd1db319dbe543a0/server.js
+    title: Secret routes and private storage
+generated:
+  by: claude-code/claude-fable-5-1
+  at: 2026-09-17T09:51:42-04:00
+stale_after: 2026-12-16T00:00:00Z
 ---
 # Art styles and Secret mode
 

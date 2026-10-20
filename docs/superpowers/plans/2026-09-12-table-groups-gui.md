@@ -2,6 +2,12 @@
 type: "Plan"
 title: "Table Groups (import GUI) Implementation Plan"
 description: "Implementation steps and constraints for Table Groups (import GUI)."
+status: stable
+tags:
+  - tables
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-12T20:58:53-04:00
 ---
 # Table Groups (import GUI) Implementation Plan
 

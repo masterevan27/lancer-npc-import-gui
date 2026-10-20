@@ -2,6 +2,42 @@
 type: "Runbook"
 title: "Secret mode validation"
 description: "Recorded checks and remaining manual validation for Secret mode."
+status: stable
+tags:
+  - secret-mode
+  - testing
+sources:
+  - id: table-bullets-test
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/5a0cc3dd3ac83a935d6c727cbc4ccc9c9f22d9ac/test/api.tableBullets.test.js
+    title: Table bullet API tests
+  - id: secret-api-test
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/5a0cc3dd3ac83a935d6c727cbc4ccc9c9f22d9ac/test/api.secret.test.js
+    title: Secret API tests
+  - id: secret-isolation-test
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/5a0cc3dd3ac83a935d6c727cbc4ccc9c9f22d9ac/test/api.secretIsolation.test.js
+    title: Secret storage isolation tests
+  - id: art-styles-test
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/5a0cc3dd3ac83a935d6c727cbc4ccc9c9f22d9ac/test/artStyles.test.js
+    title: Art style catalog tests
+  - id: secret-mode-test
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/5a0cc3dd3ac83a935d6c727cbc4ccc9c9f22d9ac/test/secretMode.test.js
+    title: Secret authentication tests
+  - id: secret-mode-ui-test
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/5a0cc3dd3ac83a935d6c727cbc4ccc9c9f22d9ac/test/ui.secretMode.test.js
+    title: Secret mode UI tests
+  - id: settings-test
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/5a0cc3dd3ac83a935d6c727cbc4ccc9c9f22d9ac/test/settings.test.js
+    title: Settings tests
+  - id: dynamic-backgrounds-ui-test
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/5a0cc3dd3ac83a935d6c727cbc4ccc9c9f22d9ac/test/ui.dynamicBackgrounds.test.js
+    title: Dynamic backgrounds UI tests
+  - id: backgrounds-ui-test
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/5a0cc3dd3ac83a935d6c727cbc4ccc9c9f22d9ac/test/ui.backgrounds.test.js
+    title: Backgrounds UI tests
+generated:
+  by: codex/unrecorded
+  at: 2026-09-14T22:40:49-04:00
+stale_after: 2026-12-13T00:00:00Z
 ---
 # Secret mode validation
 

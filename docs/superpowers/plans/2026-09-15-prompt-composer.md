@@ -2,6 +2,13 @@
 type: "Plan"
 title: "Secret NPC Prompt Composer"
 description: "Implementation steps and constraints for Secret NPC Prompt Composer."
+status: stable
+tags:
+  - secret-mode
+  - prompts
+generated:
+  by: codex/unrecorded
+  at: 2026-09-16T17:22:05-04:00
 ---
 # Secret NPC Prompt Composer
 

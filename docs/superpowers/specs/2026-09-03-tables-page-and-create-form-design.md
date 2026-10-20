@@ -2,6 +2,13 @@
 type: "Design"
 title: "Tables page, create form and keyboard navigation"
 description: "Design decisions and requirements for Tables page, create form and keyboard navigation."
+status: stable
+tags:
+  - tables
+  - ui
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-03T18:35:11-04:00
 ---
 # Tables page, create form and keyboard navigation
 

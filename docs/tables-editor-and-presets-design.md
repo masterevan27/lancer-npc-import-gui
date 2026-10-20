@@ -2,6 +2,13 @@
 type: "Design"
 title: "NPC Tables Editor & Trait Import Presets — Design"
 description: "Design decisions and requirements for NPC Tables Editor & Trait Import Presets."
+status: stable
+tags:
+  - tables
+  - traits
+generated:
+  by: claude-code/claude-fable-5-1
+  at: 2026-09-14T02:23:39-04:00
 ---
 # NPC Tables Editor & Trait Import Presets — Design
 

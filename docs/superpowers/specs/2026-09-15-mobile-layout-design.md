@@ -2,6 +2,13 @@
 type: "Design"
 title: "Mobile Layout — Design"
 description: "Design decisions and requirements for Mobile Layout."
+status: stable
+tags:
+  - ui
+  - mobile
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-15T18:51:40-04:00
 ---
 # Mobile Layout — Design
 

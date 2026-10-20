@@ -2,6 +2,23 @@
 type: "Reference"
 title: "The Foundry importer contract"
 description: "Request, asset and actor contracts shared by the GUI and Foundry importer."
+status: stable
+tags:
+  - foundry-import
+sources:
+  - id: server
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/e68b9ad52511c7b299127bbb590306bd70a9cab0/server.js
+    title: Importer routes and authentication
+  - id: importer-contract-test
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/e68b9ad52511c7b299127bbb590306bd70a9cab0/test/importerContract.test.js
+    title: Importer contract tests
+  - id: config-example
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/e68b9ad52511c7b299127bbb590306bd70a9cab0/config.example.json
+    title: Example configuration including secret
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-07T05:33:14-04:00
+stale_after: 2026-12-06T00:00:00Z
 ---
 # The Foundry importer contract
 

@@ -2,6 +2,13 @@
 type: "Design"
 title: "Backgrounds tab in lancer-npc-import-gui — implementation design"
 description: "Design decisions and requirements for Backgrounds tab in lancer-npc-import-gui."
+status: stable
+tags:
+  - backgrounds
+  - ui
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-10T18:58:45-04:00
 ---
 # Backgrounds tab in `lancer-npc-import-gui` — implementation design
 

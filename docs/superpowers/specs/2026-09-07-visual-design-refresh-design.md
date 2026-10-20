@@ -2,6 +2,12 @@
 type: "Design"
 title: "Visual design refresh — design spec"
 description: "Design decisions and requirements for Visual design refresh — design spec."
+status: stable
+tags:
+  - ui
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-12T20:58:53-04:00
 ---
 # Visual design refresh — design spec
 

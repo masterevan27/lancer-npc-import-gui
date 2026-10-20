@@ -2,6 +2,13 @@
 type: "Design"
 title: "Showing a bullet's real roll chance on the Tables page"
 description: "Design decisions and requirements for Showing a bullet's real roll chance on the Tables page."
+status: stable
+tags:
+  - tables
+  - traits
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-04T14:53:19-04:00
 ---
 # Showing a bullet's real roll chance on the Tables page
 

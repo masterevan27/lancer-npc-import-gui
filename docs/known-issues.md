@@ -2,6 +2,30 @@
 type: "Reference"
 title: "Known Issues"
 description: "Recorded limitations and unresolved behavior in the Import GUI."
+status: stable
+tags:
+  - tables
+  - traits
+sources:
+  - id: server
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/b15a4ae912f7f5c39f742d2d658e6f0d0d470c98/server.js
+    title: GUI server
+  - id: override-tables
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/b15a4ae912f7f5c39f742d2d658e6f0d0d470c98/lib/overrideTables.js
+    title: Override table list
+  - id: paths
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/b15a4ae912f7f5c39f742d2d658e6f0d0d470c98/lib/paths.js
+    title: Generator table paths
+  - id: table-bullets
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/b15a4ae912f7f5c39f742d2d658e6f0d0d470c98/lib/tableBullets.js
+    title: Table bullet writers
+  - id: presets-test
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/b15a4ae912f7f5c39f742d2d658e6f0d0d470c98/test/api.presets.test.js
+    title: Preset API tests
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-12T20:58:53-04:00
+stale_after: 2026-12-11T00:00:00Z
 ---
 # Known Issues
 

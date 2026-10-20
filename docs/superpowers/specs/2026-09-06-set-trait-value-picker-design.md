@@ -2,6 +2,13 @@
 type: "Design"
 title: "Choosing a trait's value from the detail sheet"
 description: "Design decisions and requirements for Choosing a trait's value from the detail sheet."
+status: stable
+tags:
+  - traits
+  - ui
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-12T20:58:53-04:00
 ---
 # Choosing a trait's value from the detail sheet
 

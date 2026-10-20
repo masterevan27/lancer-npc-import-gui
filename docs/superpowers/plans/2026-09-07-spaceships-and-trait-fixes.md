@@ -2,6 +2,13 @@
 type: "Plan"
 title: "Spaceships + trait-editing fixes — implementation plan and remaining work"
 description: "Implementation steps and constraints for Spaceships + trait-editing fixes — implementation plan and remaining work."
+status: stable
+tags:
+  - spaceships
+  - traits
+generated:
+  by: codex/unrecorded
+  at: 2026-10-09T15:58:22-04:00
 ---
 # Spaceships + trait-editing fixes — implementation plan and remaining work
 

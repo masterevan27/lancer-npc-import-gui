@@ -2,6 +2,12 @@
 type: "Design"
 title: "Spaceship support in lancer-npc-import-gui — implementation design"
 description: "Design decisions and requirements for Spaceship support in lancer-npc-import-gui."
+status: stable
+tags:
+  - spaceships
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-07T14:06:14-04:00
 ---
 # Spaceship support in `lancer-npc-import-gui` — implementation design
 

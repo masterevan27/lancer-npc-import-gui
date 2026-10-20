@@ -2,6 +2,13 @@
 type: "Design"
 title: "Art styles and Secret mode"
 description: "Design decisions and requirements for Art styles and Secret mode."
+status: stable
+tags:
+  - secret-mode
+  - art-styles
+generated:
+  by: codex/unrecorded
+  at: 2026-09-14T22:40:49-04:00
 ---
 # Art styles and Secret mode
 

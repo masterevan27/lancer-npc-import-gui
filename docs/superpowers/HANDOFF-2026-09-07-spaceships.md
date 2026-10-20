@@ -2,6 +2,13 @@
 type: "Reference"
 title: "Handoff — spaceship support across two repos (2026-09-07)"
 description: "Reference notes and context for Handoff — spaceship support across two repos (2026-09-07)."
+status: deprecated
+tags:
+  - spaceships
+  - handoff
+generated:
+  by: claude-code/claude-opus-5
+  at: 2026-09-12T20:58:53-04:00
 ---
 # Handoff — spaceship support across two repos (2026-09-07)
 

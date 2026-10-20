@@ -2,6 +2,29 @@
 type: "Runbook"
 title: "Dynamic backgrounds and battlemaps"
 description: "Preview, edit and render dynamic scenes and reference-based battlemaps."
+status: stable
+tags:
+  - backgrounds
+sources:
+  - id: dynamic-backgrounds-lib
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/1b8fa8eaa838a604dba3e755644fe14d09f9f145/lib/dynamicBackgrounds.js
+    title: Dynamic background traits and prompts
+  - id: dynamic-backgrounds-ui
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/1b8fa8eaa838a604dba3e755644fe14d09f9f145/public/dynamic-backgrounds.js
+    title: Create Background dynamic traits UI
+  - id: backgrounds-lib
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/1b8fa8eaa838a604dba3e755644fe14d09f9f145/lib/backgrounds.js
+    title: Background generation arguments
+  - id: paths
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/1b8fa8eaa838a604dba3e755644fe14d09f9f145/lib/paths.js
+    title: Derived configuration paths
+  - id: server
+    resource: https://github.com/masterevan27/lancer-npc-import-gui/blob/1b8fa8eaa838a604dba3e755644fe14d09f9f145/server.js
+    title: Background and battlemap routes
+generated:
+  by: claude-code/claude-fable-5-1
+  at: 2026-09-14T22:23:47-04:00
+stale_after: 2026-12-13T00:00:00Z
 ---
 # Dynamic backgrounds and battlemaps
 

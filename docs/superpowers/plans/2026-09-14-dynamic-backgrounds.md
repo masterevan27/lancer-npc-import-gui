@@ -2,6 +2,12 @@
 type: "Plan"
 title: "Dynamic backgrounds implementation plan"
 description: "Implementation steps and constraints for Dynamic backgrounds."
+status: stable
+tags:
+  - backgrounds
+generated:
+  by: codex/unrecorded
+  at: 2026-09-14T19:14:01-04:00
 ---
 # Dynamic backgrounds implementation plan
 
