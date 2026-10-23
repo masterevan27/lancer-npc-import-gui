@@ -7,9 +7,6 @@ config.json.bak
 .imported.json
 config.local.json
 *.local.json
-.env
-.env.*
-!.env.example
 
 # Node -- there are no dependencies (stdlib only), but tooling still lands here.
 node_modules/
@@ -26,19 +23,36 @@ tmp/
 # Editors / IDEs
 .vscode/
 !.vscode/extensions.json
-.idea/
-*.swp
-*.swo
-*~
-
-# OS cruft
-.DS_Store
-._*
-Thumbs.db
-desktop.ini
 
 # Claude stuff:
 .claude/
 
+# >>> shared baseline (same in every repo; edit project rules above) >>>
+# OS metadata
+.DS_Store
+._*
+Thumbs.db
+ehthumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Editor swap and backup files, JetBrains settings
+*.swp
+*.swo
+*~
+.idea/
+
 # Local Obsidian settings
 .obsidian/
+
+# Local agent state
+.claude/worktrees/
+.claude/settings.local.json
+
+# Private environment files (shareable examples stay tracked)
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.sample
+# <<< shared baseline <<<
